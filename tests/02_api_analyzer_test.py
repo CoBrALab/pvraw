@@ -19,12 +19,8 @@ class _Params(dict):
 
 def _analyzer(visu_pars, primary=None):
     """An analyzer bound to `visu_pars`, with `primary` as the first reco's."""
-    analyzer = ScanInfoAnalyzer.__new__(ScanInfoAnalyzer)
-    analyzer.dataset = SimpleNamespace(path=None)
-    analyzer.acqp = analyzer.method = None
-    analyzer.visu_pars = visu_pars
-    analyzer._primary_visu_pars = lambda: primary
-    return analyzer
+    dataset = SimpleNamespace(parameters={'visu_pars': visu_pars})
+    return ScanInfoAnalyzer(dataset, primary_visu_pars=primary, debug=True)
 
 
 def test_derived_reco_inherits_only_acquisition_params():
@@ -36,7 +32,7 @@ def test_derived_reco_inherits_only_acquisition_params():
                        'VisuCoreSize': [256, 256]})
     derived = _Params({'VisuCoreSize': [128, 128]})   # no VisuAcq*; its own matrix
 
-    _analyzer(derived, primary)._inherit_acq_params()
+    _analyzer(derived, primary)
 
     assert derived['VisuAcqGradEncoding'] == ['read_enc', 'phase_enc']  # inherited
     assert derived['VisuAcqImagePhaseEncDir'] == ['col_dir']            # inherited
@@ -46,5 +42,5 @@ def test_derived_reco_inherits_only_acquisition_params():
 def test_primary_reco_params_untouched():
     """The primary reconstruction has nothing to inherit and is unchanged."""
     primary = _Params({'VisuAcqGradEncoding': ['read_enc'], 'VisuCoreSize': [256, 256]})
-    _analyzer(primary, None)._inherit_acq_params()
+    _analyzer(primary, None)
     assert set(primary) == {'VisuAcqGradEncoding', 'VisuCoreSize'}

@@ -8,8 +8,6 @@ brkraw-legacy's own.
 
 from __future__ import annotations
 
-from brukerapi.jcampdx import JCAMPDX
-
 from brkraw_legacy.api import helper
 
 from .base import BaseAnalyzer
@@ -25,6 +23,9 @@ class ScanInfoAnalyzer(BaseAnalyzer):
     Args:
         dataset: The `brukerapi` Dataset for the reconstruction, carrying its
             ``visu_pars`` plus the scan's ``acqp`` and ``method``.
+        primary_visu_pars: The scan's first reconstruction's ``visu_pars``,
+            which a derived reconstruction inherits acquisition parameters from.
+            None when this *is* the first reconstruction.
         debug (bool): Stop after the parameter files are bound, before the
             derived values are computed.
 
@@ -33,7 +34,8 @@ class ScanInfoAnalyzer(BaseAnalyzer):
             objects (``get_value(key, default)`` reads them).
         dataset: The Dataset the values were derived from.
     """
-    def __init__(self, dataset: 'Dataset', debug: bool = False):
+    def __init__(self, dataset: 'Dataset', primary_visu_pars=None, debug: bool = False):
+        self._primary_visu_pars = primary_visu_pars
         self._set_pars(dataset)
         if not debug:
             self.info_protocol = helper.Protocol(self).get_info()
@@ -60,28 +62,12 @@ class ScanInfoAnalyzer(BaseAnalyzer):
         where they always live; reconstruction-specific parameters (``VisuCore*``,
         ``VisuFG*``, ...) are left to the reco itself so its own geometry is used.
         """
-        if self.visu_pars is None:
-            return
-        primary = self._primary_visu_pars()
-        if primary is None:
+        primary = self._primary_visu_pars
+        if self.visu_pars is None or primary is None or primary is self.visu_pars:
             return
         for key in primary.keys():
             if key.startswith('VisuAcq') and key not in self.visu_pars:
                 self.visu_pars.set_parameter(key, primary.get_parameter(key))
-
-    def _primary_visu_pars(self):
-        """The ``visu_pars`` of the scan's first reconstruction, or None if this is it."""
-        path = getattr(self.dataset, 'path', None)
-        if path is None:
-            return None
-        procnos = sorted((child for child in path.parent.parent.iterdir()
-                          if child.name.isdigit()), key=lambda p: int(p.name))
-        if not procnos or procnos[0].name == path.parent.name:
-            return None
-        try:
-            return JCAMPDX(procnos[0] / 'visu_pars')
-        except Exception:  # noqa: BLE001 -- an unreadable primary is not fatal
-            return None
 
     def _parse_info(self):
         """Derive the values the geometry, header and BIDS layers consume."""

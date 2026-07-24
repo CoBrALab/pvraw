@@ -1,8 +1,10 @@
 """Study-level container for a PvDataset.
 
-This is the one place where brkraw-legacy's vocabulary meets `brukerapi`'s: a
-Scan is a `brukerapi` ``Experiment`` and a Reco is a ``Processing`` (see
-``CONTEXT.md``). Nothing below this module speaks ``exp_id``/``proc_id``.
+This is where brkraw-legacy's vocabulary meets `brukerapi`'s: a Scan is a
+`brukerapi` ``Experiment`` and a Reco is a ``Processing`` (see ``CONTEXT.md``).
+Those two type names are the whole of the translation -- nothing anywhere
+speaks ``exp_id``/``proc_id``, and every method and identifier here is
+``scan_id``/``reco_id``.
 
 Reading -- directory walking, archive access, JCAMP-DX parsing and binary
 assembly -- belongs to `brukerapi` (ADR 0002). What survives here is the
@@ -12,6 +14,7 @@ of brkraw-legacy addresses by ``scan_id``/``reco_id``.
 
 from __future__ import annotations
 
+import importlib.util
 import os
 import warnings
 import zipfile
@@ -28,7 +31,7 @@ from brukerapi.jcampdx import JCAMPDX
 from reshipe import RecipeParser
 
 from brkraw_legacy.api.analyzer.base import BaseAnalyzer
-from brkraw_legacy.lib.errors import FileNotValidError
+from brkraw_legacy.lib.errors import FileNotValidError, InvalidApproach
 from brkraw_legacy.lib.utils import get_value
 
 from .scan import Scan
@@ -40,7 +43,7 @@ if TYPE_CHECKING:
 
 #: Walking the tree must not read image data: a study is opened to list its
 #: scans, and the 2dseq of every reconstruction is megabytes.
-UNLOADED = {'dataset_state': {'load': LOAD_STAGES['empty']}}
+UNLOADED = {'load': LOAD_STAGES['empty']}
 
 
 @dataclass
@@ -62,6 +65,21 @@ class RecoHeader:
     header: dict
 
 
+def _require_archive_support():
+    """Fail with the reason when the installed `brukerapi` is path-only.
+
+    Archives are read in place, which needs the pathlib read protocol
+    `brukerapi` gained in 0.4. An older release coerces every path with
+    ``Path()`` and dies on a ``zipfile.Path`` with a TypeError about os.PathLike
+    -- which reads like a corrupt dataset rather than a dependency to upgrade.
+    """
+    if not importlib.util.find_spec('brukerapi.paths'):
+        raise InvalidApproach(
+            'Reading a .zip/.PvDatasets archive needs brukerapi>=0.4 (the '
+            'pathlib path protocol); the installed version can only read a '
+            'directory. Upgrade brukerapi, or extract the archive first.')
+
+
 def _archive_root(path: Path):
     """The study directory inside an archive, as a ``zipfile.Path``.
 
@@ -70,6 +88,7 @@ def _archive_root(path: Path):
     reads through the pathlib protocol, so the member path is handed over
     directly rather than extracting the archive.
     """
+    _require_archive_support()
     root = zipfile.Path(zipfile.ZipFile(path))
     directories = [child for child in root.iterdir() if child.is_dir()]
     if len(directories) != 1:
@@ -94,16 +113,16 @@ def _open_container(path: Path):
             raise FileNotValidError(str(path), 'PvDataset')
         root = _archive_root(path)
         try:
-            return PvStudy(root, **UNLOADED)
+            return PvStudy(root, dataset_state=UNLOADED)
         except NotStudyFolder:
-            return Folder(root, **UNLOADED)
+            return Folder(root, dataset_state=UNLOADED)
 
     try:
-        return PvStudy(path, **UNLOADED)
+        return PvStudy(path, dataset_state=UNLOADED)
     except NotStudyFolder:
         pass
     try:
-        return Experiment(path, **UNLOADED)
+        return Experiment(path, dataset_state=UNLOADED)
     except NotExperimentFolder:
         return None
 
@@ -146,7 +165,6 @@ class Study(BaseAnalyzer):
         self._container = _open_container(self._path)
         self._scans = _scan_index(self._container)
         self._subject = self._load_subject()
-        self._cache: dict = {}
         self._parse_header()
 
     def _load_subject(self) -> Optional[JCAMPDX]:
@@ -202,7 +220,7 @@ class Study(BaseAnalyzer):
     def get_scan(self, scan_id: int, reco_id: Optional[int] = None,
                  debug: bool = False) -> 'Scan':
         """The Scan for `scan_id`, optionally bound to one reconstruction."""
-        return Scan(self._scans[scan_id], reco_id=reco_id, study=self, debug=debug)
+        return Scan(self._scans[scan_id], reco_id=reco_id, debug=debug)
 
     def _parse_header(self) -> None:
         """Subject-level parameters, keyed without their ``SUBJECT_`` prefix."""

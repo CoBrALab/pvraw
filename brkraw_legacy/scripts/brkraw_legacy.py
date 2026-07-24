@@ -627,12 +627,14 @@ def bidsTaskLabel(visu_pars):
 
 
 def scanMethod(dset, scan_id):
-    """The Bruker method name of a scan, or None when it has no method file."""
-    try:
-        method = dset.get_method(scan_id)
-    except Exception:
-        return None
-    name = get_value(method, 'Method')
+    """The Bruker method name of a scan, or None when it has no method file.
+
+    A scan can carry reconstruction data without a method file (an adjustment
+    or reference scan); it cannot be classified and is skipped. A method file
+    that is present but unreadable is a different problem and is not hidden
+    here.
+    """
+    name = get_value(dset.get_method(scan_id), 'Method')
     return None if name is None else str(name)
 
 

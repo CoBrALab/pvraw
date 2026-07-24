@@ -1,9 +1,9 @@
 from __future__ import annotations
 from pathlib import Path
 from brukerapi.exceptions import NotExperimentFolder, NotProcessingFolder
-from brukerapi.dataset import LOAD_STAGES
 from brukerapi.folders import Experiment, Processing
 from brkraw_legacy.api.data import Scan
+from brkraw_legacy.api.data.study import UNLOADED
 from brkraw_legacy.lib.errors import FileNotValidError
 from .base import BaseMethods
 from typing import TYPE_CHECKING
@@ -11,10 +11,6 @@ if TYPE_CHECKING:
     from typing import Union, Optional, Literal
     from brkraw_legacy.api import PlugInSnippet
     from nibabel.nifti1 import Nifti1Image
-
-
-#: The tree is walked to list reconstructions, not to read their images.
-_UNLOADED = {'load': LOAD_STAGES['empty']}
 
 
 def _open_scan(path: Path):
@@ -25,11 +21,11 @@ def _open_scan(path: Path):
     ``visu_pars`` and its ``2dseq``.
     """
     try:
-        return Experiment(path, dataset_state=_UNLOADED)
+        return Experiment(path, dataset_state=UNLOADED)
     except NotExperimentFolder:
         pass
     try:
-        return Processing(path, dataset_state=_UNLOADED)
+        return Processing(path, dataset_state=UNLOADED)
     except NotProcessingFolder:
         raise FileNotValidError(str(path), 'Bruker scan or reconstruction') from None
 

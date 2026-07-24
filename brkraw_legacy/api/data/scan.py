@@ -16,7 +16,6 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from typing import Optional
     from brukerapi.folders import Processing
-    from .study import Study
 
 
 class ScanInfo(BaseAnalyzer):
@@ -37,9 +36,8 @@ class Scan(BaseAnalyzer):
         reco_id (Optional[int]): The reconstruction bound by default.
     """
     def __init__(self, pvobj, reco_id: Optional[int] = None,
-                 study: Optional['Study'] = None, debug: bool = False) -> None:
+                 debug: bool = False) -> None:
         self.pvobj = pvobj
-        self.study = study
         self.is_debug = debug
         self.reco_id = reco_id or (self.avail[0] if self.avail else None)
         #: Parameter-only datasets are cached; data-carrying ones never are, so
@@ -56,10 +54,10 @@ class Scan(BaseAnalyzer):
         ``2dseq``; PROCNO folders are numbered.
         """
         return sorted(int(proc.path.name)
-                      for proc in self._processings()
+                      for proc in self._recos()
                       if proc.path.name.isdigit() and (proc.path / '2dseq').exists())
 
-    def _processings(self) -> list:
+    def _recos(self) -> list:
         # Normally the PROCNOs sit under the scan's `pdata`. The list includes
         # the scan folder itself when that is a bare reconstruction directory --
         # or when a scan carries a stray `visu_pars` at its root -- and `avail`
@@ -81,7 +79,7 @@ class Scan(BaseAnalyzer):
         reco_id = reco_id or self.reco_id
         if not with_data and reco_id in self._properties:
             return self._properties[reco_id]
-        proc = self._get_processing(reco_id)
+        proc = self._get_reco(reco_id)
         dataset = Dataset(proc.path / '2dseq',
                           scale=False,
                           combine_complex=False,
@@ -91,8 +89,8 @@ class Scan(BaseAnalyzer):
             self._properties[reco_id] = dataset
         return dataset
 
-    def _get_processing(self, reco_id: Optional[int]) -> 'Processing':
-        for proc in self._processings():
+    def _get_reco(self, reco_id: Optional[int]) -> 'Processing':
+        for proc in self._recos():
             if proc.path.name.isdigit() and int(proc.path.name) == reco_id:
                 return proc
         raise KeyError('RecoID:[{}] not found in ScanID:[{}]'
@@ -125,7 +123,9 @@ class Scan(BaseAnalyzer):
         With `get_analyzer` the analyzer itself is returned, carrying the raw
         parameter files alongside the derived values.
         """
-        analysed = ScanInfoAnalyzer(self.get_dataset(reco_id), debug=self.is_debug)
+        analysed = ScanInfoAnalyzer(self.get_dataset(reco_id),
+                                    primary_visu_pars=self._primary_visu_pars(reco_id),
+                                    debug=self.is_debug)
         if get_analyzer:
             return analysed
         infoobj = ScanInfo()
@@ -136,6 +136,19 @@ class Scan(BaseAnalyzer):
                     infoobj.warns.extend(warns)
                 setattr(infoobj, attr_name.replace('info_', ''), attr_vals)
         return infoobj
+
+    def _primary_visu_pars(self, reco_id: Optional[int] = None):
+        """The first reconstruction's ``visu_pars``, or None if `reco_id` is it.
+
+        A derived reconstruction omits the acquisition-level parameters that
+        describe the shared acquisition; the first reconstruction always has
+        them (see ScanInfoAnalyzer._inherit_acq_params).
+        """
+        recos = self.avail
+        reco_id = reco_id or self.reco_id
+        if not recos or reco_id == recos[0]:
+            return None
+        return self.get_dataset(recos[0]).parameters.get('visu_pars')
 
     def get_affine_analyzer(self, reco_id: Optional[int] = None) -> 'AffineAnalyzer':
         return AffineAnalyzer(self.get_scaninfo(reco_id) if reco_id else self.info)

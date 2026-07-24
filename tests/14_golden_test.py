@@ -13,7 +13,7 @@ isolation and cannot see an axis-order regression on real data.
 Regenerate with ``tools/sweep_nifti.py`` only when a change to the output is
 intended -- a difference here is a behaviour change to explain, not noise.
 """
-import hashlib
+import importlib.util
 import json
 import zipfile
 from pathlib import Path
@@ -23,36 +23,22 @@ import pytest
 
 from brkraw_legacy import BrukerLoader
 
+
+def _load_sweep_tool():
+    """``tools/sweep_nifti.py``, which defines what a golden holds.
+
+    Imported rather than copied so the recorder and the comparison cannot drift:
+    a field added to HEADER_FIELDS is compared here without a second edit.
+    """
+    path = Path(__file__).resolve().parents[1] / 'tools' / 'sweep_nifti.py'
+    spec = importlib.util.spec_from_file_location('brkraw_sweep_nifti', path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+SWEEP = _load_sweep_tool()
 GOLDENS = json.loads((Path(__file__).parent / 'goldens' / 'images.json').read_text())
-
-#: The header fields the conversion sets, as recorded by tools/sweep_nifti.py.
-HEADER_FIELDS = ('scl_slope', 'scl_inter', 'slice_code', 'slice_start', 'slice_end',
-                 'slice_duration', 'dim_info', 'qform_code', 'sform_code',
-                 'xyzt_units', 'cal_min', 'cal_max', 'descrip', 'pixdim')
-
-
-def _jsonable(value):
-    if isinstance(value, np.ndarray):
-        return _jsonable(value.tolist()) if value.ndim == 0 else [_jsonable(v) for v in value.tolist()]
-    if isinstance(value, list):
-        return [_jsonable(v) for v in value]
-    if isinstance(value, np.generic):
-        value = value.item()
-    if isinstance(value, bytes):
-        return value.rstrip(b'\x00').decode('latin-1')
-    return value
-
-
-def _golden(nii):
-    """The same values ``tools/sweep_nifti.py`` records, for one image."""
-    data = np.asarray(nii.dataobj)
-    return {
-        'shape': list(nii.shape),
-        'dtype': str(data.dtype),
-        'affine': _jsonable(np.asarray(nii.affine, dtype=float)),
-        'sha256': hashlib.sha256(np.ascontiguousarray(data).tobytes()).hexdigest(),
-        'header': {field: _jsonable(nii.header[field]) for field in HEADER_FIELDS},
-    }
 
 
 def _same(actual, expected):
@@ -76,7 +62,7 @@ def _check(root, fixture):
             assert len(niis) == expected['n_images'], \
                 f'{fixture} {scan_id}/{reco_id}: image count changed'
             for index, want in expected['images'].items():
-                got = _golden(niis[int(index)])
+                got = SWEEP.golden(niis[int(index)])
                 for field in ('shape', 'dtype', 'sha256', 'affine', 'header'):
                     assert _same(got[field], want[field]), \
                         f'{fixture} {scan_id}/{reco_id} image {index}: {field} changed'

@@ -2,6 +2,7 @@ from .errors import InvalidApproach, UnexpectedError
 from .subject_orient import SUBJECT_POSE, SUBJECT_TYPES, normalize_subject_type
 from .utils import get_value, is_all_element_same, encdir_code_converter, meta_get_value
 from .reference import ERROR_MESSAGES, COMMON_META_REF
+from ..api.helper.base import image_shape
 import numpy as np
 import pathlib
 import os
@@ -299,10 +300,12 @@ class BrukerLoader():
         return self._get_visu_pars
 
     def get_method(self, scan_id):
-        return self._parameters(scan_id)['method']
+        """The scan's ``method`` file, or None when the export has none."""
+        return self._parameters(scan_id).get('method')
 
     def get_acqp(self, scan_id):
-        return self._parameters(scan_id)['acqp']
+        """The scan's ``acqp`` file, or None when the export has none."""
+        return self._parameters(scan_id).get('acqp')
 
     def _parameters(self, scan_id, reco_id=None):
         scanobj = self._study.get_scan(scan_id)
@@ -700,15 +703,17 @@ class BrukerLoader():
         dim, cls = self._get_dim_info(visu_pars)
         if cls != 'spatial_only':
             return '    [{}] dim: {}, {}'.format(str(reco_id).zfill(2), dim, cls)
-        info = self._study.get_scan(scan_id).get_scaninfo(reco_id)
-        size = ' x '.join(map(str, self.get_dataobj(scan_id, reco_id).shape))
+        scanobj = self._study.get_scan(scan_id)
+        info = scanobj.get_scaninfo(reco_id)
+        size = ' x '.join(map(str, image_shape(scanobj.get_dataset(reco_id))))
         fov_size = ' x '.join(map(str, info.image['field_of_view']))
         resol = list(info.image['resolution'])
         if len(resol) == 2:
             resol = resol + [info.slicepack['slice_distances_each_pack'][0]]
         s_resol = ' x '.join(['{0:.3f}'.format(r) for r in resol])
-        num_volumes = int(np.prod([s for _, s in self.get_frame_groups(scan_id, reco_id)
-                                   if not re.search('slice', _, re.IGNORECASE)] or [1]))
+        volumes = [size for name, size in self.get_frame_groups(scan_id, reco_id)
+                   if not re.search('slice', name, re.IGNORECASE)]
+        num_volumes = int(np.prod(volumes or [1]))
         t_resol = '{0:.3f}'.format(info.cycle['scan_time'] / num_volumes)
         return ('    [{}] dim: {}D, matrix_size: {}, fov_size: {} (unit:mm)\n'
                 '         spatial_resol: {} (unit:{}), temporal_resol: {} (unit:{})'.format(

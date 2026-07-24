@@ -23,12 +23,10 @@ class StudyToNifti(Study, BaseMethods):
                  reco_id: Optional[int] = None):
         if scan_id not in self._cache.keys():
             self._cache[scan_id] = ScanToNifti(pvobj=self.get_pvscan(scan_id),
-                                               reco_id=reco_id,
-                                               study=self)
+                                               reco_id=reco_id)
         return self._cache[scan_id]
 
-    def get_scan_pvobj(self, scan_id: int,
-                       reco_id: Optional[int] = None):
+    def get_scan_pvobj(self, scan_id: int):
         """The `brukerapi` Experiment behind one scan."""
         return self.get_pvscan(scan_id)
 

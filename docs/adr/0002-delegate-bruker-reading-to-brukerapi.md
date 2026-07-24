@@ -115,7 +115,7 @@ differs is a semantic change to be explained, not float noise.
 
 ## What implementation determined
 
-Five things the plan could not settle in advance.
+Six things the plan could not settle in advance.
 
 - **`api/helper/slicepack.py` survives, reduced.** It was listed with the binary
   assembly, but what it computes — the number of slice packages, each pack's
@@ -145,7 +145,17 @@ Five things the plan could not settle in advance.
 - **Two upstream parser fixes fell out of the migration**, both fixed in
   `brukerapi` rather than worked around: a parameter written with no value at
   all (`##$ACQ_operator= `) raised `IndexError`, and archive support needed
-  `..`-relative traversal because `zipfile.Path` joins textually.
+  `..`-relative traversal because `zipfile.Path` joins textually. The upstream
+  `get_value(key, default)` is *not* what our accessor calls — struct arrays
+  need the `Parameter` object, so the default lands one level down — but it
+  stays: it is what makes a bare `brukerapi` read safe for anyone else.
+
+- **Opening the archive is the caller's job, by design.** `zipfile.Path` is
+  constructed in `api/data/study.py` (`_archive_root`, ~10 lines) and handed
+  over; that is what "callers pass a zipfile path object" means. Zero lines of
+  archive *handling* is what moved upstream. `_require_archive_support` turns an
+  older, path-only `brukerapi` into a message naming the version to install,
+  rather than a `TypeError` about `os.PathLike` that reads like corrupt data.
 
 - **Three date parameters changed shape**, recorded in
   `tests/15_parameter_test.py::ACCEPTED_CHANGES`. The old parser split every
@@ -154,10 +164,15 @@ Five things the plan could not settle in advance.
   and `get_scan_time` parses them with an anchored match rather than a
   substitution over the whole value.
 
-Verification: every one of the 159 images in the curated golden set — PV5.1,
+Verification ran at three widths. The curated set — 159 images across PV5.1,
 PV6.0.1 (including a reverse-slice-order study), PV7.0.0, PV360, a `.zip` and a
-`.PvDatasets` — converts to a bit-identical result, affine, data hash, shape,
-word type and header field for field.
+`.PvDatasets` — is bit-identical: affine, data hash, shape, word type and header
+field for field. The full local corpus, 1,570 reconstructions under
+`resources/testdata`, was swept the same way. Committed as a regression test is
+the subset reachable from the public fixtures (`tests/goldens/images.json`, 122
+images over the four ParaVision generations, plus an archive built from one of
+them at test time), because a golden is only useful where the data can be
+fetched.
 
 ## Do not re-litigate
 

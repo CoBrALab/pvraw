@@ -49,6 +49,34 @@ def frame_groups(dataset):
     return list(zip(labels[first:], sizes[first:]))
 
 
+def normalized_axes(labels, shape):
+    """Axis names and sizes with the slice axis at position k (2).
+
+    The affine's third column addresses k, so the slice axis has to be there
+    and has to exist: a single-slice 2D acquisition stores no slice axis at
+    all, and a 2D acquisition whose extra axes are frame groups would otherwise
+    have those frames mistaken for slices. Returns new lists, leaving the
+    inputs alone; ``BaseMethods._normalize_slice_axis`` moves the array to
+    match.
+    """
+    labels, shape = list(labels), list(shape)
+    if 'slice' in labels:
+        axis = labels.index('slice')
+        if axis != 2:
+            labels[axis], labels[2] = labels[2], labels[axis]
+            shape[axis], shape[2] = shape[2], shape[axis]
+    elif labels[:2] == ['spatial', 'spatial'] and labels[2:3] != ['spatial']:
+        labels.insert(2, 'slice')
+        shape.insert(2, 1)
+    return labels, shape
+
+
+def image_shape(dataset):
+    """The shape one reconstruction assembles to, without reading its data."""
+    labels = axis_labels(dataset)
+    return normalized_axes(labels, tuple(dataset.shape_final)[:len(labels)])[1]
+
+
 def collapse_scale(factors):
     """One value when every frame shares it, else the per-frame array.
 

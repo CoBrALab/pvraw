@@ -7,7 +7,7 @@ from .header import Header
 from brkraw_legacy.lib.errors import UnexpectedError
 from brkraw_legacy.lib.utils import get_value
 from brkraw_legacy.api.helper import axis_labels
-from brkraw_legacy.api.helper.base import collapse_scale
+from brkraw_legacy.api.helper.base import collapse_scale, normalized_axes
 from brkraw_legacy.api.data import Scan
 from xnippet.snippet import PlugInSnippet
 from typing import TYPE_CHECKING
@@ -143,29 +143,17 @@ class BaseMethods:
 
     @staticmethod
     def _normalize_slice_axis(dataarray: NDArray, axis_labels: list):
-        """Place the slice axis at position k (2) -- the axis the affine's third
-        column addresses -- inserting a size-1 slice axis when the acquisition
-        stores none.
-
-        A 2D acquisition has no FG_SLICE frame group when it is a single slice,
-        so Bruker leaves the slice axis out of the 2dseq entirely. The affine is
-        always 3D, so the data must carry an explicit slice axis: a single slice
-        becomes a conventional 3D volume (X, Y, 1) rather than a 2D image (NIfTI
-        reserves dims 1-3 for x/y/z), and a 2D acquisition whose extra axes are
-        frame groups (echo/movie/IR/...) gets the implicit slice inserted so
-        those frames are not mistaken for slices. Mutates ``axis_labels`` in
-        place and returns the (possibly reshaped) array.
-        """
-        if 'slice' in axis_labels:
-            slice_axis = axis_labels.index('slice')
-            if slice_axis != 2:
-                dataarray = np.swapaxes(dataarray, slice_axis, 2)
-                axis_labels[slice_axis], axis_labels[2] = axis_labels[2], axis_labels[slice_axis]
-        elif axis_labels[:2] == ['spatial', 'spatial'] and axis_labels[2:3] != ['spatial']:
+        """Move the array onto the axis order ``normalized_axes`` describes:
+        the slice axis at position k (2), inserted when the acquisition stores
+        none. Mutates ``axis_labels`` in place and returns the array."""
+        normalized, _ = normalized_axes(axis_labels, dataarray.shape)
+        if len(normalized) > len(axis_labels):
             dataarray = np.expand_dims(dataarray, 2)
-            axis_labels.insert(2, 'slice')
+        elif normalized != axis_labels:
+            dataarray = np.swapaxes(dataarray, axis_labels.index('slice'), 2)
+        axis_labels[:] = normalized
         return dataarray
-    
+
     @staticmethod
     def get_affine_dict(scanobj: 'Scan', reco_id: Optional[int] = None,
                         subj_type: Optional[str] = None, 
