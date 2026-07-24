@@ -462,19 +462,35 @@ For each defined acquisition job a file is created and filled with the raw data 
 `ACQ_jobs_size` gives the number of jobs and `ACQ_jobs` describes each job's layout
 (e.g. `(0, 1, 0, 1, 64, 100, 0, 0)` in PV6).
 
-Each `ACQ_jobs[n]` is a struct. The ParaVision 360 File Formats manual ("Jobs and Data
-Acquisition") defines its members; on disk the tuple is `(scanSize, …, nStoredScans, chanNum,
-title)` (e.g. the PV360 form `(400, 9, 18, 7776, 101, 74626.9, 2592, 1, <job0>)`):
+Each `ACQ_jobs[n]` is a struct whose **arity is version-dependent**: PV6/PV7 write an **8-field**
+form, ParaVision 360 a **9-field** form (the 9-field form adds a trailing `chanNum` and a symbolic
+`title`). The ParaVision 360 File Formats manual ("Jobs and Data Acquisition") documents the
+9-field form `(scanSize, …, nStoredScans, chanNum, title)`. Critically, the element that drives the
+on-disk file size sits at a **different index in each form**:
+
+| Form | `ACQ_sw_version` | Example `ACQ_jobs[n]` | `scanSize` | Scan count that sizes the file |
+|------|------------------|-----------------------|:----------:|:------------------------------:|
+| **8-field** | `PV 6.0.1`, `PV-7.0.0` | `(4096, 1, 0, 427, 101, 8012.8, 0, 427)` | `[0]` = 4096 | `[3]` = 427 |
+| **9-field** | `PV-360.3.x` | `(400, 9, 18, 7776, 101, 74626.9, 2592, 1, <job0>)` | `[0]` = 400 | `[6]` = 2592 |
+
+Read that scan count as `ACQ_jobs[n][3]` for the 8-field form and `ACQ_jobs[n][6]` for the 9-field
+form. The **"3rd-from-last" shorthand holds only for the 9-field form** (`[-3] == [6]`); in the
+8-field form the 3rd-from-last element (`[5]`) is the sample rate `swh`, not a scan count. A reader
+should therefore branch on the struct **arity** (`len(ACQ_jobs[n])`), not on the version string.
+The members of the 9-field PV360 form are:
 
 | Field | Meaning |
 |-------|---------|
-| `scanSize` (first) | Number of **real-valued** points per scan (one `ADC_START`) — twice the complex count; **need not equal `ACQ_size[0]`** |
+| `scanSize` (`[0]`, first) | Number of **real-valued** points per scan (one `ADC_START`) — twice the complex count; **need not equal `ACQ_size[0]`** |
 | `swh` | Effective sample rate (Hz) after filtering |
 | `receiverGain` | Receiver gain for the job |
-| `nTotalScans` | Total number of scans expected |
-| `nStoredScans` (3rd-from-last) | Scans actually written to the file — drives the on-disk size |
-| `chanNum` (2nd-from-last) | RF channel (1–8) the job is acquired on |
-| `title` (last) | Symbolic job name (`job0` for the main job; also the `rawdata.<title>` suffix) |
+| `nTotalScans` (`[3]`) | Total number of scans expected |
+| `nStoredScans` (`[6]`, 3rd-from-last) | Scans actually written to the file — drives the on-disk size |
+| `chanNum` (`[7]`, 2nd-from-last) | RF channel (1–8) the job is acquired on |
+| `title` (`[8]`, last) | Symbolic job name (`job0` for the main job; also the `rawdata.<title>` suffix) |
+
+In the 8-field PV6/PV7 form there is no `chanNum`/`title` tail, and the scan count used for sizing
+is `ACQ_jobs[n][3]`.
 
 The number of **parallel receivers** stored for job *n* is the count of `Yes` entries in
 `ACQ_ReceiverSelect` (equivalently `ACQ_ReceiversSelectPerChannel[chanNum-1]`). Within the file,
@@ -1766,8 +1782,9 @@ important ways (cross-referenced against the Bruker-supplied standard dataset
 > **Job-based raw data (`ACQ_jobs` / `ACQ_ScanPipeJobSettings`).** Because PV360 has no `GO_*`
 > subclass, the raw layout is read entirely from `ACQ_jobs`. `ACQ_jobs_size` gives the number of
 > `rawdata.jobN` files, and each `ACQ_jobs[j]` struct describes job *j* (fields per
-> [Section 3.3](#33-rawdatajobn---job-based-raw-data-pv6)): the **first** element is the per-scan
-> size in real points and the **3rd-from-last** is `nStoredScans`, e.g.
+> [Section 3.3](#33-rawdatajobn---job-based-raw-data-pv6)): the **first** element (`[0]`) is the
+> per-scan size in real points and — in this 9-field PV360 form — `nStoredScans` is `[6]` (the
+> 3rd-from-last; the 8-field PV6/PV7 form instead uses `[3]`), e.g.
 > `(400, 9, 18, 7776, 101, 74626.9, 2592, 1, <job0>)` → `scanSize=400`, `nStoredScans=2592`,
 > `chanNum=1`, `title=job0`. `ACQ_size[0]` need not equal the job scan size. The raw word type
 > comes from `ACQ_word_size` + `BYTORDA`; the companion `ACQ_ScanPipeJobSettings[j]` records the
