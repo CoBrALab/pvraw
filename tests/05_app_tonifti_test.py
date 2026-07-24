@@ -19,8 +19,8 @@ def test_api_matches_loader_across_scans(lego_study):
     api = StudyToNifti(str(lego_study))
 
     compared = 0
-    for sid in loader.pvobj.avail_scan_id:
-        for rid in loader.pvobj.avail_reco_id.get(sid, [1]):
+    for sid in loader.avail_scan_id:
+        for rid in loader.avail_reco_id.get(sid, [1]):
             try:
                 lo = loader.get_niftiobj(sid, rid)
                 ap = api.get_nifti1image(sid, rid)
@@ -48,7 +48,7 @@ def test_spectroscopic_scan_rejected_cleanly(h2_study):
     """
     loader = BrukerLoader(str(h2_study))
     target = None
-    for sid, recos in loader._pvobj.avail_reco_id.items():
+    for sid, recos in loader.avail_reco_id.items():
         vp = loader._get_visu_pars(sid, recos[0])
         if loader._get_dim_info(vp)[1] != 'spatial_only':
             target = (sid, recos[0])

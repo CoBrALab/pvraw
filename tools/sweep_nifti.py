@@ -5,7 +5,13 @@ For each discovered unit (full study dir, .zip/.PvDatasets archive, or
 standalone exported scan dir) run get_niftiobj() on every (scan, reco) and
 classify: ok / skip-nonimage (clean rejection) / FAIL (a real conversion bug).
 Writes a JSON report and prints a per-unit summary with every failure's message.
+
+Every converted image also records its *golden* values -- the affine at full
+float64 precision, a sha256 of the stored data array, the shape/dtype, and the
+NIfTI header fields -- so two reports can be diffed to prove a refactor changed
+nothing. ``--compare <old.json>`` does that diff.
 """
+import hashlib
 import json
 import logging
 import sys
@@ -13,15 +19,58 @@ import traceback
 import warnings
 from pathlib import Path
 
+import numpy as np
+
 logging.disable(logging.CRITICAL)  # silence brkraw's own logging noise
 
 from brkraw_legacy import BrukerLoader  # noqa: E402
 
 _REPO = Path(__file__).resolve().parent.parent
-TESTDATA = Path(sys.argv[1]) if len(sys.argv) > 1 else _REPO / 'resources' / 'testdata'
-OUT = Path(sys.argv[2] if len(sys.argv) > 2 else 'sweep_nifti_results.json')
+_ARGV = [a for a in sys.argv[1:] if not a.startswith('--')]
+_COMPARE = next((a.split('=', 1)[1] for a in sys.argv[1:] if a.startswith('--compare=')), None)
+TESTDATA = Path(_ARGV[0]) if _ARGV else _REPO / 'resources' / 'testdata'
+OUT = Path(_ARGV[1] if len(_ARGV) > 1 else 'sweep_nifti_results.json')
 
 EXCLUDE_PARTS = {'_sources', '_cache', '.git'}
+
+#: NIfTI header fields recorded as goldens. Everything the conversion sets --
+#: geometry codes, slice timing, scaling and the display window.
+HEADER_FIELDS = ('scl_slope', 'scl_inter', 'slice_code', 'slice_start', 'slice_end',
+                 'slice_duration', 'dim_info', 'qform_code', 'sform_code',
+                 'xyzt_units', 'cal_min', 'cal_max', 'descrip', 'pixdim')
+
+
+def _jsonable(value):
+    """A JSON-serialisable form that round-trips float64 exactly."""
+    if isinstance(value, np.ndarray):
+        # header fields come back as 0-d arrays for scalars and as bytes_ for
+        # text; .tolist() unwraps both, so recurse on the unwrapped value.
+        return _jsonable(value.tolist()) if value.ndim == 0 else [_jsonable(v) for v in value.tolist()]
+    if isinstance(value, list):
+        return [_jsonable(v) for v in value]
+    if isinstance(value, np.generic):
+        value = value.item()
+    if isinstance(value, bytes):
+        return value.rstrip(b'\x00').decode('latin-1')
+    return value
+
+
+def golden(nii):
+    """Exact values pinning one converted image.
+
+    ``dataobj`` is the array as stored (an in-memory Nifti1Image holds it
+    verbatim), so the sha256 plus scl_slope/scl_inter fully determine the true
+    voxel values without materialising a float copy of the whole volume.
+    """
+    data = np.asarray(nii.dataobj)
+    header = nii.header
+    return {
+        'shape': list(nii.shape),
+        'dtype': str(data.dtype),
+        'affine': _jsonable(np.asarray(nii.affine, dtype=float)),
+        'sha256': hashlib.sha256(np.ascontiguousarray(data).tobytes()).hexdigest(),
+        'header': {f: _jsonable(header[f]) for f in HEADER_FIELDS},
+    }
 
 
 def excluded(p: Path) -> bool:
@@ -71,7 +120,7 @@ def convert_unit(path: Path):
     if not rec['is_pvdataset']:
         return rec
     try:
-        avail = dict(loader.pvobj.avail_reco_id)
+        avail = dict(loader.avail_reco_id)
     except Exception as e:
         rec['error'] = 'avail_reco_id failed: {}: {}'.format(type(e).__name__, e)
         return rec
@@ -86,6 +135,7 @@ def convert_unit(path: Path):
                 entry['status'] = 'ok'
                 entry['n_images'] = len(objs)
                 entry['shapes'] = [list(getattr(o, 'shape', ())) for o in objs]
+                entry['goldens'] = [golden(o) for o in objs]
             except Exception as e:
                 msg = '{}: {}'.format(type(e).__name__, e)
                 if 'non-image data' in str(e):
@@ -97,6 +147,37 @@ def convert_unit(path: Path):
                     entry['tb'] = traceback.format_exc()[-1200:]
             rec['scans'].append(entry)
     return rec
+
+
+def compare(old_path, report):
+    """Print every golden that changed between a previous report and this one."""
+    def index(rep):
+        return {(r['label'], s['scan'], s['reco']): s
+                for r in rep for s in r.get('scans', ())}
+
+    def same(a, b):
+        # NaN marks an unset header field (e.g. scl_slope); two unset fields are
+        # the same field, but NaN != NaN, so compare them by repr.
+        return a == b or repr(a) == repr(b)
+
+    old, new = index(json.loads(Path(old_path).read_text())), index(report)
+    changed = []
+    for key in sorted(old.keys() | new.keys()):
+        a, b = old.get(key), new.get(key)
+        if a is None or b is None:
+            changed.append((key, 'only in {}'.format('new' if a is None else 'old')))
+        elif a['status'] != b['status']:
+            changed.append((key, '{} -> {}'.format(a['status'], b['status'])))
+        elif not same(a.get('goldens'), b.get('goldens')):
+            for field in ('shape', 'dtype', 'affine', 'sha256', 'header'):
+                av = [g.get(field) for g in a.get('goldens') or ()]
+                bv = [g.get(field) for g in b.get('goldens') or ()]
+                if not same(av, bv):
+                    changed.append((key, '{}: {} -> {}'.format(field, str(av)[:120], str(bv)[:120])))
+    for key, what in changed:
+        print('CHANGED %s scan %s reco %s: %s' % (key[0][:50], key[1], key[2], what))
+    print('\n==== COMPARE vs %s: %d differing entries ====' % (old_path, len(changed)))
+    return changed
 
 
 def main():
@@ -131,6 +212,9 @@ def main():
     print('\n==== TOTAL: ok=%d  skip-nonimage=%d  FAIL=%d  load-errors=%d ====' % (
         tot_ok, tot_skip, tot_fail, len(load_err)))
     print('Report -> %s' % OUT)
+
+    if _COMPARE:
+        compare(_COMPARE, report)
 
 
 if __name__ == '__main__':

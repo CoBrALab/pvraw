@@ -1,32 +1,39 @@
 from __future__ import annotations
-from typing import TYPE_CHECKING
+
+from brkraw_legacy.lib.utils import get_value
+
 from .base import BaseHelper
+
+from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from ..analyzer import ScanInfoAnalyzer
 
-class Protocol(BaseHelper):
-    """_summary_
-    Helper class to parse protocol parameters for data acqusition form 'acqp' file
 
-    Args:
-        BaseHelper (_type_): _description_
+class Protocol(BaseHelper):
+    """Acquisition protocol description, read from the scan's ``acqp``.
+
+    Dependencies:
+        acqp
     """
     def __init__(self, analobj: 'ScanInfoAnalyzer'):
         super().__init__()
-        
+
         acqp = analobj.acqp
         if not acqp:
             self._warn("Failed to fetch all Protocol information because the 'acqp' file is missing from 'analobj'.")
-        self.sw_version = str(acqp.get('ACQ_sw_version'))
-        self.operator = acqp.get('ACQ_operator')
-        self.pulse_program = acqp.get('PULPROG')
-        self.nucleus = acqp.get('NUCLEUS')
-        self.protocol_name = acqp.get('ACQ_protocol_name') or acqp.get('ACQ_scan_name')
-        self.scan_method = acqp.get('ACQ_method')
-        self.subject_pos = acqp.get('ACQ_patient_pos')
-        self.institution = acqp.get('ACQ_institution')
-        self.device = acqp.get('ACQ_station')
-            
+        def value(key):
+            return get_value(acqp, key)
+
+        self.sw_version = str(value('ACQ_sw_version'))
+        self.operator = value('ACQ_operator')
+        self.pulse_program = value('PULPROG')
+        self.nucleus = value('NUCLEUS')
+        self.protocol_name = value('ACQ_protocol_name') or value('ACQ_scan_name')
+        self.scan_method = value('ACQ_method')
+        self.subject_pos = value('ACQ_patient_pos')
+        self.institution = value('ACQ_institution')
+        self.device = value('ACQ_station')
+
     def get_info(self):
         return {
             'sw_version': self.sw_version,

@@ -3,13 +3,13 @@ dependency:
     bids, plugin
 """
 from brkraw_legacy import config
-from brkraw_legacy.app.tonifti.plugin import ToNiftiPlugin, PvScan, PvReco, PvFiles
+from brkraw_legacy.app.tonifti.plugin import ToNiftiPlugin
 from brkraw_legacy.app.tonifti.study import StudyToNifti, ScanToNifti
 
 tonifti_config = config.config['app']['tonifti']
 # tonifti_presets = config.get_fetcher('preset')
 
-__all__ = ['ToNiftiPlugin', 'StudyToNifti', 'ScanToNifti', 'PvScan', 'PvReco', 'PvFiles']
+__all__ = ['ToNiftiPlugin', 'StudyToNifti', 'ScanToNifti']
 
 # def main():
 #     """main script allows convert brkraw_legacy

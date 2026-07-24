@@ -1,64 +1,24 @@
 """Regression tests for raw->NIfTI conversion against public sample datasets.
 
-The parser tests need no data. The conversion tests exercise paths that
-previously crashed or produced wrong output, using the public BrukerAPI test
-datasets (Zenodo) and the PV360 standard-data repo; each skips when its dataset
-or a real (non-LFS-stub) ``2dseq`` is unavailable.
+These exercise paths that previously crashed or produced wrong output, using
+the public BrukerAPI test datasets (Zenodo) and the PV360 standard-data repo;
+each skips when its dataset or a real (non-LFS-stub) ``2dseq`` is unavailable.
 """
 import gc
 import warnings
-from pathlib import Path
 
 import pytest
 
 from brkraw_legacy import BrukerLoader
-from brkraw_legacy.lib.utils import convert_data_to
 
 
 def _has_real_2dseq(loader, scan_id, reco_id, min_bytes=1024):
     """Skip helper: LFS-backed fixtures may ship pointer-stub 2dseq files."""
-    for r in loader._pvobj._2dseq.get(scan_id, []):
-        if r.reco_id == reco_id:
-            try:
-                return Path(r.idx).stat().st_size >= min_bytes
-            except (OSError, AttributeError):
-                return False
-    return False
-
-
-# --------------------------------------------------------------------------- #
-# Parameter parser: string literals <...> are opaque (JCAMP-DX)
-# --------------------------------------------------------------------------- #
-
-def test_struct_array_with_parens_in_comment():
-    """A struct whose <...> comment contains parens/commas must not corrupt parsing."""
-    raw = '(5, <FG_ISA>, <T2 relaxation: y=A+C*exp(-t/T2)>, 0, 2)'
-    parsed = convert_data_to(raw, '( 1 )')
-    assert parsed == [[5, 'FG_ISA', 'T2 relaxation: y=A+C*exp(-t/T2)', 0, 2]]
-
-
-def test_multi_struct_array_with_parens_in_comment():
-    raw = ('(5, <FG_ISA>, <T2 relaxation: y=A+C*exp(-t/T2)>, 0, 2) '
-           '(6, <FG_MOVIE>, <vtr>, 2, 2)')
-    parsed = convert_data_to(raw, '( 2 )')
-    assert parsed[0] == [5, 'FG_ISA', 'T2 relaxation: y=A+C*exp(-t/T2)', 0, 2]
-    assert parsed[1] == [6, 'FG_MOVIE', 'vtr', 2, 2]
-
-
-def test_api_parser_delegates_to_single_codepath():
-    """The api.pvobj parser must parse struct-array <...> comments identically to
-    the lib parser -- they are one codepath now. Regression: an FG_ISA relaxation
-    comment like <T2 relaxation: y=A+C*exp(-t/T2)> (parens/commas inside the
-    literal) used to corrupt VisuFGOrderDesc on the app.tonifti conversion path,
-    collapsing the group to ['-t/T2']."""
-    from brkraw_legacy.api.pvobj.parser import Parser
-    raw = ('(5, <FG_ISA>, <T2 relaxation: y=A+C*exp(-t/T2)>, 0, 2) '
-           '(6, <FG_MOVIE>, <vtr>, 2, 2)')
-    assert Parser.convert_data_to(raw, '( 2 )') == convert_data_to(raw, '( 2 )')
-    assert Parser.convert_data_to(raw, '( 2 )') == [
-        [5, 'FG_ISA', 'T2 relaxation: y=A+C*exp(-t/T2)', 0, 2],
-        [6, 'FG_MOVIE', 'vtr', 2, 2],
-    ]
+    try:
+        path = loader.study.get_scan(scan_id).get_dataset(reco_id).path
+        return path.stat().st_size >= min_bytes
+    except Exception:                          # noqa: BLE001
+        return False
 
 
 # --------------------------------------------------------------------------- #
@@ -66,12 +26,13 @@ def test_api_parser_delegates_to_single_codepath():
 # --------------------------------------------------------------------------- #
 
 def test_frame_group_info_parses_all_scans(h2_study):
+    """Every reconstruction reports its Frame Groups as (name, size) pairs."""
     d = BrukerLoader(str(h2_study))
-    for sid, recos in d._pvobj.avail_reco_id.items():
+    for sid, recos in d.avail_reco_id.items():
         for rid in recos:
-            vp = d._get_visu_pars(sid, rid)
-            fg = d._get_frame_group_info(vp)        # must not raise
-            assert isinstance(fg['group_id'], list)
+            groups = d.get_frame_groups(sid, rid)   # must not raise
+            assert all(isinstance(name, str) and int(size) > 0
+                       for name, size in groups)
 
 
 def test_all_reconstructions_convert_through_app_tonifti(h2_study):
@@ -81,7 +42,7 @@ def test_all_reconstructions_convert_through_app_tonifti(h2_study):
     (scans 31/32/33 recos >=2) that used to crash only on the app.tonifti path."""
     d = BrukerLoader(str(h2_study))
     failures = []
-    for sid, recos in d.pvobj.avail_reco_id.items():
+    for sid, recos in d.avail_reco_id.items():
         for rid in recos:
             try:
                 d.get_niftiobj(sid, rid)
@@ -101,8 +62,7 @@ def test_multi_slicepack_heterogeneous(lego_study):
     sid, rid = 8, 1
     if not _has_real_2dseq(d, sid, rid):
         pytest.skip('scan 8 2dseq is a stub')
-    vp = d._get_visu_pars(sid, rid)
-    counts = d._get_slice_info(vp)['num_slices_each_pack']
+    counts = d._get_slice_info(sid, rid)['num_slices_each_pack']
     assert counts == [5, 3, 5]
     with warnings.catch_warnings():
         warnings.simplefilter('ignore')
@@ -120,7 +80,7 @@ def test_spectroscopic_rejected_cleanly(h2_study):
     d = BrukerLoader(str(h2_study))
     # find a spectroscopic scan (VisuCoreDimDesc not purely spatial)
     target = None
-    for sid, recos in d._pvobj.avail_reco_id.items():
+    for sid, recos in d.avail_reco_id.items():
         vp = d._get_visu_pars(sid, recos[0])
         if d._get_dim_info(vp)[1] != 'spatial_only':
             target = (sid, recos[0])
@@ -131,38 +91,33 @@ def test_spectroscopic_rejected_cleanly(h2_study):
         d.get_niftiobj(*target)
 
 
-def test_empty_reconstruction_rejected_cleanly():
-    """A reconstruction whose visu_pars is empty/unreadable parses to a raw line
-    list (not a Parameter) and carries no image metadata -- e.g. an empty
-    reconstruction whose pdata files are all zero bytes. It must be rejected with
-    a clear message, not crash with 'list indices must be integers' inside the
-    DataArray helper."""
-    import types
+def test_empty_reconstruction_rejected_cleanly(tmp_path):
+    """A reconstruction whose pdata files are all zero bytes carries no image
+    data. It must be rejected by name, not crash deep in the image pipeline."""
+    from brukerapi.dataset import Dataset
+    from brukerapi.exceptions import InvalidDataset
 
-    from brkraw_legacy.api.helper.dataarray import DataArray
+    proc = tmp_path / '1' / 'pdata' / '1'
+    proc.mkdir(parents=True)
+    (proc / 'visu_pars').write_bytes(b'')
+    (proc / '2dseq').write_bytes(b'')
+    with pytest.raises(InvalidDataset, match='empty'):
+        Dataset(proc / '2dseq')
 
-    fake = types.SimpleNamespace(visu_pars=[''])   # what an empty visu_pars parses to
-    with pytest.raises(ValueError, match='no image metadata'):
-        DataArray(fake)
 
+def test_stub_2dseq_rejected_cleanly(tmp_path):
+    """A stub 2dseq (an unpulled git-LFS pointer) holds a text pointer, not image
+    data, and must be rejected with a message naming the cause."""
+    from brukerapi.dataset import Dataset
+    from brukerapi.exceptions import InvalidDataset
 
-def test_stub_2dseq_rejected_cleanly():
-    """A stub/unreadable 2dseq (e.g. an unpulled git-LFS pointer) is a small text
-    file, so it parses to a line list rather than a binary file object. It must be
-    rejected with a clear message, not crash with "'list' object does not support
-    the context manager protocol"."""
-    import types
-
-    from brkraw_legacy.api.analyzer.dataarray import DataArrayAnalyzer
-
-    info = types.SimpleNamespace(
-        dataarray={'slope': 1, 'offset': 0, 'dtype': '<i2'},
-        image={'shape': [4, 4], 'dim_desc': ['spatial', 'spatial']},
-        frame_group=None)
-    ana = DataArrayAnalyzer(info, ['version https://git-lfs.github.com/spec/v1',
-                                   'oid sha256:deadbeef'])   # stub -> line list
-    with pytest.raises(ValueError, match='2dseq'):
-        ana.get_dataarray()
+    proc = tmp_path / '1' / 'pdata' / '1'
+    proc.mkdir(parents=True)
+    (proc / 'visu_pars').write_text(MINIMAL_VISU_PARS)
+    (proc / '2dseq').write_bytes(b'version https://git-lfs.github.com/spec/v1\n'
+                                 b'oid sha256:deadbeef\n')
+    with pytest.raises(InvalidDataset, match='(?i)git lfs'):
+        Dataset(proc / '2dseq')
 
 
 # --------------------------------------------------------------------------- #
@@ -188,8 +143,8 @@ def test_standalone_scan_directory_loads(pv360_root):
     d = BrukerLoader(str(scan))
     assert d.is_pvdataset is True
     assert d.num_scans == 1
-    assert d.pvobj.avail_reco_id == {1: [1]}
-    assert d.pvobj.subj_id is None            # no subject file
+    assert d.avail_reco_id == {1: [1]}
+    assert d.subj_id is None                  # no subject file
     nii = d.get_niftiobj(1, 1)
     nii = nii[0] if isinstance(nii, list) else nii
     assert nii.ndim == 3 and all(s > 0 for s in nii.shape)
@@ -209,8 +164,8 @@ def test_conversion_releases_file_handles(lego_study):
     converted = 0
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter('always')
-        for sid in loader.pvobj.avail_scan_id:
-            for rid in loader.pvobj.avail_reco_id.get(sid, [1]):
+        for sid in loader.avail_scan_id:
+            for rid in loader.avail_reco_id.get(sid, [1]):
                 try:
                     nii = loader.get_niftiobj(sid, rid)
                 except Exception:
@@ -227,3 +182,29 @@ def test_conversion_releases_file_handles(lego_study):
                 if issubclass(w.category, ResourceWarning)
                 and 'unclosed file' in str(w.message)]
     assert not unclosed, 'leaked file handles during conversion: {}'.format(unclosed)
+
+
+#: A minimal but valid 2dseq header, for the stub-rejection test above.
+MINIMAL_VISU_PARS = """##TITLE=Parameter List, ParaVision 6.0.1
+##JCAMPDX=4.24
+##$VisuCreatorVersion=<6.0.1>
+##$VisuCoreDim=2
+##$VisuCoreSize=( 2 )
+4 3
+##$VisuCoreDimDesc=( 2 )
+spatial spatial
+##$VisuCoreExtent=( 2 )
+20 15
+##$VisuCoreFrameCount=1
+##$VisuCoreWordType=_16BIT_SGN_INT
+##$VisuCoreByteOrder=littleEndian
+##$VisuCoreDataSlope=( 1 )
+1
+##$VisuCoreDataOffs=( 1 )
+0
+##$VisuCoreOrientation=( 1, 9 )
+1 0 0 0 1 0 0 0 1
+##$VisuCorePosition=( 1, 3 )
+0 0 0
+##END=
+"""

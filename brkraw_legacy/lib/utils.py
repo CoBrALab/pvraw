@@ -1,193 +1,58 @@
 from .errors import InvalidApproach, InvalidValueInField, UnexpectedError
-from .reference import HEADER, PARAMETER, ERROR_MESSAGES, ptrn_param, ptrn_key, ptrn_string, ptrn_float, ptrn_engnotation, ptrn_integer, ptrn_array, ptrn_complex_array, ptrn_braces, ptrn_bisstring, ptrn_at_array, ptrn_arraystring
+from .reference import ERROR_MESSAGES
 import re
 import os
 import numpy as np
-from collections import OrderedDict
 from functools import partial, reduce
-from copy import copy as cp
-import time
 
 
-class TimeCounter:
-    _start = None
+def get_value(parameters, key, default=None):
+    """The value of `key`, with the JCAMP-DX representation resolved.
 
-    def __init__(self):
-        self.reset()
+    Two things happen here. A string parameter comes back as the format writes
+    it -- ``<Bruker:FLASH>`` -- and is unquoted; a struct array -- ``(a, b)
+    (c, d)`` -- is returned as a list of rows even when it has only one row,
+    which the plain value accessor flattens.
 
-    def reset(self):
-        self._start = time.time()
-
-    def time(self):
-        return time.time() - self._start
-
-
-def load_param(stringlist):
-    # JCAMP DX parser
-    params = OrderedDict()
-    param_addresses = list()
-
-    for line_num, line in enumerate(stringlist):
-        regex_obj = re.match(ptrn_param, line)
-        # if line is key=value pair
-        if regex_obj is not None:
-            # parse key and value
-            key = re.sub(ptrn_param, r'\g<key>', line)
-            value = re.sub(ptrn_param, r'\g<value>', line)
-            # if key contains $
-            if re.match(ptrn_key, key):
-                # classify as parameter
-                params[line_num] = PARAMETER, re.sub(ptrn_key, r'\g<key>', key), value
-                param_addresses.append(line_num)
-            else:
-                # classify as file header
-                params[line_num] = HEADER, key, value
-                param_addresses.append(line_num)
-    return params, param_addresses, stringlist
+    `default` matters as much as either: which parameters a file carries is
+    ParaVision-version dependent, so a read a PV6 dataset satisfies can be
+    absent on PV5.1. Absence returns `default` rather than raising.
+    """
+    if parameters is None or key not in parameters:
+        return default
+    parameter = parameters.get_parameter(key)
+    is_struct = str(getattr(parameter, 'val_str', '')).lstrip().startswith('(')
+    return unquote(parameter.nested if is_struct else parameter.value)
 
 
-# Sentinels used to hide '(', ')' and ',' that occur *inside* JCAMP-DX string
-# literals (<...>) so the struct/array tokenizer does not treat them as
-# delimiters. Per the JCAMP-DX format, strings are opaque, enclosed in <...>.
-_MASK = (('(', '\x01'), (')', '\x02'), (',', '\x03'))
+#: A JCAMP-DX string literal holding nothing but a number is that number.
+_NUMERIC = re.compile(r'^-?(\d+\.\d+|\d+|[0-9.]+[eE]-?[0-9.]+)$')
 
 
-def _mask_string_literals(data):
-    """Replace delimiter chars occurring inside <...> literals with sentinels."""
-    def repl(match):
-        token = match.group(0)
-        for ch, sentinel in _MASK:
-            token = token.replace(ch, sentinel)
-        return token
-    return re.sub(r'<[^<>]*>', repl, data)
+def unquote(value):
+    """Resolve a JCAMP-DX scalar: drop ``<...>`` quoting and re-type numbers.
 
+    An empty literal (``<>``, or a parameter written with no value) is absence,
+    not the empty string, and reads as None. Applied element-wise to arrays.
+    """
+    if isinstance(value, str):
+        if len(value) > 1 and value[0] == '<' and value[-1] == '>':
+            value = value[1:-1]
+        value = str(value)
+        if not value:
+            return None
+        if _NUMERIC.match(value):
+            return float(value) if ('.' in value or 'e' in value.lower()) else int(value)
+        return value
+    if isinstance(value, np.ndarray):
+        if value.dtype.kind not in ('U', 'S', 'O'):
+            return value
+        unquoted = [unquote(v) for v in value.ravel().tolist()]
+        return np.array(unquoted, dtype=object).reshape(value.shape)
+    if isinstance(value, (list, tuple)):
+        return type(value)(unquote(v) for v in value)
+    return value
 
-def _unmask_delimiters(string):
-    """Restore sentinels back to their original delimiter characters."""
-    for ch, sentinel in _MASK:
-        string = string.replace(sentinel, ch)
-    return string
-
-
-def convert_string_to(string):
-    string = _unmask_delimiters(string.strip())
-    if re.match(ptrn_string, string):
-        string = re.sub(ptrn_string, r'\g<string>', string).strip()
-    if not string:
-        return None
-    else:
-        if re.match(ptrn_float, string):
-            return float(string)
-        elif re.match(ptrn_integer, string):
-            return int(string)
-        elif re.match(ptrn_engnotation, string):
-            return float(string)
-        else:
-            return string
-
-
-def convert_data_to(data, shape):
-    # check if data is array
-    if isinstance(data, str):
-        is_bisarray = re.findall(ptrn_bisstring, data)
-        if is_bisarray:
-            is_bisarray = [convert_string_to(c) for c in is_bisarray]
-            if len(is_bisarray) == 1:
-                data = is_bisarray.pop()
-            else:
-                data = is_bisarray
-        else:
-            # Hide '(', ')' and ',' inside <...> literals so a free-text comment
-            # such as <T2 relaxation: y=A+C*exp(-t/T2)> does not corrupt struct
-            # tokenization. Sentinels are restored by convert_string_to.
-            data = _mask_string_literals(data)
-
-            # [20210820] Add-paravision 360 related.
-            m_all = re.findall(ptrn_at_array, data)
-            m_all = set(m_all)
-            m_all = list(m_all)
-
-            for str_ptn in m_all:
-                num_cnt = int(str_ptn[0])
-                num_repeat = float(str_ptn[1])
-                str_ptn = "@" + str_ptn[0] + "*(" + str_ptn[1] + ")"
-
-                str_replace_old = str_ptn
-                str_replace_new = [num_repeat for i in range(num_cnt)]
-                str_replace_new = str(str_replace_new)
-                str_replace_new = str_replace_new.replace(",", "")
-                str_replace_new = str_replace_new.replace("[", "")
-                str_replace_new = str_replace_new.replace("]", "")
-                data = data.replace(str_replace_old, str_replace_new)
-            
-            if re.match(ptrn_complex_array, data):
-                # data = re.sub(ptrn_complex_array, r'\g<comparray>', data)
-                data_holder = cp(data)
-                parser = {}
-                level = 1
-                while len(re.findall(ptrn_braces, data_holder)) != 0:
-                    for parsed in re.finditer(ptrn_braces, data_holder):
-                        key = 'level_{}'.format(level)
-
-                        cont_parser = []
-                        for cont in map(str.strip, parsed.group('contents').split(',')):
-                            cont = convert_data_to(cont, -1)
-                            if cont is not None:
-                                cont_parser.append(cont)
-                        if key not in parser.keys():
-                            parser[key] = []
-                        parser[key].append(cont_parser)
-                        data_holder = data_holder.replace(parsed.group(0), '')
-                    level += 1
-                del level
-                data = parser
-            else:
-                if re.match(ptrn_string, data):
-                    data = re.sub(ptrn_string, r'\g<string>', data)
-                else:
-                    is_array = re.findall(ptrn_array, data)
-                    # parse data shape
-                    if shape != -1:
-                        shape = re.sub(ptrn_array, r'\g<array>', shape)
-                        if ',' in shape:
-                            shape = [convert_string_to(c) for c in shape.split(',')]
-
-                    if is_array:
-                        is_array = [convert_string_to(c) for c in is_array]
-                        if any([',' in cell for cell in is_array]):
-                            data = [[convert_string_to(c) for c in cell.split(',')] for cell in is_array]
-                    else:
-                        if ',' in data:
-                            if re.findall(ptrn_arraystring, data):
-                                data = [convert_string_to(c) for c in data.split(' ')]
-                            else:
-                                data = [convert_string_to(c) for c in data.split(',')]
-                        else:
-                            if ' ' in data:
-                                data = [convert_string_to(c) for c in data.split(' ')]
-    if isinstance(data, list):
-        if isinstance(shape, list):
-            if not any([isinstance(c, str) for c in data]):
-                if not any([c is None for c in data]):
-                    data = np.asarray(data).reshape(shape)
-    elif isinstance(data, str):
-        data = convert_string_to(data)
-    return data
-
-
-def get_value(pars, key):
-    if key not in pars.parameters.keys():
-        return None
-    else:
-        return pars.parameters[key]
-
-def set_value(pars, key, value):
-    if key not in pars.parameters.keys():
-        print('Created a key')
-        pars.parameters[key] = value
-    else:
-        pars.parameters[key] = value
-    return pars
 
 def is_all_element_same(listobj):
     if listobj is None:
@@ -256,18 +121,15 @@ def is_express(value):
 
 
 def meta_check_where(value, acqp, method, visu_pars):
+    """The position of a marker within a parameter's values (e.g. the phase axis)."""
     val = meta_get_value(value['key'], acqp, method, visu_pars)
-    if val is not None:
-        if isinstance(value['where'], str):
-            if value['where'] not in val:
-                return None
-            else:
-                return val.index(value['where'])
-        else:
-            where = meta_get_value(value['where'], acqp, method, visu_pars)
-            return val.index(where)
-    else:
+    if val is None:
         return None
+    # a multi-valued parameter reads back as an array; index it as a sequence
+    values = list(np.atleast_1d(val))
+    where = value['where'] if isinstance(value['where'], str) \
+        else meta_get_value(value['where'], acqp, method, visu_pars)
+    return values.index(where) if where in values else None
 
 
 def meta_check_index(value, acqp, method, visu_pars):
@@ -314,13 +176,14 @@ def meta_check_express(value, acqp, method, visu_pars):
 
 
 def meta_check_source(key_string, acqp, method, visu_pars):
-    pool = [acqp, method, visu_pars]
-    key_exist = [key_string in p.parameters.keys() for p in pool]
-    for i, ans in enumerate(key_exist):
-        if ans:
-            return get_value(pool[i], key_string)
-    # Parameter absent from every source: report missing so the field is omitted
-    # rather than echoing the Bruker parameter name as the metadata value.
+    """The first of acqp, method, visu_pars carrying `key_string`, else None.
+
+    A parameter absent from every source omits the field rather than echoing
+    the Bruker parameter name as the metadata value.
+    """
+    for parameters in (acqp, method, visu_pars):
+        if parameters is not None and key_string in parameters:
+            return get_value(parameters, key_string)
     return None
 
 
@@ -443,13 +306,13 @@ def func_volume_tr(dset, row, num_volumes):
         return None
     if not num_volumes or num_volumes < 2:
         return None
-    scan_time = dset.get_visu_pars(row.ScanID, row.RecoID).parameters.get('VisuAcqScanTime')
+    scan_time = get_value(dset.get_visu_pars(row.ScanID, row.RecoID), 'VisuAcqScanTime')
     if not isinstance(scan_time, (int, float)) or scan_time <= 0:
         return None
     return (scan_time / num_volumes) / 1000.0
 
 
-def build_bids_json(dset, row, fname, json_path, slope=False, offset=False, intended_for=None):
+def build_bids_json(dset, row, fname, json_path, scale_mode='header', intended_for=None):
     import pandas as pd
 
     # TaskName is required for func and must equal the task- entity label.
@@ -461,7 +324,7 @@ def build_bids_json(dset, row, fname, json_path, slope=False, offset=False, inte
     else:
         crop = None
     if dset.is_multi_echo(row.ScanID, row.RecoID):  # multi_echo
-        nii_objs = dset.get_niftiobj(row.ScanID, row.RecoID, crop=crop, slope=slope, offset=offset)
+        nii_objs = dset.get_niftiobj(row.ScanID, row.RecoID, crop=crop, scale_mode=scale_mode)
         for echo, nii in enumerate(nii_objs):
             # caught a bug here for multiple echo, changed fname to currentFileName
             currentFileName = '{}_echo-{}_{}'.format(fname, echo + 1, row.modality)
@@ -476,7 +339,7 @@ def build_bids_json(dset, row, fname, json_path, slope=False, offset=False, inte
                                num_slices=nslices,
                                repetition_time=func_volume_tr(dset, row, nvol))
     else:
-        niiobj = dset.get_niftiobj(row.ScanID, row.RecoID, crop=crop, slope=slope, offset=offset)
+        niiobj = dset.get_niftiobj(row.ScanID, row.RecoID, crop=crop, scale_mode=scale_mode)
         # A multi-slicepack acquisition reconstructs to several images. Give each a
         # BIDS ``chunk-`` entity (with its own sidecar / bval-bvec) rather than
         # appending an invalid ``-NN`` suffix to the stem and leaving one shared
@@ -533,23 +396,19 @@ def mkdir(path):
 
 # brkraw-legacy script
 def set_rescale(args):
-    if not args.ignore_rescale:
-        if args.ignore_slope:
-            slope = None
-        else:
-            slope = False
-        if args.ignore_offset:
-            offset = None
-        else:
-            offset = False
-    else:
-        slope = None
-        offset = None
-    return slope, offset
+    """The scale mode the --ignore-* options select.
+
+    Intensity rescaling is one switch now: `brukerapi` exposes a single scaling
+    boolean, so slope cannot be suppressed without offset (ADR 0002).
+    --ignore-slope and --ignore-offset are kept as aliases of --ignore-rescale.
+    """
+    if args.ignore_rescale or args.ignore_slope or args.ignore_offset:
+        return 'none'
+    return 'header'
 
 
 def save_meta_files(study, args, scan_id, reco_id, output_fname):
-    method = study._pvobj._method[scan_id].parameters['Method']
+    method = str(get_value(study.get_method(scan_id), 'Method'))
     if re.search('dti', method, re.IGNORECASE):
         study.save_bdata(scan_id, output_fname, reco_id=reco_id)
     if args.bids:

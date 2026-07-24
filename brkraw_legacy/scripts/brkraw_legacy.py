@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 from ..lib.errors import FileNotValidError, InvalidApproach, ValueConflictInField
 from .. import BrukerLoader, __version__
-from ..lib.utils import set_rescale, save_meta_files, mkdir
+from ..lib.utils import get_value, set_rescale, save_meta_files, mkdir
 import argparse
 import os
 import re
@@ -118,21 +118,20 @@ def main():
         scan_id  = args.scanid
         reco_id  = args.recoid
         study    = BrukerLoader(path)
-        slope, offset = set_rescale(args)
+        scale_mode = set_rescale(args)
         ignore_localizer = args.ignore_localizer
         study = override_header(study, args.subjecttype, args.position)
         
         if study.is_pvdataset:
             if args.output:
                 output = args.output
-            elif study._pvobj.subj_id is not None:
-                output = '{}_{}'.format(study._pvobj.subj_id,study._pvobj.study_id)
+            elif study.subj_id is not None:
+                output = '{}_{}'.format(study.subj_id, study.study_id)
             else:
                 # standalone scan without a subject file: name after the input dir
                 output = os.path.basename(os.path.normpath(path))
             if scan_id:
-                acqpars  = study.get_acqp(int(scan_id))
-                scanname = acqpars._parameters['ACQ_scan_name']
+                scanname = str(get_value(study.get_acqp(int(scan_id)), 'ACQ_scan_name'))
                 scanname = scanname.replace(' ','-')
                 output_fname = '{}-{}-{}-{}'.format(output, scan_id, reco_id, scanname)
                 scan_id = int(scan_id)
@@ -142,15 +141,14 @@ def main():
                     print('Identified a localizer, the file will not be converted: ScanID:{}'.format(str(scan_id)))
                 else:
                     try:
-                        study.save_as(scan_id, reco_id, output_fname, slope=slope, offset=offset)
+                        study.save_as(scan_id, reco_id, output_fname, scale_mode=scale_mode)
                         save_meta_files(study, args, scan_id, reco_id, output_fname)
                         print('NifTi file is generated... [{}]'.format(output_fname))
                     except Exception as e:
                         report_conversion_error(scan_id, reco_id, e)
             else:
-                for scan_id, recos in study._pvobj.avail_reco_id.items():
-                    acqpars  = study.get_acqp(int(scan_id))
-                    scanname = acqpars._parameters['ACQ_scan_name']
+                for scan_id, recos in study.avail_reco_id.items():
+                    scanname = str(get_value(study.get_acqp(int(scan_id)), 'ACQ_scan_name'))
                     scanname = scanname.replace(' ','-')
                     if ignore_localizer and is_localizer(study, scan_id, recos[0]):
                         print('Identified a localizer, the file will not be converted: ScanID:{}'.format(str(scan_id)))
@@ -158,7 +156,7 @@ def main():
                         for reco_id in recos:
                             output_fname = '{}-{}-{}-{}'.format(output, str(scan_id).zfill(2), reco_id, scanname)
                             try:
-                                study.save_as(scan_id, reco_id, output_fname, slope=slope, offset=offset)
+                                study.save_as(scan_id, reco_id, output_fname, scale_mode=scale_mode)
                                 save_meta_files(study, args, scan_id, reco_id, output_fname)
                                 print('NifTi file is generated... [{}]'.format(output_fname))
                             except Exception as e:
@@ -170,7 +168,7 @@ def main():
         from os.path import join as opj, isdir, isfile
 
         path = args.input
-        slope, offset = set_rescale(args)
+        scale_mode = set_rescale(args)
         ignore_localizer = args.ignore_localizer
         invalid_error_message = '[Error] Invalid input path: {}\n'.format(path)
         empty_folder = '        The input path does not contain any raw data.'
@@ -198,22 +196,22 @@ def main():
             study = BrukerLoader(sub_path)
             if study.is_pvdataset:
                 study = override_header(study, args.subjecttype, args.position)
-                if len(study._pvobj.avail_scan_id):
-                    subj_path = os.path.join(base_path, 'sub-{}'.format(study._pvobj.subj_id))
+                if len(study.avail_scan_id):
+                    subj_path = os.path.join(base_path, 'sub-{}'.format(study.subj_id))
                     mkdir(subj_path)
-                    sess_path = os.path.join(subj_path, 'ses-{}'.format(study._pvobj.study_id))
+                    sess_path = os.path.join(subj_path, 'ses-{}'.format(study.study_id))
                     mkdir(sess_path)
-                    for scan_id, recos in study._pvobj.avail_reco_id.items():
-                        if scan_id not in study._pvobj._method:
+                    for scan_id, recos in study.avail_reco_id.items():
+                        method = scanMethod(study, scan_id)
+                        if method is None:
                             # A scan can carry reconstruction data (2dseq) without a
                             # method file (e.g. an adjustment/reference scan). Skip it
-                            # rather than KeyError on the method lookup below.
+                            # rather than fail on the method lookup below.
                             print('ScanID:{} has no method file; skipping.'.format(scan_id))
                             continue
                         if ignore_localizer and is_localizer(study, scan_id, recos[0]): # add option to exclude localizer during mass conversion
                             print('Identified a localizer, the file will not be converted: ScanID:{}'.format(str(scan_id)))
                         else:
-                            method = study._pvobj._method[scan_id].parameters['Method']
                             if re.search('epi', method, re.IGNORECASE) and not re.search('dti', method, re.IGNORECASE):
                                 output_path = os.path.join(sess_path, 'func')
                             elif re.search('dti', method, re.IGNORECASE):
@@ -223,13 +221,13 @@ def main():
                             else:
                                 output_path = os.path.join(sess_path, 'etc')
                             mkdir(output_path)
-                            filename = 'sub-{}_ses-{}_{}'.format(study._pvobj.subj_id, study._pvobj.study_id,
+                            filename = 'sub-{}_ses-{}_{}'.format(study.subj_id, study.study_id,
                                                                 str(scan_id).zfill(2))
                             for reco_id in recos:
                                 output_fname = os.path.join(output_path, '{}_reco-{}'.format(filename,
                                                                                             str(reco_id).zfill(2)))
                                 try:
-                                    study.save_as(scan_id, reco_id, output_fname, slope=slope, offset=offset)
+                                    study.save_as(scan_id, reco_id, output_fname, scale_mode=scale_mode)
                                     save_meta_files(study, args, scan_id, reco_id, output_fname)
                                 except Exception as e:
                                     report_conversion_error(scan_id, reco_id, e)
@@ -281,19 +279,17 @@ def main():
 
             if dset is not None:
                 if dset.is_pvdataset:
-                    pvobj = dset.pvobj
+                    rawdata = dset.path
 
-                    rawdata = pvobj.path
-                    
                     if swap_id:
-                         subj_id = pvobj.study_id
+                        subj_id = dset.study_id
                     else:
-                        subj_id = pvobj.subj_id
+                        subj_id = dset.subj_id
 
                     if swap_sess:
-                        sess_id = pvobj.study_id
+                        sess_id = dset.study_id
                     else:
-                        sess_id = pvobj.session_id
+                        sess_id = dset.session_id
 
                     # make subj_id bids appropriate
                     subj_id = cleanSubjectID(subj_id)
@@ -301,11 +297,12 @@ def main():
                     # make sess_id bids appropriate
                     sess_id = cleanSessionID(sess_id)
 
-                    for scan_id, recos in pvobj.avail_reco_id.items():
-                        if scan_id not in pvobj._method:
+                    for scan_id, recos in dset.avail_reco_id.items():
+                        method = scanMethod(dset, scan_id)
+                        if method is None:
                             # Reconstruction data with no method file (e.g. an
                             # adjustment/reference scan): can't be classified, so skip
-                            # it rather than KeyError on the method lookup below.
+                            # it rather than fail on the method lookup below.
                             warnings.warn('ScanID:[{}] has no method file; skipping.'
                                           ''.format(scan_id))
                             continue
@@ -314,8 +311,6 @@ def main():
                             if dset._get_dim_info(visu_pars)[1] == 'spatial_only':
                                 
                                 if not is_localizer(dset, scan_id, reco_id):
-                                    method = dset.get_method(scan_id).parameters['Method']
-
                                     datatype = assignDataType(method)
 
                                     # Derived/computed reconstructions -- ISA parametric
@@ -325,8 +320,8 @@ def main():
                                     # output (a single-frame "MESE" with no echo-/EchoTime;
                                     # a "dwi" whose bval/bvec length did not match the
                                     # volumes). Leave them 'etc' so they are not converted.
-                                    group_id = dset._get_frame_group_info(visu_pars)['group_id']
-                                    if any(g in ('FG_ISA', 'FG_DTI') for g in group_id):
+                                    groups = [name for name, _ in dset.get_frame_groups(scan_id, reco_id)]
+                                    if any(g in ('isa', 'dti') for g in groups):
                                         datatype = 'etc'
                                         warnings.warn('ScanID:[{}] RecoID:[{}] is a derived '
                                                       'reconstruction (parametric/tensor map); '
@@ -428,7 +423,7 @@ def main():
             raise InvalidApproach('Invalid input for datasheet!')
             
         json_fname = args.json
-        slope, offset = set_rescale(args)
+        scale_mode = set_rescale(args)
 
         # check if the project is session included
         if all(pd.isnull(df['SessID'])):
@@ -462,8 +457,7 @@ def main():
                 dset = BrukerLoader(dpath)
                 dset = override_header(dset, args.subjecttype, args.position)
                 if dset.is_pvdataset:
-                    pvobj = dset.pvobj
-                    rawdata = pvobj.path
+                    rawdata = dset.path
                     filtered_dset = df[df['RawData'].isin([rawdata])].reset_index()
 
                     # add Filename and Dir columns (object dtype to hold path strings)
@@ -517,10 +511,10 @@ def main():
                                                                            ''.format(sub_row.ScanID))
                                             else:
                                                 conflict_tested.append(fname)
-                                            build_bids_json(dset, sub_row, fname, json_fname, slope=slope, offset=offset)
+                                            build_bids_json(dset, sub_row, fname, json_fname, scale_mode=scale_mode)
                                     else:
                                         fname = '{}'.format(row.FileName)
-                                        build_bids_json(dset, row, fname, json_fname, slope=slope, offset=offset)
+                                        build_bids_json(dset, row, fname, json_fname, scale_mode=scale_mode)
                                     list_tested_fn.append(temp_fname)
                                 except Exception as e:
                                     # One scan failing to convert must not abort the whole
@@ -626,16 +620,26 @@ def bidsTaskLabel(visu_pars):
     func data must carry a ``task-`` entity; deriving it from the acquisition
     protocol gives an accurate, user-overridable default.
     """
-    pars = visu_pars.parameters
-    proto = pars.get('VisuAcquisitionProtocol') or pars.get('VisuAcqSequenceName') or 'task'
+    proto = (get_value(visu_pars, 'VisuAcquisitionProtocol')
+             or get_value(visu_pars, 'VisuAcqSequenceName') or 'task')
     label = re.sub(r'[^0-9a-zA-Z]', '', str(proto))
     return label or 'task'
+
+
+def scanMethod(dset, scan_id):
+    """The Bruker method name of a scan, or None when it has no method file."""
+    try:
+        method = dset.get_method(scan_id)
+    except Exception:
+        return None
+    name = get_value(method, 'Method')
+    return None if name is None else str(name)
 
 
 def numRepetitions(dset, scan_id):
     """Number of temporal repetitions (volumes) for a scan; 1 when unknown."""
     try:
-        nr = dset.get_method(scan_id).parameters.get('PVM_NRepetitions', 1)
+        nr = get_value(dset.get_method(scan_id), 'PVM_NRepetitions', 1)
         return int(nr) if nr is not None else 1
     except Exception:
         return 1
@@ -644,7 +648,7 @@ def numRepetitions(dset, scan_id):
 def assignDataType (method):
     """To assign the dataType based on method.
     Args:
-        method (str): the method from BrukerLoader.get_method.parameters['Method'].
+        method (str): the Bruker method name (see scanMethod).
     Returns:
         str: the datatype.
     """
@@ -780,7 +784,7 @@ def completeFieldsCreateFolders (df, filtered_dset, dset, multi_session, root_pa
     for i, row in filtered_dset.iterrows():
         # Resolve the BIDS suffix (datasheet 'modality'); auto-infer when blank.
         if pd.isnull(row.modality):
-            method = dset.get_method(row.ScanID).parameters['Method']
+            method = scanMethod(dset, row.ScanID) or ''
             suffix = bids.default_suffix(row.DataType, method)
             if suffix is None:
                 # Unknown method: cannot emit a valid BIDS suffix. Leave modality
@@ -813,16 +817,13 @@ def completeFieldsCreateFolders (df, filtered_dset, dset, multi_session, root_pa
     return filtered_dset
 
 
-def is_localizer(pvobj, scan_id, reco_id):
-    visu_pars = pvobj.get_visu_pars(scan_id, reco_id)
-    if 'VisuAcquisitionProtocol' in visu_pars.parameters:
-        ac_proc = visu_pars.parameters['VisuAcquisitionProtocol']
-        if re.search('tripilot', ac_proc, re.IGNORECASE) or re.search('localizer', ac_proc, re.IGNORECASE):
-            return True
-        else:
-            return False
-    else:
+def is_localizer(dset, scan_id, reco_id):
+    ac_proc = get_value(dset.get_visu_pars(scan_id, reco_id), 'VisuAcquisitionProtocol')
+    if ac_proc is None:
         return False
+    ac_proc = str(ac_proc)
+    return bool(re.search('tripilot', ac_proc, re.IGNORECASE)
+                or re.search('localizer', ac_proc, re.IGNORECASE))
 
 
 def override_header(pvobj, subjtype, position):

@@ -46,8 +46,4 @@ scan:
   time_step: cycle.time_step
 
 reco:
-  dim_description:
-    dim_desc: image.dim_desc
-    fg_desc: frame_group.id
-    script: dim_desc + [f.split("_")[-1].lower() for f in fg_desc]
-  type: frame_group.type
+  dim_description: dataarray.axis_labels

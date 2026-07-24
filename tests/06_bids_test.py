@@ -13,6 +13,7 @@ import pytest
 
 from brkraw_legacy.lib import bids
 from brkraw_legacy.lib.errors import InvalidApproach
+from brkraw_legacy.scripts.brkraw_legacy import scanMethod
 
 
 # --------------------------------------------------------------------------- #
@@ -121,7 +122,7 @@ def _prepare_anat_dataset(pvdir, tmp_path):
     # anat file rather than a per-slicepack _T2starw-01/-02/... split.
     loader = BrukerLoader(str(pvdir))
     simple = []
-    for sid in loader.pvobj.avail_scan_id:
+    for sid in loader.avail_scan_id:
         try:
             obj = loader.get_niftiobj(sid, 1)
         except Exception:
@@ -236,7 +237,7 @@ def test_bids_convert_isolates_failing_scan(h2_study, tmp_path):
     d = BrukerLoader(str(h2_study))
     # A reco that crashes (not a clean 'non-image data' skip, which save_as handles).
     crash = None
-    for sid, recos in d.pvobj.avail_reco_id.items():
+    for sid, recos in d.avail_reco_id.items():
         for rid in recos:
             try:
                 d.get_niftiobj(sid, rid)
@@ -250,7 +251,7 @@ def test_bids_convert_isolates_failing_scan(h2_study, tmp_path):
         pytest.skip('no genuinely-crashing reconstruction to isolate')
 
     good = None
-    for sid in d.pvobj.avail_scan_id:
+    for sid in d.avail_scan_id:
         if sid == crash[0]:
             continue
         try:
@@ -314,7 +315,7 @@ def test_method_less_scan_does_not_crash(h2_study, tmp_path):
         except Exception:
             return False
 
-    scans = sorted((s for s in d.pvobj.avail_scan_id if _listable(s)), key=_scan_size)
+    scans = sorted((s for s in d.avail_scan_id if _listable(s)), key=_scan_size)
     if len(scans) < 2:
         pytest.skip('need two classifiable image scans with method files')
     full, methodless = scans[0], scans[1]
@@ -328,8 +329,8 @@ def test_method_less_scan_does_not_crash(h2_study, tmp_path):
 
     # sanity: the scan is registered (has reco data) but has no method entry
     d2 = BrukerLoader(str(study))
-    assert methodless in d2.pvobj.avail_scan_id
-    assert methodless not in d2.pvobj._method
+    assert methodless in d2.avail_scan_id
+    assert scanMethod(d2, methodless) is None
 
     parent = tmp_path / 'parent'
     parent.mkdir()
@@ -357,7 +358,7 @@ def test_software_versions_sidecar_is_string(lego_study, tmp_path):
     from brkraw_legacy import BrukerLoader
 
     d = BrukerLoader(str(lego_study))
-    for sid in d.pvobj.avail_scan_id:
+    for sid in d.avail_scan_id:
         d.save_json(sid, 1, 'sc', dir=str(tmp_path),
                     metadata={'SoftwareVersions': 'VisuAcqRepetitionTime'})
         obj = json.loads((tmp_path / 'sc.json').read_text())
@@ -387,7 +388,7 @@ def test_asl_scans_not_auto_classified(lego_study, tmp_path):
     loader = BrukerLoader(str(lego_study))
     asl = [s for s in df['ScanID'].unique()
            if re.search(r'FAIR|ASL|perfusion',
-                        str(loader.get_method(int(s)).parameters.get('Method', '')),
+                        str(scanMethod(loader, int(s)) or ''),
                         re.IGNORECASE)]
     assert asl, 'expected FAIR/CASL scans in the lego phantom'
     for s in asl:
@@ -409,7 +410,7 @@ def test_multiecho_gets_echo_entity(lego_study, tmp_path):
     from brkraw_legacy.lib.utils import build_bids_json
 
     d = BrukerLoader(str(lego_study))
-    scan = next((s for s in d.pvobj.avail_scan_id if d.is_multi_echo(s, 1)), None)
+    scan = next((s for s in d.avail_scan_id if d.is_multi_echo(s, 1)), None)
     if scan is None:
         pytest.skip('no multi-echo scan in sample')
     n_echo = d.is_multi_echo(scan, 1)
@@ -440,9 +441,8 @@ def test_derived_reconstructions_not_auto_classified(h2_study, tmp_path):
     d = BrukerLoader(str(h2_study))
     n_derived = 0
     for _, row in df.iterrows():
-        gid = d._get_frame_group_info(
-            d._get_visu_pars(int(row.ScanID), int(row.RecoID)))['group_id']
-        if any(g in ('FG_ISA', 'FG_DTI') for g in gid):
+        groups = [name for name, _ in d.get_frame_groups(int(row.ScanID), int(row.RecoID))]
+        if any(g in ('isa', 'dti') for g in groups):
             n_derived += 1
             assert row.DataType == 'etc', \
                 'derived reco {}/{} classified as {}'.format(row.ScanID, row.RecoID, row.DataType)
@@ -489,7 +489,7 @@ def test_single_echo_msme_is_t2w_not_mese(h2_study, tmp_path):
     from brkraw_legacy.scripts.brkraw_legacy import is_localizer
 
     d = BrukerLoader(str(h2_study))
-    scan = next((s for s in d.pvobj.avail_scan_id
+    scan = next((s for s in d.avail_scan_id
                  if (h2_study / str(s) / 'method').is_file()
                  and not d.is_multi_echo(s, 1)
                  and d._get_dim_info(d._get_visu_pars(s, 1))[1] == 'spatial_only'
@@ -526,12 +526,12 @@ def test_dwi_bval_tiled_to_volume_count(h2_study, tmp_path):
     from brkraw_legacy import BrukerLoader
 
     d = BrukerLoader(str(h2_study))
-    scan = next((s for s in d.pvobj.avail_scan_id
-                 if s in d._pvobj._method
-                 and 'PVM_DwEffBval' in d.get_method(s).parameters), None)
+    scan = next((s for s in d.avail_scan_id
+                 if d.get_method(s) is not None
+                 and 'PVM_DwEffBval' in d.get_method(s)), None)
     if scan is None:
         pytest.skip('no diffusion scan in sample')
-    bvals0, _ = d._get_bdata(d._method[scan])
+    bvals0, _ = d._get_bdata(d.get_method(scan))
     n = len(np.atleast_1d(bvals0))
     d.save_bdata(scan, 'sc', dir=str(tmp_path), reco_id=1, num_volumes=3 * n)
     bval = tmp_path.joinpath('sc.bval').read_text().split()

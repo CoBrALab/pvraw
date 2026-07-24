@@ -2,6 +2,8 @@ from __future__ import annotations
 import math
 import numpy as np
 from typing import TYPE_CHECKING, Optional
+from brkraw_legacy.lib.utils import get_value
+
 from .base import BaseHelper, is_all_element_same
 from .slicepack import SlicePack
 if TYPE_CHECKING:
@@ -65,10 +67,10 @@ class Orientation(BaseHelper):
         super().__init__()
         visu_pars = analobj.visu_pars
         info_slicepack = analobj.get("info_slicepack") or SlicePack(analobj).get_info()
-        self.subject_type = visu_pars.get("VisuSubjectType")
-        self.subject_position = visu_pars.get("VisuSubjectPosition")
-        self._orient = visu_pars["VisuCoreOrientation"].tolist()
-        self._position = visu_pars["VisuCorePosition"]
+        self.subject_type = get_value(visu_pars, "VisuSubjectType")
+        self.subject_position = get_value(visu_pars, "VisuSubjectPosition")
+        self._orient = np.asarray(get_value(visu_pars, "VisuCoreOrientation")).tolist()
+        self._position = np.asarray(get_value(visu_pars, "VisuCorePosition"))
         self._set_gradient_orient(analobj)
         self.num_slice_packs = info_slicepack['num_slice_packs']
         self.num_slices_each_pack = info_slicepack['num_slices_each_pack']
@@ -84,7 +86,7 @@ class Orientation(BaseHelper):
             self._case_single_slicepack()
     
     def _set_gradient_orient(self, analobj):
-        self.gradient_orient = analobj.method["PVM_SPackArrGradOrient"] if analobj.method else None
+        self.gradient_orient = get_value(analobj.method, "PVM_SPackArrGradOrient") if analobj.method else None
     
     def get_info(self):
         return {
@@ -259,10 +261,10 @@ class Orientation(BaseHelper):
     
     @classmethod
     def _get_gradient_encoding_dir(cls, visu_pars):
-        if visu_pars["VisuVersion"] != 1:
-            return visu_pars["VisuAcqGradEncoding"]
+        if get_value(visu_pars, "VisuVersion") != 1:
+            return get_value(visu_pars, "VisuAcqGradEncoding")
         # routine for PV version < 6
-        phase_enc = visu_pars["VisuAcqImagePhaseEncDir"]
+        phase_enc = list(np.atleast_1d(get_value(visu_pars, "VisuAcqImagePhaseEncDir")))
         phase_enc = phase_enc[0] if is_all_element_same(phase_enc) else phase_enc
         return (
             [cls._decode_encdir(p) for p in phase_enc] \

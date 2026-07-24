@@ -22,21 +22,17 @@ class StudyToNifti(Study, BaseMethods):
     def get_scan(self, scan_id: int,
                  reco_id: Optional[int] = None):
         if scan_id not in self._cache.keys():
-            # PvStudy.get_scan gives the raw pvscan without triggering the full
-            # analysis (which itself crashes on spectroscopic scans). Reject
-            # non-image data here, before that analysis runs.
-            pvscan = super(Study, self).get_scan(scan_id)
-            BaseMethods._ensure_image_data(pvscan, reco_id)
-            self._cache[scan_id] = ScanToNifti(pvobj=pvscan,
+            self._cache[scan_id] = ScanToNifti(pvobj=self.get_pvscan(scan_id),
                                                reco_id=reco_id,
-                                               study_address=id(self))
+                                               study=self)
         return self._cache[scan_id]
-    
-    def get_scan_pvobj(self, scan_id: int, 
+
+    def get_scan_pvobj(self, scan_id: int,
                        reco_id: Optional[int] = None):
-        return super().get_scan(scan_id=scan_id, 
-                                reco_id=reco_id).retrieve_pvobj()
-    
+        """The `brukerapi` Experiment behind one scan."""
+        return self.get_pvscan(scan_id)
+
+
     def get_scan_analyzer(self, 
                           scan_id: int, 
                           reco_id: Optional[int] = None):

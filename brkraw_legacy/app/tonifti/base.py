@@ -5,7 +5,9 @@ from brkraw_legacy import config
 from nibabel.nifti1 import Nifti1Image
 from .header import Header
 from brkraw_legacy.lib.errors import UnexpectedError
-from brkraw_legacy.api.pvobj.base import BaseBufferHandler
+from brkraw_legacy.lib.utils import get_value
+from brkraw_legacy.api.helper import axis_labels
+from brkraw_legacy.api.helper.base import collapse_scale
 from brkraw_legacy.api.data import Scan
 from xnippet.snippet import PlugInSnippet
 from typing import TYPE_CHECKING
@@ -16,9 +18,9 @@ if TYPE_CHECKING:
     from xnippet.types import XnippetManagerType
 
 
-class BaseMethods(BaseBufferHandler):
+class BaseMethods:
     config: XnippetManagerType = config
-    
+
     def set_scale_mode(self, 
                        scale_mode: Optional[Literal['header', 'apply']] = None):
         self.scale_mode = scale_mode or 'header'
@@ -76,23 +78,18 @@ class BaseMethods(BaseBufferHandler):
                                            subj_type, subj_position)['affine']
     
     @staticmethod
-    def _ensure_image_data(pvobj, reco_id: Optional[int] = None):
+    def _ensure_image_data(scanobj: 'Scan', reco_id: Optional[int] = None):
         """Reject non-image (spectroscopic/temporal) scans before the image pipeline.
 
         A frame is a conventional image only when every VisuCoreDimDesc entry is
         'spatial'. Spectroscopy (PRESS/STEAM/ISIS/NSPECT/CSI/...) and temporal
         data cannot become a NIfTI, and forcing them through the pipeline crashes
-        with opaque errors. VisuCoreDimDesc is read straight from the raw
-        visu_pars because the full analysis itself fails on these scans; raising a
-        clear, catchable error matches the BrukerLoader path.
-
-        ``pvobj`` is any object exposing ``get_visu_pars`` (a raw PvScan, or a
-        scanobj's ``retrieve_pvobj()``).
+        with opaque errors. VisuCoreDimDesc is read straight from visu_pars
+        because the full analysis itself fails on these scans; raising a clear,
+        catchable error matches the BrukerLoader path.
         """
-        dim_desc = pvobj.get_visu_pars(reco_id).get('VisuCoreDimDesc')
-        if isinstance(dim_desc, str):
-            dim_desc = [dim_desc]
-        non_spatial = [d for d in (dim_desc or []) if d != 'spatial']
+        dim_desc = get_value(scanobj.get_visu_pars(reco_id), 'VisuCoreDimDesc')
+        non_spatial = [str(d) for d in np.atleast_1d(dim_desc) if str(d) != 'spatial']
         if non_spatial:
             raise UnexpectedError(
                 'non-image data (contains {}); skipped for NIfTI conversion'
@@ -101,17 +98,48 @@ class BaseMethods(BaseBufferHandler):
     @staticmethod
     def get_data_dict(scanobj: 'Scan',
                       reco_id: Optional[int] = None):
-        BaseMethods._ensure_image_data(scanobj.retrieve_pvobj(), reco_id)
-        datarray_analyzer = scanobj.get_datarray_analyzer(reco_id)
-        axis_labels = datarray_analyzer.shape_desc
-        dataarray = datarray_analyzer.get_dataarray()
-        dataarray = BaseMethods._normalize_slice_axis(dataarray, axis_labels)
+        """The image array of one reconstruction, with one named axis per Frame Group.
+
+        `brukerapi` returns the array already assembled -- frames folded into
+        their Frame Groups, in the word type the scanner wrote -- and names
+        every axis (ADR 0002). All that is left is to put the slice axis where
+        the affine expects it.
+        """
+        BaseMethods._ensure_image_data(scanobj, reco_id)
+        dataset = scanobj.get_dataset(reco_id, with_data=True)
+        labels = axis_labels(dataset)
+        dataarray = dataset.data
+        if dataarray.ndim > len(labels):
+            # the trailing size-1 placeholder axis of a frame-group-less reco
+            dataarray = dataarray.reshape(dataarray.shape[:len(labels)])
+        dataarray = BaseMethods._restore_disk_slice_order(dataset, dataarray, labels)
+        dataarray = BaseMethods._normalize_slice_axis(dataarray, labels)
         return {
             'data_array': dataarray,
-            'data_slope': datarray_analyzer.slope,
-            'data_offset': datarray_analyzer.offset,
-            'axis_labels': axis_labels
+            'data_slope': collapse_scale(dataset.slope),
+            'data_offset': collapse_scale(dataset.offset),
+            'axis_labels': labels
         }
+
+    @staticmethod
+    def _restore_disk_slice_order(dataset, dataarray: NDArray, labels: list):
+        """Undo the slice reversal `brukerapi` applies for a reverse-order 2dseq.
+
+        The two libraries answer 'which slice is index 0' differently:
+        `brukerapi` flips the slice axis so index 0 is the first entry of
+        VisuCorePosition, while brkraw-legacy keeps the on-disk order and
+        accounts for the reversal in the affine's origin instead
+        (AffineAnalyzer._correct_origin). Taking both would correct twice, so
+        the array is returned in the order the affine was derived for. Which
+        convention is right is a geometry question, deliberately out of scope
+        for the delegation of reading (ADR 0002).
+        """
+        order = get_value(dataset.parameters['visu_pars'], 'VisuCoreDiskSliceOrder')
+        if 'reverse' not in str(order or ''):
+            return dataarray
+        axis = labels.index('slice') if 'slice' in labels else \
+            (2 if dataset.encoded_dim == 3 else None)
+        return dataarray if axis is None else np.flip(dataarray, axis=axis)
 
     @staticmethod
     def _normalize_slice_axis(dataarray: NDArray, axis_labels: list):
@@ -142,6 +170,10 @@ class BaseMethods(BaseBufferHandler):
     def get_affine_dict(scanobj: 'Scan', reco_id: Optional[int] = None,
                         subj_type: Optional[str] = None, 
                         subj_position: Optional[str] = None):
+        # Geometry is only meaningful for image data; rejecting here (rather
+        # than when the scan is first addressed) keeps parameter reads working
+        # for a spectroscopic scan, which a study listing still has to describe.
+        BaseMethods._ensure_image_data(scanobj, reco_id)
         affine_analyzer = scanobj.get_affine_analyzer(reco_id)
         subj_type = subj_type or affine_analyzer.subj_type
         subj_position = subj_position or affine_analyzer.subj_position
@@ -187,11 +219,11 @@ class BaseMethods(BaseBufferHandler):
             dataobj = data_dict['data_array']
             slope, offset = data_dict['data_slope'], data_dict['data_offset']
             # Bake scaling into the data when asked ('apply') or when the factors
-            # are per-frame arrays a scalar NIfTI header cannot hold; the header
-            # then stays at default, matching the BrukerLoader path. Scalar
-            # 'header' scaling is left for update_nifti1header to write.
+            # are per-frame arrays a scalar NIfTI header cannot hold; scalar
+            # 'header' scaling is left for update_nifti1header to write. 'none'
+            # writes the stored values with no scaling at all.
             header_scale_mode = scale_mode
-            if scale_mode == 'apply' or np.ndim(slope) or np.ndim(offset):
+            if scale_mode != 'none' and (scale_mode == 'apply' or np.ndim(slope) or np.ndim(offset)):
                 dataobj = BaseMethods._apply_scale(dataobj, slope, offset)
                 header_scale_mode = 'apply'
             affine = BaseMethods.get_affine(scanobj=scanobj,

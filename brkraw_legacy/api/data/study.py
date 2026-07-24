@@ -1,138 +1,230 @@
-"""This module provides classes and functions for managing and analyzing MRI study data.
+"""Study-level container for a PvDataset.
 
-The primary class, Study, extends the functionalities of PvStudy from the brkraw_legacy.api.pvobj module
-and integrates additional analysis capabilities through the BaseAnalyzer class. It handles the
-processing of study-specific data, including the retrieval and management of scan objects,
-parsing of study header information, and compiling comprehensive information about studies.
+This is the one place where brkraw-legacy's vocabulary meets `brukerapi`'s: a
+Scan is a `brukerapi` ``Experiment`` and a Reco is a ``Processing`` (see
+``CONTEXT.md``). Nothing below this module speaks ``exp_id``/``proc_id``.
 
-Classes:
-    Study: Manages MRI study operations and integrates data processing and analysis capabilities.
-           It provides methods to retrieve specific scans, parse and access study header data,
-           and compile detailed information about the study and its associated scans and reconstructions.
-
-Dependencies:
-    PvStudy (from brkraw_legacy.api.pvobj): 
-        Base class for handling the basic operations related to photovoltaic studies.
-    BaseAnalyzer (from brkraw_legacy.api.analyzer.base): 
-        Base class providing analytical methods used across different types of data analyses.
-    Scan (from .scan): 
-        Class representing individual scans within a study, providing detailed data access and manipulation.
-    Recipe (from brkraw_legacy.api.helper.recipe): 
-        Utility class used for applying specified recipes to data objects, enabling structured data extraction and analysis.
-
-This module is utilized in MRI research environments where detailed and structured analysis of photovoltaic data is required.
+Reading -- directory walking, archive access, JCAMP-DX parsing and binary
+assembly -- belongs to `brukerapi` (ADR 0002). What survives here is the
+translation of a user-supplied path into the scans and reconstructions the rest
+of brkraw-legacy addresses by ``scan_id``/``reco_id``.
 """
 
 from __future__ import annotations
+
 import os
-import yaml
 import warnings
+import zipfile
 from copy import copy
-from pathlib import Path
 from dataclasses import dataclass
-from .scan import Scan
-from brkraw_legacy.api.pvobj import PvStudy
-from brkraw_legacy.api.analyzer.base import BaseAnalyzer
+from pathlib import Path
+
+import yaml
+from brukerapi.dataset import LOAD_STAGES
+from brukerapi.exceptions import NotExperimentFolder, NotStudyFolder
+from brukerapi.folders import Experiment, Folder
+from brukerapi.folders import Study as PvStudy
+from brukerapi.jcampdx import JCAMPDX
 from reshipe import RecipeParser
+
+from brkraw_legacy.api.analyzer.base import BaseAnalyzer
+from brkraw_legacy.lib.errors import FileNotValidError
+from brkraw_legacy.lib.utils import get_value
+
+from .scan import Scan
+
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from typing import Optional
+
+
+#: Walking the tree must not read image data: a study is opened to list its
+#: scans, and the 2dseq of every reconstruction is megabytes.
+UNLOADED = {'dataset_state': {'load': LOAD_STAGES['empty']}}
 
 
 @dataclass
 class StudyHeader:
     header: dict
     scans: list
-    
-    
+
+
 @dataclass
 class ScanHeader:
     scan_id: int
     header: dict
     recos: list
-    
-    
+
+
 @dataclass
 class RecoHeader:
     reco_id: int
     header: dict
-    
 
-class Study(PvStudy, BaseAnalyzer):
-    """Handles operations related to a specific study, integrating PvStudy and analytical capabilities.
 
-    This class extends the functionalities of PvStudy to include detailed analyses
-    and operations specific to the study being handled. It integrates with various 
-    data processing and analysis methods defined in the base analyzer.
+def _archive_root(path: Path):
+    """The study directory inside an archive, as a ``zipfile.Path``.
+
+    A PvDataset archive wraps the study in a single top-level directory (a
+    ``.PvDatasets`` export adds a sibling ``.examination`` file). `brukerapi`
+    reads through the pathlib protocol, so the member path is handed over
+    directly rather than extracting the archive.
+    """
+    root = zipfile.Path(zipfile.ZipFile(path))
+    directories = [child for child in root.iterdir() if child.is_dir()]
+    if len(directories) != 1:
+        raise FileNotValidError(str(path), 'PvDataset archive')
+    return directories[0]
+
+
+def _open_container(path: Path):
+    """Open `path` as a `brukerapi` folder, or return None if it is no PvDataset.
+
+    A study is recognised by its ``subject`` file and an individually exported
+    scan by an ``acqp`` at its root -- a directory holding neither is a
+    collection of datasets, not one dataset, and yields no scans. Inside an
+    archive the ``subject`` file is optional: partial exports omit it and are
+    still addressed by their numbered scan directories.
+    """
+    if not path.exists():
+        raise FileNotValidError(str(path), 'PvDataset')
+
+    if path.is_file():
+        if not zipfile.is_zipfile(path):
+            raise FileNotValidError(str(path), 'PvDataset')
+        root = _archive_root(path)
+        try:
+            return PvStudy(root, **UNLOADED)
+        except NotStudyFolder:
+            return Folder(root, **UNLOADED)
+
+    try:
+        return PvStudy(path, **UNLOADED)
+    except NotStudyFolder:
+        pass
+    try:
+        return Experiment(path, **UNLOADED)
+    except NotExperimentFolder:
+        return None
+
+
+def _scan_index(container) -> dict:
+    """Map ``scan_id`` to the `brukerapi` Experiment holding that scan.
+
+    Scans are the numbered directories directly under the study -- nested
+    studies are separate PvDatasets and are not folded in here. An individually
+    exported scan is its own container and is addressed as scan 1.
+    """
+    if container is None:
+        return {}
+    if isinstance(container, Experiment):
+        return {1: container}
+    scans = {}
+    for child in container.children:
+        if not (isinstance(child, Folder) and child.path.name.isdigit()):
+            continue
+        # An Experiment, or -- for a scan exported without its acqp, which is
+        # what makes a folder an Experiment -- any numbered folder that still
+        # holds a reconstruction. Such a scan converts; only the acquisition
+        # protocol is unavailable.
+        if isinstance(child, Experiment) or child.get_processing_list():
+            scans[int(child.path.name)] = child
+    return scans
+
+
+class Study(BaseAnalyzer):
+    """One PvDataset: a subject-session supplied as a directory or an archive.
 
     Attributes:
-        header (Optional[dict]): Parsed study header information.
+        header (Optional[dict]): Subject-level parameters, or None without a
+            ``subject`` file (an individually exported scan has none).
     """
     _info: StudyHeader
-    
+
     def __init__(self, path: Path) -> None:
-        """Initializes the Study object with a specified path.
-
-        Args:
-            path (Path): The file system path to the study data.
-        """
-        super().__init__(self._resolve(path))
+        self._path = Path(path)
+        self._container = _open_container(self._path)
+        self._scans = _scan_index(self._container)
+        self._subject = self._load_subject()
+        self._cache: dict = {}
         self._parse_header()
-        
-    def get_scan(self,
-                 scan_id: int,
-                 reco_id: Optional[int] = None,
-                 debug: bool = False) -> 'Scan':
-        """Retrieves a Scan object for a given scan ID with optional reconstruction ID.
 
-        Args:
-            scan_id (int): The unique identifier for the scan.
-            reco_id (Optional[int]): The reconstruction identifier, defaults to None.
-            debug (bool): Flag to enable debugging outputs, defaults to False.
+    def _load_subject(self) -> Optional[JCAMPDX]:
+        """The study-level ``subject`` file, or None when the export omits it."""
+        if self._container is None or isinstance(self._container, Experiment):
+            return None
+        subject = self._container.path / 'subject'
+        if not subject.exists():
+            return None
+        try:
+            return JCAMPDX(subject)
+        except Exception as error:  # noqa: BLE001
+            warnings.warn('Could not read the subject file ({}); subject-derived '
+                          'fields are unavailable.'.format(error), UserWarning)
+            return None
 
-        Returns:
-            Scan: The Scan object corresponding to the specified scan_id and reco_id.
-        """
-        pvscan = super().get_scan(scan_id)
-        return Scan(pvobj=pvscan,
-                    reco_id=reco_id,
-                    study_address=id(self),
-                    debug=debug)
-    
-    def _parse_header(self) -> None:
-        """Parses the header information from the study metadata.
+    @property
+    def pvobj(self):
+        """The `brukerapi` folder this study reads through."""
+        return self._container
 
-        Extracts the header data based on subject and parameters, setting up the
-        study header attribute. This method handles cases with different versions
-        of ParaVision by adjusting the header format accordingly.
-        """
-        if not self.contents or 'subject' not in self.contents['files']:
-            self.header = None
-            return
-        subj = self.subject
-        subj_header = getattr(subj, 'header') if subj.is_parameter() else None
-        if title := subj_header['TITLE'] if subj_header else None:
-            self.header = {k.replace("SUBJECT_", ""): v for k, v in subj.parameters.items() if k.startswith("SUBJECT")}
-            self.header['sw_version'] = title.split(',')[-1].strip() if 'ParaVision' in title else "ParaVision < 6"
-    
+    @property
+    def path(self) -> Path:
+        return self._path
+
+    @property
+    def subject(self) -> Optional[JCAMPDX]:
+        return self._subject
+
     @property
     def avail(self) -> list:
-        """List of available scan IDs within the study.
+        """Available ``scan_id``s, ascending."""
+        return sorted(self._scans)
 
-        Returns:
-            list: A list of integers representing the available scan IDs.
+    @property
+    def avail_reco_id(self) -> dict:
+        """``{scan_id: [reco_id, ...]}`` for every scan holding a reconstruction.
+
+        Built from plain Scans so that listing a study does not reject the
+        scans it cannot convert: a spectroscopic scan is still addressable, and
+        is skipped with a clear message when conversion is attempted.
         """
-        return super().avail
+        avail = {}
+        for scan_id, experiment in sorted(self._scans.items()):
+            if recos := Scan(experiment).avail:
+                avail[scan_id] = recos
+        return avail
+
+    def get_pvscan(self, scan_id: int):
+        """The `brukerapi` Experiment for `scan_id`."""
+        return self._scans[scan_id]
+
+    def get_scan(self, scan_id: int, reco_id: Optional[int] = None,
+                 debug: bool = False) -> 'Scan':
+        """The Scan for `scan_id`, optionally bound to one reconstruction."""
+        return Scan(self._scans[scan_id], reco_id=reco_id, study=self, debug=debug)
+
+    def _parse_header(self) -> None:
+        """Subject-level parameters, keyed without their ``SUBJECT_`` prefix."""
+        self.header = None
+        if self._subject is None:
+            return
+        self.header = {key.replace('SUBJECT_', ''): get_value(self._subject, key)
+                       for key in self._subject.keys() if key.startswith('SUBJECT')}
+        title = get_value(self._subject, 'TITLE')
+        self.header['sw_version'] = (str(title).split(',')[-1].strip()
+                                     if title and 'ParaVision' in str(title)
+                                     else 'ParaVision < 6')
+        self.header['study_operator'] = get_value(self._subject, 'OWNER')
 
     @property
     def info(self) -> dict:
         if not hasattr(self, '_info'):
             self._process_header()
-        # return self._info
-        if not hasattr(self, '_streamed_info'): 
-            self._streamed_info = self._stream_info() 
+        if not hasattr(self, '_streamed_info'):
+            self._streamed_info = self._stream_info()
         return self._streamed_info
-    
+
     def _stream_info(self):
         stream = copy(self._info.__dict__)
         scans = {}
@@ -145,20 +237,13 @@ class Study(PvStudy, BaseAnalyzer):
                 scans[s.scan_id]['recos'] = recos
         stream['scans'] = scans
         return stream
-    
+
     def _process_header(self):
-        """Compiles comprehensive information about the study, including header details and scans.
-
-        Uses external YAML configuration to drive the synthesis of structured information about the study,
-        integrating data from various scans and their respective reconstructions.
-
-        Returns:
-            dict: A dictionary containing structured information about the study, its scans, and reconstructions.
-        """
+        """Compile study, scan and reconstruction headers via the study recipe."""
         spec_path = os.path.join(os.path.dirname(__file__), 'study.yaml')
         with open(spec_path, 'r') as f:
             spec = yaml.safe_load(f)
-        self._info = StudyHeader(header=RecipeParser(self, copy(spec)['study']).get(), 
+        self._info = StudyHeader(header=RecipeParser(self, copy(spec)['study']).get(),
                                  scans=[])
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
@@ -166,14 +251,14 @@ class Study(PvStudy, BaseAnalyzer):
                 scanobj = self.get_scan(scan_id)
                 scan_spec = copy(spec)['scan']
                 scaninfo_targets = scanobj.info
-                scan_header = ScanHeader(scan_id=scan_id, 
-                                         header=RecipeParser(scaninfo_targets, scan_spec).get(), 
+                scan_header = ScanHeader(scan_id=scan_id,
+                                         header=RecipeParser(scaninfo_targets, scan_spec).get(),
                                          recos=[])
                 for reco_id in scanobj.avail:
                     recoinfo_targets = [scanobj.get_scaninfo(reco_id=reco_id)]
                     reco_spec = copy(spec)['reco']
                     parsed_reco = RecipeParser(recoinfo_targets, reco_spec).get()
-                    reco_header = RecoHeader(reco_id=reco_id, 
+                    reco_header = RecoHeader(reco_id=reco_id,
                                              header=parsed_reco) if parsed_reco else None
                     if reco_header:
                         scan_header.recos.append(reco_header)

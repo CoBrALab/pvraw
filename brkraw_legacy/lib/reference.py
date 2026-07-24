@@ -1,33 +1,3 @@
-# REGEX patterns
-ptrn_param          = r'^\#\#(?P<key>.*)\=(?P<value>.*)$'
-ptrn_key            = r'^\$(?P<key>.*)'
-ptrn_array          = r"\((?P<array>[^()]*)\)"
-ptrn_complex_array  = r"\((?P<comparray>\(.*)\)$"
-ptrn_comment        = r'\$\$.*'
-ptrn_float          = r'^-?\d+\.\d+$'
-ptrn_engnotation    = r'^-?[0-9.]+e-?[0-9.]+$'
-ptrn_integer        = r'^[-]*\d+$'
-ptrn_string         = r'^\<(?P<string>[^>]*)\>$'
-ptrn_arraystring    = r'\<(?P<string>[^>]*)\>[,]*'
-ptrn_bisstring      = r'\<(?P<string>\$Bis[^>]*)\#\>'
-ptrn_braces         = r'\((?P<contents>[^()]*)\)'
-# [20210820] Add-paravision 360 related. @[number of repititions]([number]) ex) @5(0)
-ptrn_at_array       = r'@(\d*)\*\(([-]?\d*[.]?\d*[eE]?[-]?\d*?)\)'
-
-# Conditional variables
-HEADER = 0
-PARAMETER = 1
-
-# Parameters
-WORDTYPE = \
-    dict(_32BIT_SGN_INT     = 'i',
-         _16BIT_SGN_INT     = 'h',
-         _8BIT_UNSGN_INT    = 'B',
-         _32BIT_FLOAT       = 'f')
-BYTEORDER = \
-    dict(littleEndian       = '<',
-         bigEndian          = '>')
-
 SLICE_ORIENT = {0: {1: 'L->R', 3: 'R->L'},
                 1: {1: 'P->A', 3: 'A->P'},
                 2: {1: 'F->H', 3: 'F->H'},

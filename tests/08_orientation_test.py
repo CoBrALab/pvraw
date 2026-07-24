@@ -155,11 +155,8 @@ def test_pv5_subject_type_not_taken_from_subject_file(h2_study):
     from brkraw_legacy.app.tonifti import StudyToNifti
 
     s = BrukerLoader(str(h2_study))
-    assert s.pvobj.subj_type == 'Human', 'expected the PV5 subject file to say Human'
-    sid = s.pvobj.avail_scan_id[0]
-    # Bind the study to a name: Scan stores only id(pvobj) and recovers it via
-    # ctypes, so a temporary StudyToNifti would be GC'd before get_affine_analyzer
-    # dereferences the address.
+    assert s.subj_type == 'Human', 'expected the PV5 subject file to say Human'
+    sid = s.avail_scan_id[0]
     study = StudyToNifti(str(h2_study))
     analyzer = study.get_scan(sid).get_affine_analyzer(1)
     assert analyzer.subj_type is None, (

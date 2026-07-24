@@ -26,7 +26,7 @@ from urllib.request import urlopen
 import pytest
 
 from brkraw_legacy import setup_logging
-from brkraw_legacy.api.pvobj import PvStudy
+from brkraw_legacy.api.data import Study
 
 
 def pytest_configure(config):
@@ -161,4 +161,4 @@ def pv360_root():
 def dataset(h2_study, lego_study, pv7_study):
     """Proper multi-scan studies keyed by index (0.2H2 PV5.1, lego_phantom PV6.0.1,
     LEGO_PHANTOM_API_TEST PV7.0.0)."""
-    return {0: PvStudy(h2_study), 1: PvStudy(lego_study), 2: PvStudy(pv7_study)}
+    return {0: Study(h2_study), 1: Study(lego_study), 2: Study(pv7_study)}

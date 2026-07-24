@@ -1,52 +1,32 @@
-import types
-
-from brkraw_legacy.api.data import Study
-from brkraw_legacy.api.data import scan as scan_mod
-from brkraw_legacy.api.data.scan import Scan
+"""Study/Scan container tests: what a PvDataset exposes to the layers above it."""
 
 
 def test_data_init(dataset):
-    """The high-level Study container builds from each study and lists its scans."""
-    for pvobj in dataset.values():
-        studyobj = Study(pvobj.path)
+    """The Study container builds from each study and lists its scans."""
+    for studyobj in dataset.values():
         assert studyobj.avail, 'Study should enumerate available scans'
 
 
-# --------------------------------------------------------------------------- #
-# get_datarray_analyzer must read the *requested* reco's parameters
-# --------------------------------------------------------------------------- #
+def test_scan_lists_its_reconstructions(dataset):
+    """Every listed scan resolves to a Scan whose reconstructions are numbered."""
+    for studyobj in dataset.values():
+        for scan_id in studyobj.avail:
+            recos = studyobj.get_scan(scan_id).avail
+            assert all(isinstance(reco_id, int) for reco_id in recos)
 
-def _fake_scan(monkeypatch, captured):
-    """A Scan stand-in recording what DataArrayAnalyzer is built from.
 
-    ``get_scaninfo`` and ``get_2dseq`` tag their return with the reco they were
-    asked for, so a test can tell which reconstruction's info/data was used.
+def test_scan_binds_the_requested_reconstruction(dataset):
+    """A scan reads the parameters of the reco it was asked for, not its default.
+
+    Regression: a derived reconstruction decoded with the primary reco's word
+    type and matrix failed to reshape.
     """
-    monkeypatch.setattr(scan_mod, 'DataArrayAnalyzer',
-                        lambda info, fileobj: captured.update(info=info, fileobj=fileobj))
-    pvobj = types.SimpleNamespace(get_2dseq=lambda reco_id=None: f'2dseq-r{reco_id}')
-    return types.SimpleNamespace(
-        reco_id=1,
-        info='info-default(r1)',            # cached info for the scan's default reco
-        _buffers=[],
-        retrieve_pvobj=lambda: pvobj,
-        get_scaninfo=lambda reco_id=None, get_analyzer=False: f'info-fetched(r{reco_id})')
-
-
-def test_datarray_analyzer_reads_requested_reco_params(monkeypatch):
-    """A derived reconstruction is decoded with its own parameters (word type,
-    matrix, frame count), not the scan's default reco. Regression: reco 4+ of a
-    multi-reco scan crashed reshaping because the default reco's info was reused.
-    """
-    captured = {}
-    Scan.get_datarray_analyzer(_fake_scan(monkeypatch, captured), reco_id=4)
-    assert captured['fileobj'] == '2dseq-r4'        # the requested reco's data ...
-    assert captured['info'] == 'info-fetched(r4)'   # ... and the requested reco's info
-
-
-def test_datarray_analyzer_defaults_to_cached_info(monkeypatch):
-    """With no reco_id the scan's default reconstruction and cached info are used."""
-    captured = {}
-    Scan.get_datarray_analyzer(_fake_scan(monkeypatch, captured))
-    assert captured['fileobj'] == '2dseq-r1'        # falls back to self.reco_id
-    assert captured['info'] == 'info-default(r1)'   # cached info reused
+    for studyobj in dataset.values():
+        for scan_id in studyobj.avail:
+            scanobj = studyobj.get_scan(scan_id)
+            if len(scanobj.avail) < 2:
+                continue
+            for reco_id in scanobj.avail:
+                dataset_ = scanobj.get_dataset(reco_id)
+                assert int(dataset_.path.parent.name) == reco_id
+            return
