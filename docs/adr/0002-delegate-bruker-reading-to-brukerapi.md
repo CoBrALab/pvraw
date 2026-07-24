@@ -115,7 +115,7 @@ differs is a semantic change to be explained, not float noise.
 
 ## What implementation determined
 
-Six things the plan could not settle in advance.
+Seven things the plan could not settle in advance.
 
 - **`api/helper/slicepack.py` survives, reduced.** It was listed with the binary
   assembly, but what it computes — the number of slice packages, each pack's
@@ -156,6 +156,14 @@ Six things the plan could not settle in advance.
   archive *handling* is what moved upstream. `_require_archive_support` turns an
   older, path-only `brukerapi` into a message naming the version to install,
   rather than a `TypeError` about `os.PathLike` that reads like corrupt data.
+
+- **`info`'s matrix size is the assembled shape now.** It used to print the
+  collapsed matrix the deleted `_get_matrix_size` computed — non-slice frame
+  groups multiplied into one trailing count, and the slice axis in a different
+  position from the data (`256 x 256 x 9 x 8` where the array is
+  `256 x 256 x 8 x 9`). It prints what `get_dataobj` returns: one axis per Frame
+  Group, slice at k. Reproducing the old line would mean reintroducing exactly
+  the reverse-engineering this change removes.
 
 - **Three date parameters changed shape**, recorded in
   `tests/15_parameter_test.py::ACCEPTED_CHANGES`. The old parser split every

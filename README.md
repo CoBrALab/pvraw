@@ -137,7 +137,8 @@ unclassifiable scans are skipped rather than written as invalid datatypes.
 > `docs/adr/0002-delegate-bruker-reading-to-brukerapi.md`). `study.pvobj` is now a
 > `brukerapi` folder rather than a `PvDataset`, the scan/reco listings and subject fields
 > moved onto the loader itself, parameter files are `brukerapi` `JCAMPDX` objects, and
-> `get_dataobj` returns an array with one named axis per Frame Group.
+> `get_dataobj` returns an array with one named axis per Frame Group -- which is also the
+> shape `brkraw-legacy info` prints, where it used to print a collapsed matrix size.
 
 ```python
 import brkraw_legacy
