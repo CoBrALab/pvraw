@@ -63,11 +63,33 @@ only in readout direction** — the single variable that flips this flag:
 | | axial 3D | 13 / 19 | clear / set |
 | `20201230_CIC_PLANTEST_PV5_001.5S1` (PV5.1) | axial 3D | 8 / 19 | clear / set |
 
-Same phantom, same session, same slice orientation, same voxel size — and
-brkraw-legacy derives an **identical affine** for both members of a pair. Two
-images of the same object, in the same plane, with the same affine, must
-therefore hold the same array. That is ground truth internal to the data: no
-external converter, no DICOM, no new acquisition.
+The sample is placed identically throughout the study and only console settings
+are varied, so a pair differs in exactly one thing. Verified from the
+parameters rather than the table's prose — for all three pairs:
+
+| | 13 (read L_R) | 19 (read A_P) |
+|---|---|---|
+| `PVM_SPackArrSliceOrient` | axial | axial |
+| `PVM_SPackArrGradOrient` (**acquisition** frame) | `[[1,0,0],[0,1,0],[0,0,1]]` | `[[0,1,0],[1,0,0],[0,0,1]]` |
+| `VisuCoreOrientation` (**image** frame) | identity | identity |
+| `VisuCorePosition`, `VisuCoreSize`, `VisuCoreExtent` | — | identical |
+| transposition flag | clear | **set** |
+
+Read the middle two rows together and the question is already answered. The
+acquisition frames differ by exactly a read/phase transposition. The *image*
+frames are identical. And the flag is set on precisely the one where the two
+differ — which is what it means to record a transposition that has been applied
+to bring the acquired frame into the image frame.
+
+`VisuCoreOrientation` describes the stored 2dseq. It is the same for both, so
+the two stored arrays must be in the same layout. If instead the flag were
+pending on read, scan 19's array would still be in the acquisition frame while
+its own `VisuCoreOrientation` claimed the image frame — the parameter would be
+misdescribing the data it sits next to.
+
+That is ground truth internal to the data: no external converter, no derived
+product, no new acquisition. The measurement below confirms what the parameters
+already say.
 
 So the test is a direct comparison. Correlate the pair as-is, and with one
 member's in-plane axes swapped; whichever is higher is the layout in which the
