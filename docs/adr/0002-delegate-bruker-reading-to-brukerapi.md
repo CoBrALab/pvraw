@@ -63,10 +63,11 @@ framing and BIDS.** All file reading is delegated; `api/pvobj/` and
 - **Vocabulary does not follow the dependency.** The CLI, README and Python API
   keep `scan_id`/`reco_id`; `exp_id`/`proc_id` appears at one call site. See
   `CONTEXT.md`.
-- **`brukerapi>=0.4`**, floor only. *Superseded by measurement:* 0.4 as it
-  stands applies `RECO_transposition`, which the reconstruction has already
-  applied — see `EXPERIMENT_PLAN.md`. The floor needs an upper bound or a fixed
-  release before this branch merges.
+- **`brukerapi>=0.4.1`**, floor only. Not `>=0.4`: 0.4.0 applies
+  `RECO_transposition`, which the reconstruction has already applied, and
+  silently transposes 73% of reconstructions. Reported as
+  isi-nmr/brukerapi-python#153 and #154, removed upstream, released as 0.4.1.
+  See `EXPERIMENT_PLAN.md`.
 
 Verification is exact golden values — affine at full float64 precision, a
 sha256 of the dataobj, shape and header fields — captured by `tools/sweep_nifti.py`
@@ -106,8 +107,10 @@ differs is a semantic change to be explained, not float noise.
 - **`--ignore-slope` and `--ignore-offset` stop being independent.** `brukerapi`
   exposes a single `scale` boolean, so offset cannot be applied without slope
   through `dataset.data`. Accepted.
-- **Archive support regresses on the migration branch** until the upstream PR
-  ships. The branch does not merge until it is whole; nothing regresses on `main`.
+- **Archive support regressed on the migration branch** until the upstream PR
+  shipped. Resolved: isi-nmr/brukerapi-python#151 (path protocol,
+  `get_value(key, default)`) and #152 (empty parameter value) are merged and
+  released in 0.4.1, so `uv sync` resolves from PyPI and the branch is whole.
 - `Dataset.ra` (random access) degrades to a full read for archive-backed
   datasets — `np.memmap` cannot address a compressed member.
 - The `ctypes.cast(id(pvobj), py_object)` object resurrection in
@@ -145,13 +148,22 @@ Seven things the plan could not settle in advance.
   out of scope here, worth its own ticket. 49 of 2937 reconstructions in
   `resources/` are affected.
 
-- **Two upstream parser fixes fell out of the migration**, both fixed in
-  `brukerapi` rather than worked around: a parameter written with no value at
-  all (`##$ACQ_operator= `) raised `IndexError`, and archive support needed
-  `..`-relative traversal because `zipfile.Path` joins textually. The upstream
-  `get_value(key, default)` is *not* what our accessor calls — struct arrays
-  need the `Parameter` object, so the default lands one level down — but it
-  stays: it is what makes a bare `brukerapi` read safe for anyone else.
+- **Four upstream defects fell out of the migration**, all fixed in `brukerapi`
+  rather than worked around — the standing pattern this ADR sets, exercised four
+  times in two days (isi-nmr/brukerapi-python#151, #152, #153 and #154, all
+  merged and released in 0.4.1):
+
+  - archive support needed `..`-relative traversal, because `zipfile.Path` joins
+    textually and never collapses `..` (#151, with `get_value(key, default)`);
+  - a parameter written with no value at all (`##$ACQ_operator= `) raised
+    `IndexError` (#152);
+  - `RECO_transposition` was applied on read though the reconstruction had
+    already applied it (#153, see `EXPERIMENT_PLAN.md`);
+  - which left `data.shape` disagreeing with `shape_final`, silently (#154).
+
+  The upstream `get_value(key, default)` is *not* what our accessor calls —
+  struct arrays need the `Parameter` object, so the default lands one level down
+  — but it stays: it is what makes a bare `brukerapi` read safe for anyone else.
 
 - **Opening the archive is the caller's job, by design.** `zipfile.Path` is
   constructed in `api/data/study.py` (`_archive_root`, ~10 lines) and handed

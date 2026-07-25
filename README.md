@@ -139,6 +139,9 @@ unclassifiable scans are skipped rather than written as invalid datatypes.
 > moved onto the loader itself, parameter files are `brukerapi` `JCAMPDX` objects, and
 > `get_dataobj` returns an array with one named axis per Frame Group -- which is also the
 > shape `brkraw-legacy info` prints, where it used to print a collapsed matrix size.
+>
+> Requires `brukerapi>=0.4.1`. Not 0.4.0: it applies a transposition the
+> reconstruction has already applied (isi-nmr/brukerapi-python#153).
 
 ```python
 import brkraw_legacy

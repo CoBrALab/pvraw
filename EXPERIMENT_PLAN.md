@@ -12,9 +12,16 @@ someone registers two datasets and they don't line up.
 
 **Answered, on data already in `resources/testdata`. The reconstruction has
 already applied the transposition; a reader must not apply it again.
-brkraw-legacy's behaviour is correct and `brukerapi` 0.4 is a regression.**
+brkraw-legacy's behaviour is correct and `brukerapi` 0.4.0 was a regression.**
 
-The method is written up below so it can be re-run and challenged.
+**Resolved upstream.** Reported as isi-nmr/brukerapi-python#153 (with #154 for
+the shape inconsistency it caused); `_apply_transposition` was removed in full
+and released as **0.4.1**. brkraw-legacy floors on 0.4.1 for that reason — 0.4.0
+is on PyPI and carries the regression. Against 0.4.1 every golden matches its
+pre-migration value again.
+
+The method is written up below so it can be re-run and challenged — the question
+will come back the next time someone meets a transposed image.
 
 ## The question, precisely
 
@@ -148,20 +155,15 @@ reconstruction does it.
 
 ## What follows
 
-1. **brkraw-legacy needs no change.** Its output was right; the goldens in
-   `tests/goldens/images.json` stand.
-2. **Do not float to `brukerapi>=0.4`** until this is resolved upstream. It
-   silently transposes 73% of reconstructions. ADR 0002's floor needs an upper
-   bound, or the release needs to be waited for.
-3. **Report it upstream.** The geometry check reproduces on any flagged
-   non-square reconstruction, so it needs no data sharing; the phantom pairs
-   corroborate it but the study's redistributability is unestablished. Two
-   separate defects:
-   - applying a transposition the reconstruction already applied;
-   - leaving `dataset.data.shape` disagreeing with `dataset.shape_final` when it
-     does (`mch_dev_022/2/pdata/1`: declared `(178, 200, 100, 1)`, actual
-     `(200, 178, 100, 1)`), silently, though the code carries a warning for
-     exactly that case.
+1. **brkraw-legacy needed no change.** Its output was right; the goldens in
+   `tests/goldens/images.json` stand, and match again on 0.4.1.
+2. **Floor on `brukerapi>=0.4.1`, not `>=0.4`.** 0.4.0 is on PyPI and silently
+   transposes 73% of reconstructions.
+3. **Reported and fixed upstream** — #153 (applying a transposition the
+   reconstruction had already applied) and #154 (`dataset.data.shape`
+   disagreeing with `dataset.shape_final` as a result, silently, though the code
+   carried a warning for exactly that case). Both closed; `_apply_transposition`
+   removed in 0.4.1.
 4. **Keep this document.** The next person to meet a transposed image will ask
    the same question.
 
