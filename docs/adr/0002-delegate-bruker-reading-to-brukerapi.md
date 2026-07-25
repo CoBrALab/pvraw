@@ -63,7 +63,10 @@ framing and BIDS.** All file reading is delegated; `api/pvobj/` and
 - **Vocabulary does not follow the dependency.** The CLI, README and Python API
   keep `scan_id`/`reco_id`; `exp_id`/`proc_id` appears at one call site. See
   `CONTEXT.md`.
-- **`brukerapi>=0.4`**, floor only.
+- **`brukerapi>=0.4`**, floor only. *Superseded by measurement:* 0.4 as it
+  stands applies `RECO_transposition`, which the reconstruction has already
+  applied — see `EXPERIMENT_PLAN.md`. The floor needs an upper bound or a fixed
+  release before this branch merges.
 
 Verification is exact golden values — affine at full float64 precision, a
 sha256 of the dataobj, shape and header fields — captured by `tools/sweep_nifti.py`
