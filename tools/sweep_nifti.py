@@ -87,7 +87,7 @@ def discover(root: Path):
         for p in sorted(root.rglob(pat)):
             if p.is_file() and not excluded(p):
                 units.append((str(p.relative_to(root)), p, 'archive'))
-    # 2. full studies (a 'subject' file marks a PvStudy root)
+    # 2. full studies (a 'subject' file marks a study root)
     study_roots = set()
     for s in sorted(root.rglob('subject')):
         if s.is_file() and not excluded(s):

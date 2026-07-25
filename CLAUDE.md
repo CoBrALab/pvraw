@@ -4,9 +4,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-BrkRaw-legacy is a Python library for accessing and converting raw MRI data from Bruker Biospin preclinical scanners. It provides a CLI (`brkraw-legacy`) and Python API for reading Bruker PvDatasets (directory or ZIP), reconstructing images, and exporting to NIfTI/BIDS formats.
+BrkRaw-legacy is a Python library for accessing and converting raw MRI data from Bruker Biospin preclinical scanners. It provides a CLI (`brkraw-legacy`) and Python API for reading Bruker PvDatasets (directory or archive), deriving their geometry, and exporting to NIfTI/BIDS formats.
 
-This is a hard fork of the upstream [BrkRaw](https://github.com/BrkRaw/brkraw) 0.3.x/0.4 line, developed independently of upstream 0.5+. The distribution is `brkraw-legacy`, the import package is `brkraw_legacy`. Current version: 0.4.0.
+This is a hard fork of the upstream [BrkRaw](https://github.com/BrkRaw/brkraw) 0.3.x/0.4 line, developed independently of upstream 0.5+. The distribution is `brkraw-legacy`, the import package is `brkraw_legacy`. Current version: 0.5.0.
 
 ## Build & Development Commands
 
@@ -17,7 +17,7 @@ uv sync --extra dev           # Also install pytest/ruff/bids-validator (needed 
 # Testing
 uv run pytest                       # All tests (sample data auto-fetched from the network)
 uv run pytest -m "not data"         # Only the offline unit tests (no downloads)
-uv run pytest tests/01_api_pvobj_test.py  # Run a single test file
+uv run pytest tests/14_golden_test.py     # Run a single test file
 
 # Linting
 uv run ruff check .            # Uses ruff defaults
@@ -25,35 +25,75 @@ uv run ruff check .            # Uses ruff defaults
 
 ## Architecture
 
+**All Bruker file reading is delegated to `brukerapi`** — directory and archive
+traversal, JCAMP-DX parsing, and byte→array assembly (ADR 0002). Do not
+reintroduce any of them here. What this project owns is geometry, NIfTI headers
+and BIDS.
+
 ### Data flow
 
 ```
-Raw Bruker Data (directory or ZIP)
-  → BrukerLoader (lib/loader.py)     — main entry point, also exposed as brkraw_legacy.load()
-    → PvStudy (api/pvobj/)           — represents a session with multiple scans
-      → PvScan → PvReco             — individual scan and reconstruction data
-        → NIfTI/BIDS export          — via app/tonifti/
+PvDataset (directory or .zip/.PvDatasets archive)
+  → BrukerLoader (lib/loader.py)      — entry point, also exposed as brkraw_legacy.load()
+    → Study (api/data/study.py)       — scan_id → brukerapi Experiment; the vocabulary boundary
+      → Scan (api/data/scan.py)       — reco_id → brukerapi Processing → brukerapi Dataset
+        → ScanInfoAnalyzer            — derived values: image, slicepack, orientation, cycle
+          → AffineAnalyzer            — the affine (ADR 0001)
+          → NIfTI/BIDS export         — via app/tonifti/
 ```
 
 ### Key layers
 
-- **`brkraw_legacy/lib/`** — Low-level: `BrukerLoader` (loader.py), parameter parsing (parser.py), orientation/affine math (orient.py), image reconstruction (recon.py, recoFunctions.py), BIDS entity/filename rules (bids.py), BIDS metadata references (reference.py), custom exceptions (errors.py)
-- **`brkraw_legacy/api/pvobj/`** — Mid-level object model: `PvStudy`, `PvScan`, `PvReco`, `PvFiles`, `Parameter`. All inherit from `BaseMethods`/`BaseBufferHandler` for file/buffer handling
-- **`brkraw_legacy/api/analyzer/`** — Data analysis utilities
-- **`brkraw_legacy/api/data/`** — Data container classes
-- **`brkraw_legacy/app/tonifti/`** — High-level NIfTI conversion: `StudyToNifti`, `ScanToNifti`, `ToNiftiPlugin`
+- **`brkraw_legacy/lib/`** — `BrukerLoader` (loader.py), the parameter accessor and
+  BIDS/metadata helpers (utils.py), orientation conventions (subject_orient.py),
+  BIDS entity/filename rules (bids.py), BIDS metadata references (reference.py),
+  custom exceptions (errors.py). `recon.py`/`recoFunctions.py` are unreachable
+  dead code awaiting a separate ticket.
+- **`brkraw_legacy/api/data/`** — `Study` and `Scan`: the only place that maps
+  `scan_id`/`reco_id` onto `brukerapi`'s Experiment/Processing (see `CONTEXT.md`)
+- **`brkraw_legacy/api/analyzer/`** — `ScanInfoAnalyzer` (parameters → derived
+  values), `AffineAnalyzer` (geometry)
+- **`brkraw_legacy/api/helper/`** — the derivations themselves: image, slicepack,
+  orientation, cycle, diffusion, protocol, dataarray, plus `axis_labels`/
+  `frame_groups`, which name the axes of an assembled image
+- **`brkraw_legacy/app/tonifti/`** — NIfTI assembly and headers: `StudyToNifti`,
+  `ScanToNifti`, `Header`, `ToNiftiPlugin`
 - **`brkraw_legacy/scripts/`** — CLI entry points (`brkraw_legacy.py` with subcommands: info, tonii, tonii_all, bids_helper, bids_convert)
+
+### Reading parameters
+
+Never call `brukerapi`'s accessors directly. `lib.utils.get_value(parameters,
+key, default)` resolves the JCAMP-DX representation (`<...>` quoting, numeric
+literals, struct arrays as rows) and defaults an absent key — absence is
+ParaVision-version dependent, so an unguarded read fails as "works on PV6,
+crashes on PV5.1".
 
 ### External dependencies of note
 
+- **brukerapi** — all Bruker file reading (ADR 0002). Fix problems upstream
+  rather than working around them here
 - **xnippet** (PyPI) — configuration management framework, used for `XnippetManager` in `__init__.py`
-- **reshipe** — data handling utilities
+- **reshipe** — recipe parser, used for the study header in `api/data/study.py`
 - **nibabel** — NIfTI format support (required, used in orientation math and conversion)
-- **pybids** — BIDS entity/datatype definitions, used by `lib/bids.py`
+- **bidsschematools** — BIDS entity/datatype definitions, used by `lib/bids.py`
 
 ## Testing
 
-Tests are numbered by layer: `01_api_pvobj`, `02_api_analyzer`, `03_api_helper`, `04_api_data`, `05_app_tonifti`, `06_bids`, `07_conversion`, `08_orientation`. Data-dependent tests are marked `data` and fetch public sample data from the network (Zenodo / GitHub), cached under `$BRKRAW_TEST_DATA_DIR`; `pytest -m "not data"` runs only the offline unit tests. CI runs the unit suite on Python 3.11–3.14 across Ubuntu/Windows/macOS and the `data` suite once on Ubuntu.
+Tests are numbered by layer: `02_api_analyzer`, `04_api_data`, `05_app_tonifti`,
+`06_bids`, `07_conversion`, `08_orientation`, `09_nifti_header`,
+`10_bids_metadata`, `11_diffusion`, `12_complex_warning`, `13_slice_axis`,
+`14_golden`, `15_parameter`. Data-dependent tests are marked `data` and fetch
+public sample data from the network (Zenodo / GitHub), cached under
+`$BRKRAW_TEST_DATA_DIR`; `pytest -m "not data"` runs only the offline unit
+tests. CI runs the unit suite on Python 3.11–3.14 across Ubuntu/Windows/macOS
+and the `data` suite once on Ubuntu.
+
+`tests/goldens/` holds exact values captured *before* the `brukerapi` migration:
+`images.json` (affine at full float64, a sha256 of the data array, shape and
+header fields) and `parameters.json` (every parameter key the codebase reads,
+including its absence). A difference there is a behaviour change to explain, not
+noise. `tools/sweep_nifti.py` records them and diffs two runs with
+`--compare=`.
 
 ## Linting
 

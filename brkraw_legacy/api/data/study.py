@@ -26,7 +26,7 @@ import yaml
 from brukerapi.dataset import LOAD_STAGES
 from brukerapi.exceptions import NotExperimentFolder, NotStudyFolder
 from brukerapi.folders import Experiment, Folder
-from brukerapi.folders import Study as PvStudy
+from brukerapi.folders import Study as BrukerapiStudy
 from brukerapi.jcampdx import JCAMPDX
 from reshipe import RecipeParser
 
@@ -113,12 +113,12 @@ def _open_container(path: Path):
             raise FileNotValidError(str(path), 'PvDataset')
         root = _archive_root(path)
         try:
-            return PvStudy(root, dataset_state=UNLOADED)
+            return BrukerapiStudy(root, dataset_state=UNLOADED)
         except NotStudyFolder:
             return Folder(root, dataset_state=UNLOADED)
 
     try:
-        return PvStudy(path, dataset_state=UNLOADED)
+        return BrukerapiStudy(path, dataset_state=UNLOADED)
     except NotStudyFolder:
         pass
     try:

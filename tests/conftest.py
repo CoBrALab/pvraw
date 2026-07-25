@@ -56,7 +56,7 @@ def _data_dir():
 
 
 def _find_study_root(top):
-    """The directory holding a Bruker ``subject`` file (a PvStudy root)."""
+    """The directory holding a Bruker ``subject`` file (a study root)."""
     if (top / 'subject').is_file():
         return top
     for sub in sorted(top.rglob('subject')):
@@ -66,7 +66,7 @@ def _find_study_root(top):
 
 
 def _fetch_zenodo_study(record_id, filename):
-    """Download+extract a Zenodo zip once; return the PvStudy root, or None."""
+    """Download+extract a Zenodo zip once; return the study root, or None."""
     dest = _data_dir() / 'zenodo-{}'.format(record_id)
     if dest.exists():
         return _find_study_root(dest)
