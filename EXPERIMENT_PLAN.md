@@ -131,8 +131,10 @@ reconstruction does it.
 2. **Do not float to `brukerapi>=0.4`** until this is resolved upstream. It
    silently transposes 73% of reconstructions. ADR 0002's floor needs an upper
    bound, or the release needs to be waited for.
-3. **Report it upstream** — with this experiment, which is reproducible from the
-   public `new-orientation` data. Two separate defects:
+3. **Report it upstream.** The geometry check reproduces on any flagged
+   non-square reconstruction, so it needs no data sharing; the phantom pairs
+   corroborate it but the study's redistributability is unestablished. Two
+   separate defects:
    - applying a transposition the reconstruction already applied;
    - leaving `dataset.data.shape` disagreeing with `dataset.shape_final` when it
      does (`mch_dev_022/2/pdata/1`: declared `(178, 200, 100, 1)`, actual
@@ -154,20 +156,20 @@ The result is strong but not exhaustive:
 - The correlation compares whole volumes. It would not notice a *further*
   symmetry-preserving error common to both members of a pair.
 
-Two cheap ways to close those gaps without acquiring anything:
+**No derived product in the corpus counts as ground truth.** Not the `.nii`
+files shipped beside the raw data, not the `pdata/*/dicom/` exports — their
+provenance and correctness are unestablished, and one set is explicitly
+disqualified: `resources/testdata/README.md` records the McGill orientation
+studies as "collected improperly, so it is not a valid orientation reference".
+An orientation answer must not be built on another converter's output.
 
-- **Sibling DICOM** — 25 reconstructions in the corpus have the flag set *and* a
-  ParaVision DICOM export in `pdata/*/dicom/`. One is non-square, where the
-  answer is visible in the array shape alone:
-  `new-orientation/…LRMousePhantom…/25/pdata/1`, `VisuCoreSize [90, 108]`,
-  110 DICOM files. If the DICOM frame is 90×108 the 2dseq is stored
-  untransposed. Needs `pydicom`, not currently installed.
-- ~~Independent converter — `bruker2nifti_qa/raw/McGill_Orientation/`~~
-  **Do not use.** `resources/testdata/README.md` records that those studies were
-  removed from the curated corpus because "that acquisition was collected
-  improperly, so it is not a valid orientation reference"; the copy under
-  `_sources/` is an upstream mirror only. The reference `.nii` files beside them
-  inherit that defect.
+That constraint is why the two experiments above were chosen as they were, and
+it costs nothing here: neither touches a NIfTI or a DICOM. The pair experiment
+reads 2dseq arrays only; the geometry check reads `visu_pars` only. **The
+conclusion rests entirely on raw acquisition data and the parameters Bruker
+wrote next to it.**
+
+Closing the remaining gaps therefore means new acquisitions, not new references.
 
 If you do acquire, the specification that would settle every future orientation
 question at once:
@@ -180,8 +182,7 @@ question at once:
 3. A **non-square in-plane matrix** (e.g. 96×128) — squareness is why 96% of the
    existing corpus cannot answer this from the shape alone.
 4. An **oblique variant**, rotated about one axis and about all three.
-5. **DICOM export enabled** for the same reconstructions.
-6. Repeated on **each ParaVision generation you support**.
+5. Repeated on **each ParaVision generation you support**.
 
 Roughly 16 short acquisitions, one phantom, one session.
 
