@@ -52,9 +52,10 @@ sets, pulls it in silently.
 ## The experiment
 
 `new-orientation/` is a purpose-built orientation phantom study with a
-documented acquisition table (`plantest_scaninfo_...tsv`). It contains **pairs
-that differ only in readout direction** — the single variable that flips this
-flag:
+documented acquisition table (`plantest_scaninfo_...tsv`). Its provenance is not
+recorded in `resources/testdata/README.md`, so treat it as local data of unknown
+redistributability until that is established. It contains **pairs that differ
+only in readout direction** — the single variable that flips this flag:
 
 | study | pair | scans | transposition |
 |---|---|---|---|
@@ -94,6 +95,27 @@ acquisitions of the same object.
 H<sub>applied</sub> is confirmed and H<sub>pending</sub> is falsified, on two
 ParaVision generations, in 2D and 3D, with the prediction inverting exactly as
 the hypothesis requires.
+
+### A second, self-contained check
+
+The phantom is not the only evidence, and the other kind needs no phantom at
+all. Take any flagged non-square reconstruction —
+`pv6/full/mch_dev_022/2/pdata/1`:
+
+```
+VisuCoreSize    [178, 200, 100]
+VisuCoreExtent  [16.02, 18.00, 9.00]   ->  0.090, 0.090, 0.090 mm   isotropic
+```
+
+The field of view divides by the matrix, *in `VisuCoreSize` order*, into
+isotropic voxels. Pair that same extent with a transposed array (200, 178, 100)
+and the voxels come out 0.080 x 0.101 mm — anisotropic, and wrong. So
+`VisuCoreExtent` describes the untransposed array, and so, by construction, do
+`VisuCorePosition` and `VisuCoreOrientation`: the entire geometry block any
+consumer uses to build an affine.
+
+Transposing `data` alone therefore puts it at odds with every geometry parameter
+in `visu_pars`, on any dataset — no phantom, no pairs, no registration.
 
 This is consistent with Bruker's own documentation of
 `ATB_SetRecoTranspositionFromLoops`
@@ -140,10 +162,12 @@ Two cheap ways to close those gaps without acquiring anything:
   `new-orientation/…LRMousePhantom…/25/pdata/1`, `VisuCoreSize [90, 108]`,
   110 DICOM files. If the DICOM frame is 90×108 the 2dseq is stored
   untransposed. Needs `pydicom`, not currently installed.
-- **Independent converter** — `bruker2nifti_qa/raw/McGill_Orientation/` ships
-  reference `.nii` files beside the raw data (e.g.
-  `bb20130412_APM_DEV_Orient.jl1/3/3.nii`, 4 MB, real) from a project whose
-  purpose is orientation QA.
+- ~~Independent converter — `bruker2nifti_qa/raw/McGill_Orientation/`~~
+  **Do not use.** `resources/testdata/README.md` records that those studies were
+  removed from the curated corpus because "that acquisition was collected
+  improperly, so it is not a valid orientation reference"; the copy under
+  `_sources/` is an upstream mirror only. The reference `.nii` files beside them
+  inherit that defect.
 
 If you do acquire, the specification that would settle every future orientation
 question at once:
