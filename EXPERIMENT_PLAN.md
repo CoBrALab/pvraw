@@ -14,7 +14,14 @@ someone registers two datasets and they don't line up.
 already applied the transposition; a reader must not apply it again.
 brkraw-legacy's behaviour is correct and `brukerapi` 0.4.0 was a regression.**
 
-**Resolved upstream.** Reported as isi-nmr/brukerapi-python#153 (with #154 for
+**Resolved upstream, and the geometry question with it.** brkraw-legacy no
+longer derives an affine at all: `brukerapi` 0.4.2 supplies it, and the
+disk-slice-order convention below is settled by taking its array and its affine
+together (ADR 0002, amended). The reasoning is kept because the method is what
+matters, and because it found a slice-spacing and a slice-packaging defect that
+nothing else had.
+
+**Transposition, resolved upstream.** Reported as isi-nmr/brukerapi-python#153 (with #154 for
 the shape inconsistency it caused); `_apply_transposition` was removed in full
 and released as **0.4.1**. brkraw-legacy floors on 0.4.1 for that reason — 0.4.0
 is on PyPI and carries the regression. Against 0.4.1 every golden matches its

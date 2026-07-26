@@ -140,8 +140,9 @@ unclassifiable scans are skipped rather than written as invalid datatypes.
 > `get_dataobj` returns an array with one named axis per Frame Group -- which is also the
 > shape `brkraw-legacy info` prints, where it used to print a collapsed matrix size.
 >
-> Requires `brukerapi>=0.4.1`. Not 0.4.0: it applies a transposition the
-> reconstruction has already applied (isi-nmr/brukerapi-python#153).
+> Requires `brukerapi>=0.4.2`, which supplies the voxel-to-patient affine
+> (`affine_of_package`) and the slice-package division. Earlier releases either
+> lack them or place volumes wrongly.
 
 ```python
 import brkraw_legacy
