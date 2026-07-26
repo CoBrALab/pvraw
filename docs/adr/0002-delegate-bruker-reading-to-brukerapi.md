@@ -213,11 +213,31 @@ built. isi-nmr/brukerapi-python#156 derives the 2dseq affine from
 implementations of the same geometry, one of them ours, is the duplication this
 ADR exists to remove -- so the boundary moves rather than the dependency.
 
-**Blocked until that release.** 0.4.1 already exposes `Dataset.affine`, and it
-is the *old* one: on `lego_phantom/8` its translation is `[20, 20, -3]` where
-`VisuCorePosition[0]` is `[-20, -20, -3]` -- #156 measures a 35 mm median error
-across the corpus and finds no dataset correct. Adopting it today would ship
-that. Until #156 merges and releases, `AffineAnalyzer` stays.
+**Done, in 0.4.2.** #156 and the rest of the conformance stack merged and
+released; `Dataset.affine_of_package(i)` now places voxel (0,0,0) on
+`VisuCorePosition[0]` exactly. `AffineAnalyzer` no longer derives anything: it
+reads that affine and applies the subject correction. Verified by registering
+the orientation phantom against itself -- volumes of the same object in
+different slice orientations agree to 0.018-0.272 mm, reverse-order volumes
+included.
+
+Switching found two defects of ours that the goldens had been pinning:
+
+- **Slice spacing was thickness, not centre-to-centre.** Every acquisition with
+  an inter-slice gap was written compressed along its slice axis. The phantom's
+  own acquisition table settles it: its gap scan is `0.156 x 0.156 x (1 + 0.5
+  gap)`, so 1.5 mm, which is what `brukerapi` gives and 1.0 mm is what we gave.
+  61 reconstructions in the curated set move.
+- **PV5.1 slice packages were derived from the phase-encoding directions**,
+  which split a 3x5 tripilot into fifteen single-slice packages. `brukerapi`
+  reads `VisuCoreSlicePacksSlices` where ParaVision writes it and derives the
+  division where it does not (PV5.1 never writes it), giving 3x5.
+
+`_restore_disk_slice_order` is gone with the switch rather than becoming
+permanent: `brukerapi` flips the array and its affine follows the flip, so
+taking both is consistent, and the phantom confirms it. The reverse-order origin
+correction goes too -- upstream places those volumes sub-voxel exactly without
+it.
 
 What does not transfer, and must survive the switch: the subject-type and
 subject-position corrections (ADR 0001, `--subjecttype`/`--position`). #156

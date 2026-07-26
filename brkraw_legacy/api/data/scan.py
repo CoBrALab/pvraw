@@ -151,7 +151,8 @@ class Scan(BaseAnalyzer):
         return self.get_dataset(recos[0]).parameters.get('visu_pars')
 
     def get_affine_analyzer(self, reco_id: Optional[int] = None) -> 'AffineAnalyzer':
-        return AffineAnalyzer(self.get_scaninfo(reco_id) if reco_id else self.info)
+        info = self.get_scaninfo(reco_id) if reco_id else self.info
+        return AffineAnalyzer(info, self.get_dataset(reco_id))
 
     @property
     def about_scan(self) -> dict:

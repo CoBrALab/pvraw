@@ -101,9 +101,9 @@ class BaseMethods:
         """The image array of one reconstruction, with one named axis per Frame Group.
 
         `brukerapi` returns the array already assembled -- frames folded into
-        their Frame Groups, in the word type the scanner wrote -- and names
-        every axis (ADR 0002). All that is left is to put the slice axis where
-        the affine expects it.
+        their Frame Groups, in the word type the scanner wrote, in the order its
+        affine describes -- and names every axis (ADR 0002). All that is left is
+        to put the slice axis where the affine expects it.
         """
         BaseMethods._ensure_image_data(scanobj, reco_id)
         dataset = scanobj.get_dataset(reco_id, with_data=True)
@@ -112,7 +112,6 @@ class BaseMethods:
         if dataarray.ndim > len(labels):
             # the trailing size-1 placeholder axis of a frame-group-less reco
             dataarray = dataarray.reshape(dataarray.shape[:len(labels)])
-        dataarray = BaseMethods._restore_disk_slice_order(dataset, dataarray, labels)
         dataarray = BaseMethods._normalize_slice_axis(dataarray, labels)
         return {
             'data_array': dataarray,
@@ -120,26 +119,6 @@ class BaseMethods:
             'data_offset': collapse_scale(dataset.offset),
             'axis_labels': labels
         }
-
-    @staticmethod
-    def _restore_disk_slice_order(dataset, dataarray: NDArray, labels: list):
-        """Undo the slice reversal `brukerapi` applies for a reverse-order 2dseq.
-
-        The two libraries answer 'which slice is index 0' differently:
-        `brukerapi` flips the slice axis so index 0 is the first entry of
-        VisuCorePosition, while brkraw-legacy keeps the on-disk order and
-        accounts for the reversal in the affine's origin instead
-        (AffineAnalyzer._correct_origin). Taking both would correct twice, so
-        the array is returned in the order the affine was derived for. Which
-        convention is right is a geometry question, deliberately out of scope
-        for the delegation of reading (ADR 0002).
-        """
-        order = get_value(dataset.parameters['visu_pars'], 'VisuCoreDiskSliceOrder')
-        if 'reverse' not in str(order or ''):
-            return dataarray
-        axis = labels.index('slice') if 'slice' in labels else \
-            (2 if dataset.encoded_dim == 3 else None)
-        return dataarray if axis is None else np.flip(dataarray, axis=axis)
 
     @staticmethod
     def _normalize_slice_axis(dataarray: NDArray, axis_labels: list):
