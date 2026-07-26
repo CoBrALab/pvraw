@@ -647,7 +647,8 @@ class BrukerLoader():
             for j, reco_id in enumerate(recos):
                 visu_pars = self._get_visu_pars(scan_id, reco_id)
                 if i == 0 and j == 0:
-                    lines.extend(self._info_header(visu_pars))
+                    lines.extend(self._info_header(
+                        self._study.get_scan(scan_id).get_dataset(reco_id), visu_pars))
                 tr = get_value(visu_pars, 'VisuAcqRepetitionTime')
                 tr = ','.join(map(str, tr)) if isinstance(tr, (list, np.ndarray)) else tr
                 te = get_value(visu_pars, 'VisuAcqEchoTime')
@@ -676,9 +677,23 @@ class BrukerLoader():
         lines.append('\n')
         print('\n'.join(lines), file=io_handler)
 
-    def _info_header(self, visu_pars):
+    @staticmethod
+    def _pv_version(dataset, visu_pars):
+        """The ParaVision version, as `brukerapi` normalises it.
+
+        ``VisuCreatorVersion`` is not always a bare version -- PV5.1 writes
+        ``5.1;5.1``, and where it is unquoted it parses as a float. Recipe
+        properties raise rather than default when they do not resolve, so the
+        direct read stays as the fallback.
+        """
+        try:
+            return str(dataset.pv_version)
+        except AttributeError:
+            return get_value(visu_pars, 'VisuCreatorVersion')
+
+    def _info_header(self, dataset, visu_pars):
         """The study-level block of ``info``."""
-        title = 'Paravision {}'.format(get_value(visu_pars, 'VisuCreatorVersion'))
+        title = 'Paravision {}'.format(self._pv_version(dataset, visu_pars))
         lines = [title, '-' * len(title)]
         try:
             datetime = self.get_scan_time()
