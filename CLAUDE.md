@@ -88,12 +88,12 @@ public sample data from the network (Zenodo / GitHub), cached under
 tests. CI runs the unit suite on Python 3.11–3.14 across Ubuntu/Windows/macOS
 and the `data` suite once on Ubuntu.
 
-`tests/goldens/` holds exact values captured *before* the `brukerapi` migration:
-`images.json` (affine at full float64, a sha256 of the data array, shape and
-header fields) and `parameters.json` (every parameter key the codebase reads,
-including its absence). A difference there is a behaviour change to explain, not
-noise. `tools/sweep_nifti.py` records them and diffs two runs with
-`--compare=`.
+Geometry is verified by comparison against data, not against recorded output.
+`tools/sweep_nifti.py` records the affine, a data hash, the shape and the header
+fields for every reconstruction under a tree, and `--compare=<earlier.json>`
+diffs two runs -- run it before and after any change that could move geometry.
+Correctness itself comes from acquisitions of the same object that must agree:
+see `EXPERIMENT_PLAN.md`.
 
 ## Linting
 

@@ -104,10 +104,23 @@ class AffineAnalyzer(BaseAnalyzer):
         volume_origin = infoobj.orientation['volume_origin'][slicepack_id] \
             if multi else infoobj.orientation['volume_origin']
         if infoobj.slicepack['reverse_slice_order']:
+            # FILE_FORMAT.md 7.2: under disk_reverse_slice_order the frames are
+            # stored against the orientation's third row, and VisuCorePosition
+            # stops meaning "first voxel of the volume" -- for a 3D frame it is
+            # the first voxel of the *last* stored 2D frame. The origin of
+            # stored voxel (0,0,0) is therefore (N-1) steps away, not N: the
+            # slab extent less one plane.
+            #
+            # Written as extent-minus-one-step so both cases fall out of one
+            # expression. For a 3D frame resol[-1] is the plane step, giving
+            # (N-1) steps. For a 2D multi-slice frame it *is* the slice
+            # distance, giving zero -- correctly, because there the position
+            # list already carries one entry per slice and needs no shift.
             slice_distance = infoobj.slicepack['slice_distances_each_pack'][pack]
-            volume_origin = self._correct_origin(orientation, volume_origin, slice_distance)
+            volume_origin = self._correct_origin(orientation, volume_origin,
+                                                 slice_distance - resol[-1])
         return self._compose_affine(resol, orientation, volume_origin, slice_orient)
-    
+
     @staticmethod
     def _correct_origin(orientation, volume_origin, slice_distance):
         """Adjust the origin of the volume based on slice orientation and distance.

@@ -117,7 +117,10 @@ differs is a semantic change to be explained, not float noise.
   `api/data/scan.py` disappears with the rewrite, along with the use-after-free it
   caused (see the anchoring comment in `app/tonifti/scan.py`).
 - `08_orientation_test.py` tests rotation math in isolation and cannot catch an
-  axis-order regression. The goldens are the only guard; treat them as such.
+  axis-order regression. Geometry is guarded by comparison against data instead
+  -- acquisitions of the same object that must agree -- and by sweeping
+  `tools/sweep_nifti.py --compare=` before and after a change. See
+  `EXPERIMENT_PLAN.md`.
 
 ## What implementation determined
 
@@ -196,6 +199,41 @@ the subset reachable from the public fixtures (`tests/goldens/images.json`, 122
 images over the four ParaVision generations, plus an archive built from one of
 them at test time), because a golden is only useful where the data can be
 fetched.
+
+## Amendment, 2026-07-26: the geometry boundary moves
+
+**Decision: brkraw-legacy stops deriving the affine and trusts `brukerapi`'s,
+once upstream ships one that is correct.**
+
+This reverses the premise the Decision above rests on. "It computes no geometry
+at all" was true of `brukerapi` 0.3; it is not true of the version now being
+built. isi-nmr/brukerapi-python#156 derives the 2dseq affine from
+`VisuCorePosition`/`VisuCoreOrientation` per FILE_FORMAT.md 7.2, measured over
+3,468 binaries, and deletes the recipes that made the old one wrong. Two
+implementations of the same geometry, one of them ours, is the duplication this
+ADR exists to remove -- so the boundary moves rather than the dependency.
+
+**Blocked until that release.** 0.4.1 already exposes `Dataset.affine`, and it
+is the *old* one: on `lego_phantom/8` its translation is `[20, 20, -3]` where
+`VisuCorePosition[0]` is `[-20, -20, -3]` -- #156 measures a 35 mm median error
+across the corpus and finds no dataset correct. Adopting it today would ship
+that. Until #156 merges and releases, `AffineAnalyzer` stays.
+
+What does not transfer, and must survive the switch: the subject-type and
+subject-position corrections (ADR 0001, `--subjecttype`/`--position`). #156
+deliberately removes `VisuSubjectPosition` handling from the affine as defect
+G2, so those become a rotation applied *on top of* the upstream affine rather
+than something we derive. `VisuCoreDiskSliceOrder` also stays ours to reconcile:
+#156 keeps the array flip and makes its affine agree with it, which is
+self-consistent but not our convention, so `_restore_disk_slice_order` becomes a
+permanent convention adapter rather than a stopgap.
+
+**The goldens are dropped.** `tests/goldens/` pinned this project's affine, which
+is exactly what the switch replaces -- keeping them would mean re-capturing the
+whole set twice, and they only ever proved *nothing changed*, never *this is
+right*. What replaced them is stronger and is in `EXPERIMENT_PLAN.md`:
+acquisitions of the same object that must agree, which found a real one-voxel
+error the goldens had been faithfully pinning.
 
 ## Do not re-litigate
 
