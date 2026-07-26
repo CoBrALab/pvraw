@@ -35,8 +35,8 @@ class AffineAnalyzer(BaseAnalyzer):
     The voxel-to-patient affine comes from `brukerapi`, which derives it from
     ``VisuCorePosition``/``VisuCoreOrientation`` per FILE_FORMAT.md 7.2 (ADR
     0002, amended). What this class adds is the part `brukerapi` deliberately
-    leaves out: the subject-type and subject-position corrections of ADR 0001,
-    which the CLI can override per scan.
+    leaves out: the subject-type and subject-position corrections of ADR 0001
+    (as amended), which the CLI can override per scan.
 
     Args:
         infoobj (ScanInfo): Analysed scan properties; supplies the subject type

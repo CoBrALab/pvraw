@@ -23,9 +23,10 @@ nothing else had.
 
 **Transposition, resolved upstream.** Reported as isi-nmr/brukerapi-python#153 (with #154 for
 the shape inconsistency it caused); `_apply_transposition` was removed in full
-and released as **0.4.1**. brkraw-legacy floors on 0.4.1 for that reason — 0.4.0
-is on PyPI and carries the regression. Against 0.4.1 every golden matches its
-pre-migration value again.
+and released as **0.4.1**. 0.4.0 is on PyPI and carries the regression, which is
+part of why brkraw-legacy floors above it (the floor is now 0.4.2, for the
+affine). Against 0.4.1 every golden matched its pre-migration value again —
+`tests/goldens/` has since been dropped, for the reason recorded in ADR 0002.
 
 The method is written up below so it can be re-run and challenged — the question
 will come back the next time someone meets a transposed image.
@@ -162,10 +163,11 @@ reconstruction does it.
 
 ## What follows
 
-1. **brkraw-legacy needed no change.** Its output was right; the goldens in
-   `tests/goldens/images.json` stand, and match again on 0.4.1.
-2. **Floor on `brukerapi>=0.4.1`, not `>=0.4`.** 0.4.0 is on PyPI and silently
-   transposes 73% of reconstructions.
+1. **brkraw-legacy needed no change.** Its output was right, and matched its
+   pre-migration goldens again on 0.4.1.
+2. **Floor above `brukerapi==0.4.0`**, which is on PyPI and silently transposes
+   73% of reconstructions. The floor is now `>=0.4.2`, raised again for the
+   affine.
 3. **Reported and fixed upstream** — #153 (applying a transposition the
    reconstruction had already applied) and #154 (`dataset.data.shape`
    disagreeing with `dataset.shape_final` as a result, silently, though the code

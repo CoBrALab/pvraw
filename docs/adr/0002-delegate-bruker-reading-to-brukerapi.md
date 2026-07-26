@@ -1,6 +1,7 @@
 # ADR 0002: Delegate all Bruker file reading to `brukerapi`
 
-- Status: Accepted (implemented in 0.5.0)
+- Status: Accepted (implemented in 0.5.0); Decision amended 2026-07-26 — see
+  [the amendment](#amendment-2026-07-26-the-geometry-boundary-moves)
 - Date: 2026-07-23 (implementation notes added 2026-07-24)
 
 ## Context
@@ -41,6 +42,10 @@ The blocker was that `brukerapi` is path-only — every entry point is
 **brukerapi owns shape, dtype and scaling. brkraw-legacy owns geometry, subject
 framing and BIDS.** All file reading is delegated; `api/pvobj/` and
 `lib/pvobj.py` are deleted outright.
+
+> **Amended 2026-07-26 — geometry moved too.** `brukerapi` 0.4.2 derives a
+> correct affine, so brkraw-legacy takes it and keeps only the subject framing.
+> Read the amendment below before the bullets that follow.
 
 - **Archives are fixed upstream, not shimmed.** `brukerapi` gains a duck-typed
   path protocol — it stops calling `os.*` directly and accepts anything

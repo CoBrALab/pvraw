@@ -63,8 +63,9 @@ class Orientation(BaseHelper):
     ``VisuCoreOrientation`` (ADR 0002, amended) and deliberately leaves the
     subject frame out of it -- re-applying ``VisuSubjectPosition`` inside the
     affine was one of the defects that made the old one wrong. These two
-    parameters are what ADR 0001's correction is applied from, and what
-    ``--subjecttype``/``--position`` override when a study recorded them badly.
+    parameters are what ADR 0001's correction (as amended) is applied from,
+    and what ``--subjecttype``/``--position`` override when a study recorded
+    them badly.
 
     Dependencies:
         visu_pars

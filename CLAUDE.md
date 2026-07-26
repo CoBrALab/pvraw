@@ -17,7 +17,7 @@ uv sync --extra dev           # Also install pytest/ruff/bids-validator (needed 
 # Testing
 uv run pytest                       # All tests (sample data auto-fetched from the network)
 uv run pytest -m "not data"         # Only the offline unit tests (no downloads)
-uv run pytest tests/14_golden_test.py     # Run a single test file
+uv run pytest tests/08_orientation_test.py  # Run a single test file
 
 # Linting
 uv run ruff check .            # Uses ruff defaults
@@ -26,9 +26,10 @@ uv run ruff check .            # Uses ruff defaults
 ## Architecture
 
 **All Bruker file reading is delegated to `brukerapi`** — directory and archive
-traversal, JCAMP-DX parsing, and byte→array assembly (ADR 0002). Do not
-reintroduce any of them here. What this project owns is geometry, NIfTI headers
-and BIDS.
+traversal, JCAMP-DX parsing, byte→array assembly, and the voxel-to-patient
+affine (ADR 0002, as amended). Do not reintroduce any of them here. What this
+project owns is how the subject was framed, NIfTI headers and BIDS. Problems in
+what is delegated get fixed upstream.
 
 ### Data flow
 
@@ -38,24 +39,25 @@ PvDataset (directory or .zip/.PvDatasets archive)
     → Study (api/data/study.py)       — scan_id → brukerapi Experiment; the vocabulary boundary
       → Scan (api/data/scan.py)       — reco_id → brukerapi Processing → brukerapi Dataset
         → ScanInfoAnalyzer            — derived values: image, slicepack, orientation, cycle
-          → AffineAnalyzer            — the affine (ADR 0001)
+          → AffineAnalyzer            — brukerapi's affine + the subject correction
           → NIfTI/BIDS export         — via app/tonifti/
 ```
 
 ### Key layers
 
 - **`brkraw_legacy/lib/`** — `BrukerLoader` (loader.py), the parameter accessor and
-  BIDS/metadata helpers (utils.py), orientation conventions (subject_orient.py),
-  BIDS entity/filename rules (bids.py), BIDS metadata references (reference.py),
-  custom exceptions (errors.py). `recon.py`/`recoFunctions.py` are unreachable
-  dead code awaiting a separate ticket.
+  BIDS/metadata helpers (utils.py), subject-orientation conventions
+  (subject_orient.py), BIDS entity/filename rules (bids.py), BIDS metadata
+  references (reference.py), custom exceptions (errors.py)
 - **`brkraw_legacy/api/data/`** — `Study` and `Scan`: the only place that maps
   `scan_id`/`reco_id` onto `brukerapi`'s Experiment/Processing (see `CONTEXT.md`)
 - **`brkraw_legacy/api/analyzer/`** — `ScanInfoAnalyzer` (parameters → derived
-  values), `AffineAnalyzer` (geometry)
+  values), `AffineAnalyzer` (takes `brukerapi`'s affine and applies the
+  subject-type/position correction — ADR 0001 as amended)
 - **`brkraw_legacy/api/helper/`** — the derivations themselves: image, slicepack,
-  orientation, cycle, diffusion, protocol, dataarray, plus `axis_labels`/
-  `frame_groups`, which name the axes of an assembled image
+  orientation (subject type/position only), cycle, diffusion, protocol,
+  dataarray, plus `axis_labels`/`frame_groups`, which name the axes of an
+  assembled image
 - **`brkraw_legacy/app/tonifti/`** — NIfTI assembly and headers: `StudyToNifti`,
   `ScanToNifti`, `Header`, `ToNiftiPlugin`
 - **`brkraw_legacy/scripts/`** — CLI entry points (`brkraw_legacy.py` with subcommands: info, tonii, tonii_all, bids_helper, bids_convert)
@@ -81,8 +83,8 @@ crashes on PV5.1".
 
 Tests are numbered by layer: `02_api_analyzer`, `04_api_data`, `05_app_tonifti`,
 `06_bids`, `07_conversion`, `08_orientation`, `09_nifti_header`,
-`10_bids_metadata`, `11_diffusion`, `12_complex_warning`, `13_slice_axis`,
-`14_golden`, `15_parameter`. Data-dependent tests are marked `data` and fetch
+`10_bids_metadata`, `11_diffusion`, `12_complex_warning`, `13_slice_axis`.
+Data-dependent tests are marked `data` and fetch
 public sample data from the network (Zenodo / GitHub), cached under
 `$BRKRAW_TEST_DATA_DIR`; `pytest -m "not data"` runs only the offline unit
 tests. CI runs the unit suite on Python 3.11–3.14 across Ubuntu/Windows/macOS
