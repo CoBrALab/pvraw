@@ -31,7 +31,7 @@ def axis_labels(dataset):
         labels.append(name[3:].lower() if name.upper().startswith('FG_') else name.lower())
     if labels[-1:] == ['frame']:
         labels = labels[:-1]
-    if getattr(dataset, 'is_single_slice', False) and len(labels) > 2:
+    if dataset.get('is_single_slice', False) and len(labels) > 2:
         labels[2] = 'slice'
     return labels
 
@@ -45,7 +45,7 @@ def frame_groups(dataset):
     """
     labels = axis_labels(dataset)
     sizes = tuple(dataset.shape_final)[:len(labels)]
-    first = dataset.encoded_dim + (1 if getattr(dataset, 'is_single_slice', False) else 0)
+    first = dataset.encoded_dim + (1 if dataset.get('is_single_slice', False) else 0)
     return list(zip(labels[first:], sizes[first:]))
 
 

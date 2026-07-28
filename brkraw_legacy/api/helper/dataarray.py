@@ -22,11 +22,12 @@ class DataArray(BaseHelper):
     def __init__(self, analobj: 'ScanInfoAnalyzer'):
         super().__init__()
         dataset = analobj.dataset
-        if dataset is None or not hasattr(dataset, 'numpy_dtype'):
+        dtype = dataset.get('numpy_dtype') if dataset is not None else None
+        if dtype is None:
             raise ValueError('reconstruction has no image metadata (empty or '
                              'unreadable visu_pars); cannot convert to NIfTI')
 
-        self.data_dtype = dataset.numpy_dtype
+        self.data_dtype = dtype
         self.axis_labels = axis_labels(dataset)
         self.data_slope = collapse_scale(dataset.slope)
         self.data_offset = collapse_scale(dataset.offset)

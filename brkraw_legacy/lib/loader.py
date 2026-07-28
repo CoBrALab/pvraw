@@ -682,14 +682,11 @@ class BrukerLoader():
         """The ParaVision version, as `brukerapi` normalises it.
 
         ``VisuCreatorVersion`` is not always a bare version -- PV5.1 writes
-        ``5.1;5.1``, and where it is unquoted it parses as a float. Recipe
-        properties raise rather than default when they do not resolve, so the
-        direct read stays as the fallback.
+        ``5.1;5.1``. The direct read stays as the fallback for a dataset whose
+        properties did not resolve.
         """
-        try:
-            return str(dataset.pv_version)
-        except AttributeError:
-            return get_value(visu_pars, 'VisuCreatorVersion')
+        version = dataset.get('pv_version')
+        return str(version) if version is not None else get_value(visu_pars, 'VisuCreatorVersion')
 
     def _info_header(self, dataset, visu_pars):
         """The study-level block of ``info``."""

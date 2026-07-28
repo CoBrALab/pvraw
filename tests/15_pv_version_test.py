@@ -26,12 +26,15 @@ class _Value:
 
 
 class _Dataset:
+    """Stands in for `brukerapi`'s ``Dataset.get``: a declared property that did
+    not resolve reads as the default rather than raising (0.4.3, #178)."""
     def __init__(self, pv_version=None):
-        if pv_version is not None:
-            self.pv_version = pv_version
+        self._pv_version = pv_version
 
-    def __getattr__(self, name):
-        raise AttributeError("'Dataset' object has no attribute '{}'".format(name))
+    def get(self, name, default=None):
+        if name != 'pv_version':
+            raise AttributeError("'Dataset' object has no attribute '{}'".format(name))
+        return self._pv_version if self._pv_version is not None else default
 
 
 def test_uses_upstream_version_over_the_raw_parameter():

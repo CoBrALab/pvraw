@@ -25,25 +25,21 @@ def get_value(parameters, key, default=None):
     return unquote(parameter.nested if is_struct else parameter.value)
 
 
-#: A JCAMP-DX string literal holding nothing but a number is that number.
-_NUMERIC = re.compile(r'^-?(\d+\.\d+|\d+|[0-9.]+[eE]-?[0-9.]+)$')
-
-
 def unquote(value):
-    """Resolve a JCAMP-DX scalar: drop ``<...>`` quoting and re-type numbers.
+    """Resolve a JCAMP-DX scalar to absence or itself.
 
-    An empty literal (``<>``, or a parameter written with no value) is absence,
-    not the empty string, and reads as None. Applied element-wise to arrays.
+    `brukerapi` types the value: a bare numeric literal arrives as an int or a
+    float, a ``<...>`` string arrives as a str without its delimiters (ADR
+    0002; isi-nmr/brukerapi-python#176). All that is left to decide is absence
+    -- an empty literal (``<>``, or a parameter written with no value) is
+    absence rather than the empty string.
+
+    Notably *not* re-typed. A numeric-looking string is a string: ParaVision
+    writes identifiers such as ``<01>``, and coercing those to numbers dropped
+    the leading zeros that BIDS turns into ``sub-``/``ses-`` names.
     """
     if isinstance(value, str):
-        if len(value) > 1 and value[0] == '<' and value[-1] == '>':
-            value = value[1:-1]
-        value = str(value)
-        if not value:
-            return None
-        if _NUMERIC.match(value):
-            return float(value) if ('.' in value or 'e' in value.lower()) else int(value)
-        return value
+        return value or None
     if isinstance(value, np.ndarray):
         if value.dtype.kind not in ('U', 'S', 'O'):
             return value
