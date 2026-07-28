@@ -223,69 +223,83 @@ def test_end_to_end_passes_validator(lego_study, tmp_path):
         [(e.get('code'), e.get('subCode')) for e in errors])
 
 
-def test_bids_convert_isolates_failing_scan(h2_study, tmp_path):
-    """A scan that raises during conversion must be reported and skipped, not
-    abort the whole study's BIDS conversion (mirrors tonii_all's per-scan guard).
-    We classify a genuinely-crashing reconstruction as anat alongside a
-    convertible 3D scan; the good scan must still be written and bids_convert
-    must exit cleanly. Skips when no crashing reconstruction exists.
-    """
-    import pandas as pd
+def _two_small_3d_scans(study):
+    """The two smallest scans of `study` that convert to a plain 3-D volume.
 
+    Smallest first, so the sample study built from them stays a few megabytes
+    and the search stops after a couple of conversions.
+    """
     from brkraw_legacy import BrukerLoader
 
-    d = BrukerLoader(str(h2_study))
-    # A reco that crashes (not a clean 'non-image data' skip, which save_as handles).
-    crash = None
-    for sid, recos in d.avail_reco_id.items():
-        for rid in recos:
-            try:
-                d.get_niftiobj(sid, rid)
-            except Exception as e:                      # noqa: BLE001
-                if 'non-image data' not in str(e):
-                    crash = (int(sid), int(rid))
-                    break
-        if crash:
-            break
-    if crash is None:
-        pytest.skip('no genuinely-crashing reconstruction to isolate')
-
-    good = None
-    for sid in d.avail_scan_id:
-        if sid == crash[0]:
-            continue
+    by_size = sorted(
+        (sum(f.stat().st_size for f in scan.rglob('*') if f.is_file()), scan.name)
+        for scan in study.iterdir() if (scan / 'pdata').is_dir()
+    )
+    loader = BrukerLoader(str(study))
+    found = []
+    for _, name in by_size:
         try:
-            obj = d.get_niftiobj(sid, 1)
+            obj = loader.get_niftiobj(int(name), 1)
         except Exception:                               # noqa: BLE001
             continue
         if not isinstance(obj, list) and getattr(obj, 'ndim', 0) == 3:
-            good = int(sid)
-            break
-    if good is None:
-        pytest.skip('no convertible 3D scan available')
+            found.append(name)
+            if len(found) == 2:
+                return found
+    pytest.skip('need two small 3-D scans to build the sample study')
 
+
+def test_bids_convert_isolates_failing_scan(h2_study, tmp_path):
+    """A scan that raises during conversion must be reported and skipped, not
+    abort the whole study's BIDS conversion (mirrors tonii_all's per-scan guard).
+
+    The failure is injected rather than looked for. This test used to hunt the
+    sample study for a reconstruction that already crashed, and skipped itself
+    when it found none -- which is what happened once the reading layer was
+    delegated and the crashes were fixed, leaving the guard uncovered. Emptying
+    a ``2dseq`` reproduces the condition on demand: it raises `InvalidDataset`,
+    which is a genuine failure rather than the clean 'non-image data' skip that
+    ``save_as`` handles by design.
+    """
+    import pandas as pd
+
+    scans = _two_small_3d_scans(h2_study)
     sample = tmp_path / 'sample'
-    sample.mkdir()
-    (sample / h2_study.name).symlink_to(h2_study.resolve())
+    study = sample / h2_study.name
+    study.mkdir(parents=True)
+    shutil.copy(h2_study / 'subject', study)
+    for name in scans:
+        shutil.copytree(h2_study / name, study / name)
+
     sheet = tmp_path / 'map'
     out = tmp_path / 'raw'
     subprocess.check_call(['brkraw-legacy', 'bids_helper', str(sample), str(sheet), '-j'])
+
     df = pd.read_csv(str(sheet) + '.csv')
-    keep = df[((df['ScanID'] == crash[0]) & (df['RecoID'] == crash[1]))
-              | ((df['ScanID'] == good) & (df['RecoID'] == 1))].copy()
-    keep['SubjID'] = '001'
-    keep['SessID'] = ''
-    keep['DataType'] = 'anat'
-    keep['modality'] = 'T2starw'
-    keep['acq'] = ['scan{}'.format(i) for i in range(len(keep))]
-    keep.to_csv(str(sheet) + '.csv', index=False)
+    df = df[df['RecoID'] == 1].copy()
+    df['SubjID'] = '001'
+    df['SessID'] = ''
+    df['DataType'] = 'anat'
+    df['modality'] = 'T2starw'
+    df['acq'] = ['scan{}'.format(scan) for scan in df['ScanID']]
+    df.to_csv(str(sheet) + '.csv', index=False)
+
+    doomed, spared = int(df['ScanID'].iloc[0]), int(df['ScanID'].iloc[1])
+    (study / str(doomed) / 'pdata' / '1' / '2dseq').write_bytes(b'')
 
     # Must not raise: the crashing scan is reported and skipped, not fatal.
-    subprocess.check_call(['brkraw-legacy', 'bids_convert', str(sample),
-                           str(sheet) + '.csv', '-j', str(sheet) + '.json',
-                           '--output', str(out)])
-    assert list(out.rglob('sub-001/anat/*_T2starw.nii.gz')), \
-        'the convertible scan should still produce output'
+    result = subprocess.run(['brkraw-legacy', 'bids_convert', str(sample),
+                             str(sheet) + '.csv', '-j', str(sheet) + '.json',
+                             '--output', str(out)],
+                            check=True, capture_output=True, text=True)
+
+    assert 'ScanID:{}'.format(doomed) in result.stdout, \
+        'the failing scan must be reported, not silently dropped:\n{}'.format(result.stdout)
+    written = [p.name for p in out.rglob('sub-001/anat/*_T2starw.nii.gz')]
+    assert 'sub-001_acq-scan{}_T2starw.nii.gz'.format(spared) in written, \
+        'the convertible scan should still produce output, got {}'.format(written)
+    assert not any('scan{}_'.format(doomed) in name for name in written), \
+        'the failing scan must not produce output, got {}'.format(written)
 
 
 def test_method_less_scan_does_not_crash(h2_study, tmp_path):
