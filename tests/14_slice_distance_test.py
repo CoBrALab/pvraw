@@ -9,12 +9,10 @@ thickness-vs-spacing confusion ADR 0002's amendment fixed in the affine, left
 behind in what ``info`` and the study header report. 214 of the 1739
 reconstructions in ``resources/testdata`` were affected.
 
-``brukerapi``'s ``resolution[2]`` is not the answer either: it is 0 for an ISA
-parametric map whose third dimension is not spatial, and a cross-package
-diagonal when the reconstruction holds several slice packages. The affine is
-correct in both cases because it is built per package from measured positions.
+``brukerapi`` exposes the step as ``Dataset.slice_distance`` since 0.4.3
+(isi-nmr/brukerapi-python#177), so these pin that we take it rather than derive
+one, and that a reconstruction it cannot answer for still reports something.
 """
-import numpy as np
 import pytest
 
 from brkraw_legacy.api.helper.slicepack import SlicePack
@@ -36,20 +34,23 @@ class _Value:
         self.nested = value
 
 
+class _UnsupportedDatasetType(Exception):
+    """What `brukerapi` raises for a reconstruction carrying no geometry."""
+
+
 class _Dataset:
-    """A `brukerapi` Dataset stand-in: packages and their affines."""
+    """A `brukerapi` Dataset stand-in: packages and their slice spacing."""
     def __init__(self, packages, steps, raises=False):
         self._packages, self._steps, self._raises = packages, steps, raises
 
     def slice_packages_index(self):
         return self._packages
 
-    def affine_of_package(self, index):
+    @property
+    def slice_distance(self):
         if self._raises:
-            raise AttributeError("'Dataset' object has no attribute 'affine'")
-        affine = np.eye(4)
-        affine[:3, 2] = [0, 0, self._steps[index]]
-        return affine
+            raise _UnsupportedDatasetType('frames are not purely spatial')
+        return list(self._steps)
 
 
 class _Analobj:

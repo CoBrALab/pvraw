@@ -260,6 +260,33 @@ right*. What replaced them is stronger and is in `EXPERIMENT_PLAN.md`:
 acquisitions of the same object that must agree, which found a real one-voxel
 error the goldens had been faithfully pinning.
 
+## Addendum, 2026-07-28: 0.4.3 closes the last two derivations
+
+An audit for anything still deriving Bruker data here rather than taking
+`brukerapi`'s found two, and both were fixed upstream rather than kept:
+
+- **The slice step.** `affine_of_package` computed the centre-to-centre spacing
+  and discarded it, so we read `VisuCoreFrameThickness` — the *slab* thickness
+  for a 3-D acquisition, which put 214 of 1739 reconstructions at odds with
+  their own affine. Now `Dataset.slice_distance`
+  (isi-nmr/brukerapi-python#177), value-for-value identical to what we derived,
+  with the parameter read kept only for the 46 reconstructions carrying no
+  geometry at all.
+- **JCAMP-DX string quoting.** `parse_value` returned `<...>` delimiters as part
+  of the value, so `get_value` and `axis_labels` stripped them here
+  (isi-nmr/brukerapi-python#176). Nothing in the corpus comes back delimited on
+  0.4.3, and the stripping is gone.
+
+Two further upstream fixes landed in the same release and are not yet taken up:
+`Dataset.get(name, default)` (#178), which is what would let the remaining
+`get_value` reads of `TE`/`TR`/`extent` become derived-property reads, and #182,
+which turned ParaVision's own NIfTI exports into a working oracle — independent
+confirmation, to 4.8e-07, of the affine this ADR delegates.
+
+**Still ours, and not a gap upstream:** the subject-type/position correction
+(ADR 0001, as amended), diffusion `bvals`/`bvecs`, the archive root, and the
+BIDS-facing acquisition parameters.
+
 ## Do not re-litigate
 
 Do not reintroduce a JCAMP-DX parser, a directory/archive walker, or a

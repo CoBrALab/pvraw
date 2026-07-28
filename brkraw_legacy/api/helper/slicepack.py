@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import numpy as np
-
 from brkraw_legacy.lib.utils import get_value
 
 from .base import BaseHelper
@@ -40,44 +38,36 @@ class SlicePack(BaseHelper):
             for _, count in packages
         ]
 
-        # One distance per pack, measured from that pack's own affine: the
-        # length of its third column is the centre-to-centre step the voxels
-        # are actually placed with. VisuCoreFrameThickness is not that -- for a
-        # 3D acquisition it is the *slab* thickness, which reported 12 mm for a
-        # 0.125 mm isotropic volume (214 of 1739 reconstructions in
-        # resources/testdata). It is the thickness-vs-spacing confusion ADR
-        # 0002's amendment fixed in the affine, left behind in what `info` and
-        # the study header report.
-        #
-        # `brukerapi`'s resolution[2] is not the answer either: 0 where the
-        # third dimension is not spatial (ISA parametric maps), and a
-        # cross-package diagonal where there are several packages.
-        self.slice_distances_each_pack = [
-            self._pack_distance(analobj.dataset, index, visu_pars)
-            for index in range(self.num_slice_packs)
-        ]
+        # One distance per pack, from `brukerapi` (ADR 0002): the step its
+        # affine places the voxels with. VisuCoreFrameThickness is not that --
+        # for a 3D acquisition it is the *slab* thickness, which reported 12 mm
+        # for a 0.125 mm isotropic volume. That is what this used to read, and
+        # 214 of the 1739 reconstructions in resources/testdata disagreed with
+        # their own affine because of it; upstream exposes the number since
+        # 0.4.3 (isi-nmr/brukerapi-python#177).
+        self.slice_distances_each_pack = self._pack_distances(analobj.dataset, visu_pars)
 
         self.slice_order_scheme = get_value(method, "PVM_ObjOrderScheme") if method else None
         disk_slice_order = get_value(visu_pars, "VisuCoreDiskSliceOrder") or 'normal'
         self.is_reverse = 'reverse' in str(disk_slice_order)
 
-    @staticmethod
-    def _pack_distance(dataset, index, visu_pars):
-        """One slice package's centre-to-centre step, in mm.
+    def _pack_distances(self, dataset, visu_pars):
+        """Centre-to-centre slice step of each pack, in mm.
 
-        From the package's affine where there is one. A reconstruction whose
-        frames are not spatial has no affine, and there the parameters are all
-        there is -- collapsing any per-frame VisuCoreFrameThickness (an ISA
-        parametric map such as an MGE T2* map stores one per frame) to a scalar
-        so the resolution does not come out ragged.
+        A reconstruction whose frames are not spatial has no affine, and
+        ``slice_distance`` says so rather than inventing one. There the
+        parameters are all there is -- collapsing any per-frame
+        VisuCoreFrameThickness (an ISA parametric map such as an MGE T2* map
+        stores one per frame) to a scalar so the resolution is not ragged.
         """
         try:
-            return float(np.linalg.norm(np.asarray(dataset.affine_of_package(index))[:3, 2]))
+            return [float(distance) for distance in dataset.slice_distance]
         except Exception:
             distance = get_value(visu_pars, "VisuCoreSlicePacksSliceDist")
             if distance is None:
                 distance = get_value(visu_pars, "VisuCoreFrameThickness")
-            return distance[0] if hasattr(distance, '__len__') and len(distance) else distance
+            distance = distance[0] if hasattr(distance, '__len__') and len(distance) else distance
+            return [distance] * self.num_slice_packs
 
     def get_info(self):
         return {

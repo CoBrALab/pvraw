@@ -15,9 +15,9 @@ def axis_labels(dataset):
     """One lower-case name per axis of the reconstruction's image array.
 
     `brukerapi` names every axis: the encoded spatial axes from
-    ``VisuCoreDimDesc``, then one per Frame Group (``<FG_ECHO>`` and so on).
-    Strip the JCAMP-DX quoting and the ``FG_`` prefix so the rest of the code
-    reads ``echo``, ``slice``, ``diffusion``.
+    ``VisuCoreDimDesc``, then one per Frame Group (``FG_ECHO`` and so on).
+    Strip the ``FG_`` prefix so the rest of the code reads ``echo``, ``slice``,
+    ``diffusion``.
 
     Two axes need naming rather than renaming. A reconstruction with no frame
     groups carries a trailing size-1 ``frame`` placeholder, which is dropped --
@@ -27,7 +27,7 @@ def axis_labels(dataset):
     """
     labels = []
     for name in dataset.dim_type:
-        name = str(name).strip('<>')
+        name = str(name)
         labels.append(name[3:].lower() if name.upper().startswith('FG_') else name.lower())
     if labels[-1:] == ['frame']:
         labels = labels[:-1]

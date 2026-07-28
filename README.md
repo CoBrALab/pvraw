@@ -140,9 +140,11 @@ unclassifiable scans are skipped rather than written as invalid datatypes.
 > `get_dataobj` returns an array with one named axis per Frame Group -- which is also the
 > shape `brkraw-legacy info` prints, where it used to print a collapsed matrix size.
 >
-> Requires `brukerapi>=0.4.2`, which supplies the voxel-to-patient affine
-> (`affine_of_package`) and the slice-package division. Earlier releases either
-> lack them or place volumes wrongly.
+> Requires `brukerapi>=0.4.3`, which supplies the voxel-to-patient affine
+> (`affine_of_package`), the slice-package division and the slice spacing
+> (`slice_distance`), and which returns JCAMP-DX string values without their
+> `<...>` delimiters. Earlier releases either lack those or place volumes
+> wrongly.
 
 ```python
 import brkraw_legacy
