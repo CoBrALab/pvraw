@@ -106,7 +106,7 @@ dev = [
 requires-dist = [
     { name = "bids-validator-deno", marker = "extra == 'dev'" },
     { name = "bidsschematools", specifier = ">=0.7" },
-    { name = "brukerapi", specifier = ">=0.4.2" },
+    { name = "brukerapi", specifier = ">=0.4.3" },
     { name = "nbmake", marker = "extra == 'dev'" },
     { name = "nibabel", specifier = ">=3.2.1" },
     { name = "numpy", specifier = ">=1.23.2" },
@@ -122,15 +122,15 @@ provides-extras = ["dev"]
 
 [[package]]
 name = "brukerapi"
-version = "0.4.2"
+version = "0.4.3"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "numpy" },
     { name = "pyyaml" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/2d/31/0f3feb272e47a2b753a488d0936c39f00647764b2fb387649b37b3344965/brukerapi-0.4.2.tar.gz", hash = "sha256:07d79d0d3f82696a42e9722139dcf2dc4ffd2cefd831faa4985f69dc7de9ce6b", size = 96997, upload-time = "2026-07-26T14:22:04.933Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/69/0c/f91c15e1fde601478eb7360454bb00d7ba23c2a418b816564a763d247c29/brukerapi-0.4.3.tar.gz", hash = "sha256:76c61d761ac2022ed15fddba20970e9f5cc64aeb102f3ef9d02efa15bdc60787", size = 100961, upload-time = "2026-07-28T12:35:12.472Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/3c/ec/ff18bdd1425ae6744fb2662c88e014344afee607dd521dce421fd1fd1bff/brukerapi-0.4.2-py3-none-any.whl", hash = "sha256:2a25b0c51cd5e7d7a76acfbf302dfd437432eb3dbd72507532f46845ac479f10", size = 63993, upload-time = "2026-07-26T14:22:03.955Z" },
+    { url = "https://files.pythonhosted.org/packages/b1/2f/abd5db707b7c8d9c42ad14feb3bd1d09a0606215f04a877540f21b0a9689/brukerapi-0.4.3-py3-none-any.whl", hash = "sha256:8cdaabf31cffa177ebbc43c04dc1619729a95e22c9198bb91593ca5c6509c48a", size = 65341, upload-time = "2026-07-28T12:35:11.43Z" },
 ]
 
 [[package]]
