@@ -28,6 +28,6 @@ jobs:
     # 59 to 413) lands as a deliberate lockfile bump instead of breaking every
     # open PR's lint job.
     - name: Install dependencies
-      run: uv sync --extra dev
+      run: uv sync --locked --extra dev --python 3.13
     - name: Lint with ruff
-      run: uv run ruff check . --statistics
+      run: uv run --no-sync ruff check . --statistics

@@ -20,8 +20,15 @@ uv run pytest -m "not data"         # Only the offline unit tests (no downloads)
 uv run pytest tests/08_orientation_test.py  # Run a single test file
 
 # Linting
-uv run ruff check .            # Uses ruff defaults
+uv run ruff check .            # Config in pyproject.toml; must be clean
+uv run ruff check . --fix      # Safe fixes only -- then run the tests, see below
 ```
+
+CI installs from `uv.lock` (`uv sync --locked`), so every tool version is
+pinned: a new ruff or pytest release cannot break an unrelated PR. `--locked`
+also fails the build when `pyproject.toml` was edited without re-running
+`uv lock`. Changing a tool version is therefore a deliberate lockfile commit,
+not something that happens on its own.
 
 ## Architecture
 
@@ -99,7 +106,42 @@ see `EXPERIMENT_PLAN.md`.
 
 ## Linting
 
-Ruff for linting. Type checking config in `mypy.ini`.
+Ruff, configured in `pyproject.toml` under `[tool.ruff.lint]`. Type checking
+config in `mypy.ini`.
+
+The rule set is ruff's defaults minus what this project deliberately does not
+follow, so a finding is a real one rather than noise. Each exemption is
+recorded with its reason next to the config; the short version:
+
+- **`BLE001`** (blind `except Exception`) is off project-wide. Converting a
+  study must not abort because one scan of it fails, so the per-scan loops and
+  the optional-parameter fallbacks catch broadly on purpose -- each one warns,
+  falls back to a documented default, or re-raises a typed error.
+- **`N999`/`S112`** are off for `tests/`, whose modules are named for the layer
+  they cover (`02_api_analyzer`, `04_api_data`, ...).
+
+Prefer the project's own exceptions from `lib/errors.py` (`InvalidValueInField`
+for a bad field value, `InvalidApproach` for a bad call) over bare
+`raise Exception(...)`, so callers can catch by type. Note that
+`UnexpectedError` and `InvalidApproach` print a traceback on construction,
+which emits a bare `NoneType: None` when raised outside an `except` block.
+
+### `ruff --fix` is not safe unattended here
+
+Run the tests after any `--fix`, and never take `--unsafe-fixes` without
+reading the diff. Reading is delegated to `brukerapi`, whose types only look
+dict-like:
+
+- **`SIM118` is wrong on `JCAMPDX`.** It defines `keys()` and `__contains__`
+  but no `__iter__`, so rewriting `for k in pars.keys()` to `for k in pars`
+  falls back to `__getitem__(0)` and raises `KeyError`. Its autofix once broke
+  21 tests. The two sites that iterate one keep `.keys()` with a `noqa`;
+  `key in pars` checks are fine and are left alone.
+
+Because `--fix` rewrites in bulk, verify behaviour rather than assuming: run
+`uv run pytest`, and for anything touching geometry or sidecars use
+`tools/sweep_nifti.py --compare` (see Testing above), which pins every affine
+and data hash and is what proves a lint sweep changed nothing.
 
 ## Agent skills
 
