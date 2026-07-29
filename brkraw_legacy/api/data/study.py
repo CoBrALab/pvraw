@@ -36,11 +36,6 @@ from brkraw_legacy.lib.utils import get_value
 
 from .scan import Scan
 
-from typing import TYPE_CHECKING
-if TYPE_CHECKING:
-    from typing import Optional
-
-
 #: Walking the tree must not read image data: a study is opened to list its
 #: scans, and the 2dseq of every reconstruction is megabytes.
 UNLOADED = {'load': LOAD_STAGES['empty']}
@@ -167,7 +162,7 @@ class Study(BaseAnalyzer):
         self._subject = self._load_subject()
         self._parse_header()
 
-    def _load_subject(self) -> Optional[JCAMPDX]:
+    def _load_subject(self) -> JCAMPDX | None:
         """The study-level ``subject`` file, or None when the export omits it."""
         if self._container is None or isinstance(self._container, Experiment):
             return None
@@ -176,9 +171,9 @@ class Study(BaseAnalyzer):
             return None
         try:
             return JCAMPDX(subject)
-        except Exception as error:  # noqa: BLE001
-            warnings.warn('Could not read the subject file ({}); subject-derived '
-                          'fields are unavailable.'.format(error), UserWarning)
+        except Exception as error:
+            warnings.warn(f'Could not read the subject file ({error}); subject-derived '
+                          'fields are unavailable.', UserWarning)
             return None
 
     @property
@@ -191,7 +186,7 @@ class Study(BaseAnalyzer):
         return self._path
 
     @property
-    def subject(self) -> Optional[JCAMPDX]:
+    def subject(self) -> JCAMPDX | None:
         return self._subject
 
     @property
@@ -217,8 +212,8 @@ class Study(BaseAnalyzer):
         """The `brukerapi` Experiment for `scan_id`."""
         return self._scans[scan_id]
 
-    def get_scan(self, scan_id: int, reco_id: Optional[int] = None,
-                 debug: bool = False) -> 'Scan':
+    def get_scan(self, scan_id: int, reco_id: int | None = None,
+                 debug: bool = False) -> Scan:
         """The Scan for `scan_id`, optionally bound to one reconstruction."""
         return Scan(self._scans[scan_id], reco_id=reco_id, debug=debug)
 
@@ -227,8 +222,10 @@ class Study(BaseAnalyzer):
         self.header = None
         if self._subject is None:
             return
+        # .keys() is required: JCAMPDX exposes keys() but no __iter__, so bare
+        # iteration falls back to __getitem__(0) and raises KeyError.
         self.header = {key.replace('SUBJECT_', ''): get_value(self._subject, key)
-                       for key in self._subject.keys() if key.startswith('SUBJECT')}
+                       for key in self._subject.keys() if key.startswith('SUBJECT')}  # noqa: SIM118
         title = get_value(self._subject, 'TITLE')
         self.header['sw_version'] = (str(title).split(',')[-1].strip()
                                      if title and 'ParaVision' in str(title)

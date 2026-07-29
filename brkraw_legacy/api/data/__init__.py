@@ -18,7 +18,7 @@ Example:
 This enables straightforward access to these classes for further development and deployment in MRI data analysis tasks.
 """
 
-from .study import Study
 from .scan import Scan, ScanInfo
+from .study import Study
 
-__all__ = ['Study', 'Scan', 'ScanInfo']
+__all__ = ['Scan', 'ScanInfo', 'Study']

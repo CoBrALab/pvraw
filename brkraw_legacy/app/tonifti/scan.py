@@ -1,16 +1,23 @@
 from __future__ import annotations
+
 from pathlib import Path
+from typing import TYPE_CHECKING
+
 from brukerapi.exceptions import NotExperimentFolder, NotProcessingFolder
 from brukerapi.folders import Experiment, Processing
+
 from brkraw_legacy.api.data import Scan
 from brkraw_legacy.api.data.study import UNLOADED
 from brkraw_legacy.lib.errors import FileNotValidError
+
 from .base import BaseMethods
-from typing import TYPE_CHECKING
+
 if TYPE_CHECKING:
-    from typing import Union, Optional, Literal
-    from brkraw_legacy.api import PlugInSnippet
+    from typing import Literal
+
     from nibabel.nifti1 import Nifti1Image
+
+    from brkraw_legacy.api import PlugInSnippet
 
 
 def _open_scan(path: Path):
@@ -32,8 +39,8 @@ def _open_scan(path: Path):
 
 class ScanToNifti(Scan, BaseMethods):
     def __init__(self,
-                 path: Optional[Path] = None,
-                 scale_mode: Optional[Literal['header', 'apply']] = None,
+                 path: Path | None = None,
+                 scale_mode: Literal['header', 'apply'] | None = None,
                  **kwargs):
         """A scan, converted to NIfTI.
 
@@ -48,32 +55,32 @@ class ScanToNifti(Scan, BaseMethods):
             kwargs['pvobj'] = _open_scan(Path(path).absolute())
         super().__init__(**kwargs)
 
-    def get_affine(self, reco_id: Optional[int] = None,
-                   subj_type: Optional[str] = None,
-                   subj_position: Optional[str] = None):
+    def get_affine(self, reco_id: int | None = None,
+                   subj_type: str | None = None,
+                   subj_position: str | None = None):
         return super().get_affine(scanobj = self,
                                   reco_id = reco_id,
                                   subj_type = subj_type,
                                   subj_position = subj_position)
 
-    def get_dataobj(self, reco_id: Optional[int] = None,
-                    scale_mode: Optional[Literal['header', 'apply']] = None):
+    def get_dataobj(self, reco_id: int | None = None,
+                    scale_mode: Literal['header', 'apply'] | None = None):
         scale_mode = scale_mode or self.scale_mode
-        scale_correction = False if not scale_mode or scale_mode == 'header' else True
+        scale_correction = not (not scale_mode or scale_mode == 'header')
         if reco_id:
             self.set_scaninfo(reco_id)
         return super().get_dataobj(scanobj = self,
                                    reco_id = reco_id,
                                    scale_correction = scale_correction)
 
-    def get_data_dict(self, reco_id: Optional[int] = None):
+    def get_data_dict(self, reco_id: int | None = None):
         if reco_id:
             self.set_scaninfo(reco_id)
         return super().get_data_dict(scanobj=self, reco_id=reco_id)
 
-    def get_affine_dict(self, reco_id: Optional[int] = None,
-                        subj_type: Optional[str] = None,
-                        subj_position: Optional[str] = None):
+    def get_affine_dict(self, reco_id: int | None = None,
+                        subj_type: str | None = None,
+                        subj_position: str | None = None):
         if reco_id:
             self.set_scaninfo(reco_id)
         return super().get_affine_dict(scanobj = self,
@@ -82,19 +89,19 @@ class ScanToNifti(Scan, BaseMethods):
                                        subj_position = subj_position)
 
     def update_nifti1header(self,
-                            nifti1obj: 'Nifti1Image',
-                            reco_id: Optional[int] = None,
-                            scale_mode: Optional[Literal['header', 'apply']] = None):
+                            nifti1obj: Nifti1Image,
+                            reco_id: int | None = None,
+                            scale_mode: Literal['header', 'apply'] | None = None):
         scale_mode = scale_mode or self.scale_mode
         return super().update_nifti1header(self, nifti1obj, reco_id, scale_mode)
 
     def get_nifti1image(self,
-                        reco_id: Optional[int] = None,
-                        scale_mode: Optional[Literal['header', 'apply']] = None,
-                        subj_type: Optional[str] = None,
-                        subj_position: Optional[str] = None,
-                        plugin: Optional[Union['PlugInSnippet', str]] = None,
-                        plugin_kws: dict = None):
+                        reco_id: int | None = None,
+                        scale_mode: Literal['header', 'apply'] | None = None,
+                        subj_type: str | None = None,
+                        subj_position: str | None = None,
+                        plugin: PlugInSnippet | str | None = None,
+                        plugin_kws: dict | None = None):
         scale_mode = scale_mode or self.scale_mode
         return super().get_nifti1image(self,
                                        reco_id,

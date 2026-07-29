@@ -8,11 +8,12 @@ brkraw-legacy's own.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from brkraw_legacy.api import helper
 
 from .base import BaseAnalyzer
 
-from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from brukerapi.dataset import Dataset
 
@@ -34,7 +35,7 @@ class ScanInfoAnalyzer(BaseAnalyzer):
             objects (``get_value(key, default)`` reads them).
         dataset: The Dataset the values were derived from.
     """
-    def __init__(self, dataset: 'Dataset', primary_visu_pars=None, debug: bool = False):
+    def __init__(self, dataset: Dataset, primary_visu_pars=None, debug: bool = False):
         self._primary_visu_pars = primary_visu_pars
         self._set_pars(dataset)
         if not debug:
@@ -42,7 +43,7 @@ class ScanInfoAnalyzer(BaseAnalyzer):
             if self.visu_pars:
                 self._parse_info()
 
-    def _set_pars(self, dataset: 'Dataset'):
+    def _set_pars(self, dataset: Dataset):
         """Bind the parameter files of `dataset` for the helpers to read."""
         self.dataset = dataset
         parameters = dataset.parameters if dataset is not None else {}
@@ -65,7 +66,9 @@ class ScanInfoAnalyzer(BaseAnalyzer):
         primary = self._primary_visu_pars
         if self.visu_pars is None or primary is None or primary is self.visu_pars:
             return
-        for key in primary.keys():
+        # .keys() is required: JCAMPDX exposes keys() but no __iter__, so bare
+        # iteration falls back to __getitem__(0) and raises KeyError.
+        for key in primary.keys():  # noqa: SIM118
             if key.startswith('VisuAcq') and key not in self.visu_pars:
                 self.visu_pars.set_parameter(key, primary.get_parameter(key))
 
@@ -81,7 +84,7 @@ class ScanInfoAnalyzer(BaseAnalyzer):
 
     def __dir__(self):
         """The informational properties this analyzer derived."""
-        return [attr for attr in self.__dict__.keys() if 'info_' in attr]
+        return [attr for attr in self.__dict__ if 'info_' in attr]
 
     def get(self, key):
         """One informational property by name, or None if it was not derived."""

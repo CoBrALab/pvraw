@@ -67,12 +67,12 @@ def _find_study_root(top):
 
 def _fetch_zenodo_study(record_id, filename):
     """Download+extract a Zenodo zip once; return the study root, or None."""
-    dest = _data_dir() / 'zenodo-{}'.format(record_id)
+    dest = _data_dir() / f'zenodo-{record_id}'
     if dest.exists():
         return _find_study_root(dest)
     tmp_zip = _data_dir() / filename
-    tmp_dir = _data_dir() / 'zenodo-{}.partial'.format(record_id)
-    url = 'https://zenodo.org/records/{}/files/{}?download=1'.format(record_id, filename)
+    tmp_dir = _data_dir() / f'zenodo-{record_id}.partial'
+    url = f'https://zenodo.org/records/{record_id}/files/{filename}?download=1'
     try:
         with urlopen(url, timeout=60) as resp, open(tmp_zip, 'wb') as fh:
             shutil.copyfileobj(resp, fh)

@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from brkraw_legacy.lib.utils import get_value
 
 from .base import BaseHelper, frame_groups
 
-from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from ..analyzer import ScanInfoAnalyzer
 
@@ -16,7 +17,7 @@ class Cycle(BaseHelper):
         dataset
         visu_pars
     """
-    def __init__(self, analobj: 'ScanInfoAnalyzer'):
+    def __init__(self, analobj: ScanInfoAnalyzer):
         super().__init__()
         scan_time = get_value(analobj.visu_pars, "VisuAcqScanTime") or 0
         cycles = [size for name, size in frame_groups(analobj.dataset) if 'cycle' in name]

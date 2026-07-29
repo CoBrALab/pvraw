@@ -1,12 +1,13 @@
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 import numpy as np
 
 from brkraw_legacy.lib.utils import get_value
 
 from .base import BaseHelper
 
-from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from ..analyzer import ScanInfoAnalyzer
 
@@ -41,15 +42,15 @@ def to_matvec(affine):
 
 def rotate_affine(affine, rad_x=0, rad_y=0, rad_z=0):
     ''' axis = x or y or z '''
-    rmat = dict(x = np.array([[1, 0, 0],
-                            [0, np.cos(rad_x), -np.sin(rad_x)],
-                            [0, np.sin(rad_x), np.cos(rad_x)]]).astype('float'),
-                y = np.array([[np.cos(rad_y), 0, np.sin(rad_y)],
-                            [0, 1, 0],
-                            [-np.sin(rad_y), 0, np.cos(rad_y)]]).astype('float'),
-                z = np.array([[np.cos(rad_z), -np.sin(rad_z), 0],
-                            [np.sin(rad_z), np.cos(rad_z), 0],
-                            [0, 0, 1]]).astype('float'))
+    rmat = {'x': np.array([[1, 0, 0],
+                           [0, np.cos(rad_x), -np.sin(rad_x)],
+                           [0, np.sin(rad_x), np.cos(rad_x)]]).astype('float'),
+            'y': np.array([[np.cos(rad_y), 0, np.sin(rad_y)],
+                           [0, 1, 0],
+                           [-np.sin(rad_y), 0, np.cos(rad_y)]]).astype('float'),
+            'z': np.array([[np.cos(rad_z), -np.sin(rad_z), 0],
+                           [np.sin(rad_z), np.cos(rad_z), 0],
+                           [0, 0, 1]]).astype('float')}
     af_mat, af_vec = to_matvec(affine)
     rotated_mat = rmat['z'].dot(rmat['y'].dot(rmat['x'].dot(af_mat)))
     rotated_vec = rmat['z'].dot(rmat['y'].dot(rmat['x'].dot(af_vec)))
@@ -70,7 +71,7 @@ class Orientation(BaseHelper):
     Dependencies:
         visu_pars
     """
-    def __init__(self, analobj: 'ScanInfoAnalyzer'):
+    def __init__(self, analobj: ScanInfoAnalyzer):
         super().__init__()
         visu_pars = analobj.visu_pars
         self.subject_type = get_value(visu_pars, "VisuSubjectType")

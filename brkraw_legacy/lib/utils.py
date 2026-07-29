@@ -1,9 +1,11 @@
-from .errors import InvalidApproach, InvalidValueInField, UnexpectedError
-from .reference import ERROR_MESSAGES
-import re
 import os
-import numpy as np
+import re
 from functools import partial, reduce
+
+import numpy as np
+
+from .errors import InvalidApproach, InvalidValueInField
+from .reference import ERROR_MESSAGES
 
 
 def get_value(parameters, key, default=None):
@@ -77,7 +79,7 @@ def meta_get_value(value, acqp, method, visu_pars):
         elif is_express(value):
             return meta_check_express(value, acqp, method, visu_pars)
         else:
-            parser = dict()
+            parser = {}
             for k, v in value.items():
                 sub = meta_get_value(v, acqp, method, visu_pars)
                 if sub is not None:
@@ -96,24 +98,15 @@ def meta_get_value(value, acqp, method, visu_pars):
 
 
 def is_keywhere(value):
-    if all([k in value.keys() for k in ['key', 'where']]):
-        return True
-    else:
-        return False
+    return all(k in value for k in ['key', 'where'])
 
 
 def is_keyindex(value):
-    if all([k in value.keys() for k in ['key', 'idx']]):
-        return True
-    else:
-        return False
+    return all(k in value for k in ['key', 'idx'])
 
 
 def is_express(value):
-    if any([k in value.keys() for k in ['Equation']]):
-        return True
-    else:
-        return False
+    return 'Equation' in value
 
 
 def meta_check_where(value, acqp, method, visu_pars):
@@ -159,7 +152,7 @@ def meta_check_express(value, acqp, method, visu_pars):
             val = None
         namespace[k] = val
     equation = value['Equation']
-    if any(v is None and re.search(r'\b{}\b'.format(re.escape(k)), equation)
+    if any(v is None and re.search(rf'\b{re.escape(k)}\b', equation)
            for k, v in namespace.items()):
         # A parameter *used by the equation* is missing; omit the field rather
         # than evaluating with None (which would emit 'None'/nan into the
@@ -242,22 +235,22 @@ def bids_validation(df, idx, key, val, num_char_allowed, dtype=None):
     col = string.ascii_uppercase[df.columns.tolist().index(key)]
     special_char = re.compile(r'[^0-9a-zA-Z]')
     str_val = str(val)
-    loc = 'col,row:[{},{}]'.format(col, idx + 2)
+    loc = f'col,row:[{col},{idx + 2}]'
     if len(str_val) > num_char_allowed:
-        message = "{} You can't use more than {} characters.".format(loc, num_char_allowed)
+        message = f"{loc} You can't use more than {num_char_allowed} characters."
         raise InvalidValueInField(message)
     matched = special_char.search(str_val)
     if matched is not None:
         if ' ' in matched.group():
-            message = "{} Empty string is not allowed.".format(loc)
+            message = f"{loc} Empty string is not allowed."
         else:
-            message = "{} Special characters are not allowed.".format(loc)
+            message = f"{loc} Special characters are not allowed."
         raise InvalidValueInField(message)
     if dtype is not None:
         try:
             dtype(val)
         except Exception:
-            message = "{} Invalid data type. Value must be {}.".format(loc, dtype.__name__)
+            message = f"{loc} Invalid data type. Value must be {dtype.__name__}."
             raise InvalidValueInField(message)
     return True
 
@@ -265,26 +258,25 @@ def bids_validation(df, idx, key, val, num_char_allowed, dtype=None):
 def get_bids_ref_obj(ref_path, row):
     import json
     if os.path.exists(ref_path) and ref_path.lower().endswith('.json'):
-        ref_data = json.load(open(ref_path))
+        with open(ref_path) as f:
+            ref_data = json.load(f)
         ref = ref_data['common']
-        if row.modality in ['bold', 'cbv', 'epi']:
-            if 'func' in ref_data.keys():
-                for k, v in ref_data['func'].items():
-                    if k in ref.keys():
-                        raise InvalidApproach('Duplicated key is found at func: {}'.format(k))
-                    else:
-                        ref[k] = v
+        if row.modality in ['bold', 'cbv', 'epi'] and 'func' in ref_data:
+            for k, v in ref_data['func'].items():
+                if k in ref:
+                    raise InvalidApproach(f'Duplicated key is found at func: {k}')
+                else:
+                    ref[k] = v
         # the below may not optimal for Bruker system,
         # only fieldmap and magnitude
         if row.modality in ['fieldmap', 'phase1', 'phase2',
                             'phasediff', 'magnitude',
-                            'magnitude1', 'magnitude2']:
-            if 'fmap' in ref_data.keys():
-                for k, v in ref_data['fmap'].items():
-                    if k in ref.keys():
-                        raise InvalidApproach('Duplicated key is found at func: {}'.format(k))
-                    else:
-                        ref[k] = v
+                            'magnitude1', 'magnitude2'] and 'fmap' in ref_data:
+            for k, v in ref_data['fmap'].items():
+                if k in ref:
+                    raise InvalidApproach(f'Duplicated key is found at func: {k}')
+                else:
+                    ref[k] = v
     else:
         ref = None
     return ref
@@ -323,9 +315,9 @@ def build_bids_json(dset, row, fname, json_path, scale_mode='header', intended_f
         nii_objs = dset.get_niftiobj(row.ScanID, row.RecoID, crop=crop, scale_mode=scale_mode)
         for echo, nii in enumerate(nii_objs):
             # caught a bug here for multiple echo, changed fname to currentFileName
-            currentFileName = '{}_echo-{}_{}'.format(fname, echo + 1, row.modality)
+            currentFileName = f'{fname}_echo-{echo + 1}_{row.modality}'
             output_path = os.path.join(row.Dir, currentFileName)
-            nii.to_filename('{}.nii.gz'.format(output_path))
+            nii.to_filename(f'{output_path}.nii.gz')
             if json_path:
                 ref = get_bids_ref_obj(json_path, row)
                 nslices = nii.shape[2] if nii.ndim >= 3 else 1
@@ -343,10 +335,10 @@ def build_bids_json(dset, row, fname, json_path, scale_mode='header', intended_f
         chunks = niiobj if isinstance(niiobj, list) else [niiobj]
         for i, nii in enumerate(chunks):
             if len(chunks) > 1:
-                current = '{}_chunk-{}_{}'.format(fname, str(i + 1).zfill(2), row.modality)
+                current = f'{fname}_chunk-{str(i + 1).zfill(2)}_{row.modality}'
             else:
-                current = '{}_{}'.format(fname, row.modality)
-            nii.to_filename(os.path.join(row.Dir, '{}.nii.gz'.format(current)))
+                current = f'{fname}_{row.modality}'
+            nii.to_filename(os.path.join(row.Dir, f'{current}.nii.gz'))
             if re.search('dwi', row.modality, re.IGNORECASE):
                 # DTI parameter (FSL style); one bval/bvec per written volume
                 nvol = nii.shape[3] if nii.ndim >= 4 else 1
@@ -378,16 +370,11 @@ def encdir_code_converter(enc_param):
     elif enc_param == 'row_slice_dir':
         return ['phase_enc', 'read_enc', 'slice_enc']
     else:
-        raise Exception(ERROR_MESSAGES['PhaseEncDir'])
+        raise InvalidValueInField(ERROR_MESSAGES['PhaseEncDir'])
 
 
 def mkdir(path):
-    try:
-        os.stat(path)
-    except FileNotFoundError or OSError:
-        os.makedirs(path)
-    except Exception:
-        raise UnexpectedError
+    os.makedirs(path, exist_ok=True)
 
 
 # brkraw-legacy script

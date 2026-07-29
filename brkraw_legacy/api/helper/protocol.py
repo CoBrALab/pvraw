@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from brkraw_legacy.lib.utils import get_value
 
 from .base import BaseHelper
 
-from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from ..analyzer import ScanInfoAnalyzer
 
@@ -15,7 +16,7 @@ class Protocol(BaseHelper):
     Dependencies:
         acqp
     """
-    def __init__(self, analobj: 'ScanInfoAnalyzer'):
+    def __init__(self, analobj: ScanInfoAnalyzer):
         super().__init__()
 
         acqp = analobj.acqp

@@ -17,7 +17,7 @@ def _has_real_2dseq(loader, scan_id, reco_id, min_bytes=1024):
     try:
         path = loader.study.get_scan(scan_id).get_dataset(reco_id).path
         return path.stat().st_size >= min_bytes
-    except Exception:                          # noqa: BLE001
+    except Exception:
         return False
 
 
@@ -46,10 +46,10 @@ def test_all_reconstructions_convert_through_app_tonifti(h2_study):
         for rid in recos:
             try:
                 d.get_niftiobj(sid, rid)
-            except Exception as e:                  # noqa: BLE001
+            except Exception as e:
                 if 'non-image data' not in str(e):
-                    failures.append((sid, rid, '{}: {}'.format(type(e).__name__, e)))
-    assert not failures, 'unexpected conversion failures: {}'.format(failures)
+                    failures.append((sid, rid, f'{type(e).__name__}: {e}'))
+    assert not failures, f'unexpected conversion failures: {failures}'
 
 
 # --------------------------------------------------------------------------- #
@@ -181,7 +181,7 @@ def test_conversion_releases_file_handles(lego_study):
     unclosed = [str(w.message) for w in caught
                 if issubclass(w.category, ResourceWarning)
                 and 'unclosed file' in str(w.message)]
-    assert not unclosed, 'leaked file handles during conversion: {}'.format(unclosed)
+    assert not unclosed, f'leaked file handles during conversion: {unclosed}'
 
 
 #: A minimal but valid 2dseq header, for the stub-rejection test above.

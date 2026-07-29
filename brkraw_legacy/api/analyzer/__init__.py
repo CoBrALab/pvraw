@@ -10,8 +10,8 @@ Exposed Classes:
     AffineAnalyzer: Handles the computation and analysis of affine matrices from dataset parameters.
 """
 
+from .affine import AffineAnalyzer
 from .base import BaseAnalyzer
 from .scaninfo import ScanInfoAnalyzer
-from .affine import AffineAnalyzer
 
-__all__ = ['BaseAnalyzer', 'ScanInfoAnalyzer', 'AffineAnalyzer']
+__all__ = ['AffineAnalyzer', 'BaseAnalyzer', 'ScanInfoAnalyzer']

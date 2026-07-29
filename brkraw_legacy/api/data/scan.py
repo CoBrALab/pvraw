@@ -8,13 +8,14 @@ shape, dtype, scaling factors, the image itself -- goes through a `brukerapi`
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from brukerapi.dataset import LOAD_STAGES, Dataset
 
 from brkraw_legacy.api.analyzer import AffineAnalyzer, BaseAnalyzer, ScanInfoAnalyzer
 
-from typing import TYPE_CHECKING
 if TYPE_CHECKING:
-    from typing import Optional
+
     from brukerapi.folders import Processing
 
 
@@ -35,7 +36,7 @@ class Scan(BaseAnalyzer):
         pvobj: The `brukerapi` Experiment this scan reads through.
         reco_id (Optional[int]): The reconstruction bound by default.
     """
-    def __init__(self, pvobj, reco_id: Optional[int] = None,
+    def __init__(self, pvobj, reco_id: int | None = None,
                  debug: bool = False) -> None:
         self.pvobj = pvobj
         self.is_debug = debug
@@ -64,7 +65,7 @@ class Scan(BaseAnalyzer):
         # keeps only the folders that actually hold a 2dseq.
         return self.pvobj.get_processing_list()
 
-    def get_dataset(self, reco_id: Optional[int] = None, *, with_data: bool = False):
+    def get_dataset(self, reco_id: int | None = None, *, with_data: bool = False):
         """The `brukerapi` Dataset for one reconstruction.
 
         Without `with_data` the 2dseq binary is not read: shape, dtype, scaling
@@ -89,19 +90,18 @@ class Scan(BaseAnalyzer):
             self._properties[reco_id] = dataset
         return dataset
 
-    def _get_reco(self, reco_id: Optional[int]) -> 'Processing':
+    def _get_reco(self, reco_id: int | None) -> Processing:
         for proc in self._recos():
             if proc.path.name.isdigit() and int(proc.path.name) == reco_id:
                 return proc
-        raise KeyError('RecoID:[{}] not found in ScanID:[{}]'
-                       ''.format(reco_id, self.pvobj.path.name))
+        raise KeyError(f'RecoID:[{reco_id}] not found in ScanID:[{self.pvobj.path.name}]')
 
-    def get_visu_pars(self, reco_id: Optional[int] = None):
+    def get_visu_pars(self, reco_id: int | None = None):
         """The ``visu_pars`` of one reconstruction, as a `brukerapi` JCAMPDX."""
         return self.get_dataset(reco_id).parameters['visu_pars']
 
     @property
-    def info(self) -> 'ScanInfo':
+    def info(self) -> ScanInfo:
         """Analysed properties of the bound reconstruction.
 
         Derived on first use rather than in the constructor, so a scan that
@@ -112,11 +112,11 @@ class Scan(BaseAnalyzer):
             self._info = self.get_scaninfo(self.reco_id)
         return self._info
 
-    def set_scaninfo(self, reco_id: Optional[int] = None) -> None:
+    def set_scaninfo(self, reco_id: int | None = None) -> None:
         """Rebind ``info`` to `reco_id`, leaving the scan's default unchanged."""
         self._info = self.get_scaninfo(reco_id or self.reco_id)
 
-    def get_scaninfo(self, reco_id: Optional[int] = None,
+    def get_scaninfo(self, reco_id: int | None = None,
                      get_analyzer: bool = False):
         """Analysed properties of one reconstruction.
 
@@ -137,7 +137,7 @@ class Scan(BaseAnalyzer):
                 setattr(infoobj, attr_name.replace('info_', ''), attr_vals)
         return infoobj
 
-    def _primary_visu_pars(self, reco_id: Optional[int] = None):
+    def _primary_visu_pars(self, reco_id: int | None = None):
         """The first reconstruction's ``visu_pars``, or None if `reco_id` is it.
 
         A derived reconstruction omits the acquisition-level parameters that
@@ -150,7 +150,7 @@ class Scan(BaseAnalyzer):
             return None
         return self.get_dataset(recos[0]).parameters.get('visu_pars')
 
-    def get_affine_analyzer(self, reco_id: Optional[int] = None) -> 'AffineAnalyzer':
+    def get_affine_analyzer(self, reco_id: int | None = None) -> AffineAnalyzer:
         info = self.get_scaninfo(reco_id) if reco_id else self.info
         return AffineAnalyzer(info, self.get_dataset(reco_id))
 

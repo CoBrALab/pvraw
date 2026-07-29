@@ -23,7 +23,7 @@ import numpy as np
 
 logging.disable(logging.CRITICAL)  # silence brkraw's own logging noise
 
-from brkraw_legacy import BrukerLoader  # noqa: E402
+from brkraw_legacy import BrukerLoader
 
 _REPO = Path(__file__).resolve().parent.parent
 _ARGV = [a for a in sys.argv[1:] if not a.startswith('--')]
@@ -114,7 +114,7 @@ def convert_unit(path: Path):
             loader = BrukerLoader(str(path))
     except Exception as e:
         rec['loadable'] = False
-        rec['error'] = '{}: {}'.format(type(e).__name__, e)
+        rec['error'] = f'{type(e).__name__}: {e}'
         return rec
     rec['is_pvdataset'] = bool(getattr(loader, 'is_pvdataset', False))
     if not rec['is_pvdataset']:
@@ -122,7 +122,7 @@ def convert_unit(path: Path):
     try:
         avail = dict(loader.avail_reco_id)
     except Exception as e:
-        rec['error'] = 'avail_reco_id failed: {}: {}'.format(type(e).__name__, e)
+        rec['error'] = f'avail_reco_id failed: {type(e).__name__}: {e}'
         return rec
     for sid in sorted(avail):
         for rid in avail[sid]:
@@ -137,7 +137,7 @@ def convert_unit(path: Path):
                 entry['shapes'] = [list(getattr(o, 'shape', ())) for o in objs]
                 entry['goldens'] = [golden(o) for o in objs]
             except Exception as e:
-                msg = '{}: {}'.format(type(e).__name__, e)
+                msg = f'{type(e).__name__}: {e}'
                 if 'non-image data' in str(e):
                     entry['status'] = 'skip-nonimage'
                     entry['msg'] = str(e)[:200]
@@ -173,16 +173,16 @@ def compare(old_path, report):
                 av = [g.get(field) for g in a.get('goldens') or ()]
                 bv = [g.get(field) for g in b.get('goldens') or ()]
                 if not same(av, bv):
-                    changed.append((key, '{}: {} -> {}'.format(field, str(av)[:120], str(bv)[:120])))
+                    changed.append((key, f'{field}: {str(av)[:120]} -> {str(bv)[:120]}'))
     for key, what in changed:
-        print('CHANGED %s scan %s reco %s: %s' % (key[0][:50], key[1], key[2], what))
-    print('\n==== COMPARE vs %s: %d differing entries ====' % (old_path, len(changed)))
+        print(f'CHANGED {key[0][:50]} scan {key[1]} reco {key[2]}: {what}')
+    print(f'\n==== COMPARE vs {old_path}: {len(changed)} differing entries ====')
     return changed
 
 
 def main():
     units = discover(TESTDATA)
-    print('Discovered %d units under %s\n' % (len(units), TESTDATA))
+    print(f'Discovered {len(units)} units under {TESTDATA}\n')
     report = []
     for label, path, kind in units:
         rec = convert_unit(path)
@@ -197,11 +197,10 @@ def main():
             note = ' LOAD-ERROR: ' + str(rec['error'])[:150]
         elif not rec['is_pvdataset']:
             note = ' (not a PvDataset)'
-        print('[%s] %-4s ok=%-3d skip=%-3d FAIL=%-3d  %s%s' % (
-            flag, kind[:4], n_ok, n_skip, n_fail, label[:70], note))
+        print(f'[{flag}] {kind[:4]:<4} ok={n_ok:<3} skip={n_skip:<3} FAIL={n_fail:<3}  {label[:70]}{note}')
         for s in rec['scans']:
             if s['status'] == 'FAIL':
-                print('        scan %s reco %s: %s' % (s['scan'], s['reco'], s['msg']))
+                print('        scan {} reco {}: {}'.format(s['scan'], s['reco'], s['msg']))
     OUT.write_text(json.dumps(report, indent=2))
 
     # aggregate
@@ -209,9 +208,8 @@ def main():
     tot_skip = sum(s['status'] == 'skip-nonimage' for r in report for s in r['scans'])
     tot_fail = sum(s['status'] == 'FAIL' for r in report for s in r['scans'])
     load_err = [r for r in report if not r['loadable']]
-    print('\n==== TOTAL: ok=%d  skip-nonimage=%d  FAIL=%d  load-errors=%d ====' % (
-        tot_ok, tot_skip, tot_fail, len(load_err)))
-    print('Report -> %s' % OUT)
+    print(f'\n==== TOTAL: ok={tot_ok}  skip-nonimage={tot_skip}  FAIL={tot_fail}  load-errors={len(load_err)} ====')
+    print(f'Report -> {OUT}')
 
     if _COMPARE:
         compare(_COMPARE, report)

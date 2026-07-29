@@ -1,14 +1,17 @@
-from .errors import InvalidApproach, UnexpectedError
-from .subject_orient import SUBJECT_POSE, SUBJECT_TYPES, normalize_subject_type
-from .utils import get_value, is_all_element_same, encdir_code_converter, meta_get_value
-from .reference import ERROR_MESSAGES, COMMON_META_REF
-from ..api.helper.base import image_shape
-import numpy as np
-import pathlib
+import enum
 import os
+import pathlib
 import re
 import warnings
-import enum
+
+import numpy as np
+
+from ..api.helper.base import image_shape
+from .errors import InvalidApproach, InvalidValueInField, UnexpectedError
+from .reference import COMMON_META_REF, ERROR_MESSAGES
+from .subject_orient import SUBJECT_POSE, SUBJECT_TYPES, normalize_subject_type
+from .utils import encdir_code_converter, get_value, is_all_element_same, meta_get_value
+
 np.set_printoptions(formatter={'float_kind':'{:f}'.format})
 
 
@@ -56,7 +59,7 @@ def load(path):
     return StudyToNifti(pathlib.Path(path))
 
 
-class BrukerLoader():
+class BrukerLoader:
     """ The front-end handler for Bruker PvDataset
 
     Reading -- directory and archive traversal, JCAMP-DX parsing and binary
@@ -243,10 +246,10 @@ class BrukerLoader():
         Arge:
             subtype(str): subject type that supported by PV
         """
-        err_msg = 'Unknown subject type [{}]'.format(subjtype)
+        err_msg = f'Unknown subject type [{subjtype}]'
         subjtype = normalize_subject_type(subjtype)
         if subjtype not in SUBJECT_TYPES:
-            raise Exception(err_msg)
+            raise InvalidValueInField(err_msg)
         self._override_type = subjtype
 
     def override_position(self, position_string):
@@ -254,16 +257,12 @@ class BrukerLoader():
         Arge:
             position_string: subject position that supported by PV
         """
-        err_msg = 'Unknown position string [{}]'.format(position_string)
-        try:
-            part, side = position_string.split('_')
-            if part not in SUBJECT_POSE['part']:
-                raise Exception(err_msg)
-            if side not in SUBJECT_POSE['side']:
-                raise Exception(err_msg)
-            self._override_position = position_string
-        except Exception:
-            raise Exception(err_msg)
+        err_msg = f'Unknown position string [{position_string}]'
+        parts = position_string.split('_')
+        if (len(parts) != 2 or parts[0] not in SUBJECT_POSE['part']
+                or parts[1] not in SUBJECT_POSE['side']):
+            raise InvalidValueInField(err_msg)
+        self._override_position = position_string
 
     def close(self):
         self._study = None
@@ -369,11 +368,10 @@ class BrukerLoader():
         if isinstance(niiobj, list):
             for i, nii in enumerate(niiobj):
                 output_path = os.path.join(dir,
-                                           '{}-{}.{}'.format(filename,
-                                                             str(i+1).zfill(2), ext))
+                                           f'{filename}-{str(i+1).zfill(2)}.{ext}')
                 nii.to_filename(output_path)
         else:
-            output_path = os.path.join(dir, '{}.{}'.format(filename, ext))
+            output_path = os.path.join(dir, f'{filename}.{ext}')
             niiobj.to_filename(output_path)
 
     # - FSL bval, bvec, and bmat
@@ -422,15 +420,14 @@ class BrukerLoader():
             bvecs = self._reorient_bvecs(bvecs, affine)
         except Exception as exc:
             warnings.warn('Could not reorient b-vectors into the image frame '
-                          '({}); writing them unrotated.'.format(exc), UserWarning)
+                          f'({exc}); writing them unrotated.', UserWarning)
         output_path = os.path.join(dir, filename)
 
-        with open('{}.bval'.format(output_path), 'w') as bval_fobj:
+        with open(f'{output_path}.bval', 'w') as bval_fobj:
             bval_fobj.write(' '.join(bvals.astype('str')) + '\n')
 
-        with open('{}.bvec'.format(output_path), 'w') as bvec_fobj:
-            for row in bvecs:
-                bvec_fobj.write(' '.join(row.astype('str')) + '\n')
+        with open(f'{output_path}.bvec', 'w') as bvec_fobj:
+            bvec_fobj.writelines(' '.join(row.astype('str')) + '\n' for row in bvecs)
 
     # BIDS JSON
     def _parse_json(self, scan_id, reco_id, metadata=None):
@@ -439,7 +436,7 @@ class BrukerLoader():
         method = parameters['method']
         visu_pars = parameters['visu_pars']
 
-        json_obj = dict()
+        json_obj = {}
         # Axis only (i/j/k); the polarity sign (i-/j-/k-) is intentionally not
         # emitted -- see the PhaseEncodingDirection note in lib/reference.py.
         encdir_dic = {0: 'i', 1: 'j', 2: 'k'}
@@ -448,54 +445,52 @@ class BrukerLoader():
             metadata = COMMON_META_REF.copy()
         for k, v in metadata.items():
             val = meta_get_value(v, acqp, method, visu_pars)
-            if k == 'PhaseEncodingDirection':
+            if k == 'PhaseEncodingDirection' and val is not None:
                 # Convert the encoding direction meta data into BIDS format
                 # (SliceEncodingDirection is resolved directly to 'k'/None by its
                 # mapping and needs no code-to-axis conversion.)
-                if val is not None:
-                    if isinstance(val, (int, np.integer)):
-                        val = encdir_dic[int(val)]
-                    else:
-                        if isinstance(val, (list, np.ndarray)):
-                            val = list(val)
-                            if is_all_element_same(val):
-                                # A uniform per-slice direction: reduce to the single
-                                # value and convert it like the scalar case below, so a
-                                # PV5.1 string code ('col_dir'/'row_dir') becomes a BIDS
-                                # axis instead of reaching the sidecar verbatim.
-                                v = val[0]
-                                if isinstance(v, (int, np.integer)):
-                                    val = encdir_dic[int(v)]
-                                else:
-                                    encdirs = encdir_code_converter(str(v))
-                                    val = (encdir_dic[encdirs.index('phase_enc')]
-                                           if 'phase_enc' in encdirs else None)
-                            else:
-                                # handling condition of multiple phase encoding direction
-                                updated_val = []
-                                for v in val:
-                                    if isinstance(v, (int, np.integer)):
-                                        # in PV 6 if each slice package has distinct phase encoding direction
-                                        updated_val.append(encdir_dic[int(v)])
-                                    else:
-                                        # in PV 5.1, element wise code conversion
-                                        encdirs = encdir_code_converter(str(v))
-                                        if 'phase_enc' in encdirs:
-                                            pe_idx = encdirs.index('phase_enc')
-                                            updated_val.append(encdir_dic[pe_idx])
-                                        else:
-                                            updated_val.append(None)
-                                val = updated_val
-                        elif isinstance(val, str):
-                            # in PV 5.1, single value code conversion
-                            encdirs = encdir_code_converter(val)
-                            if 'phase_enc' in encdirs:
-                                pe_idx = encdirs.index('phase_enc')
-                                val = encdir_dic[pe_idx]
-                            else:
-                                val = None
+                if isinstance(val, (int, np.integer)):
+                    val = encdir_dic[int(val)]
+                elif isinstance(val, (list, np.ndarray)):
+                    val = list(val)
+                    if is_all_element_same(val):
+                        # A uniform per-slice direction: reduce to the single
+                        # value and convert it like the scalar case below, so a
+                        # PV5.1 string code ('col_dir'/'row_dir') becomes a BIDS
+                        # axis instead of reaching the sidecar verbatim.
+                        v = val[0]
+                        if isinstance(v, (int, np.integer)):
+                            val = encdir_dic[int(v)]
                         else:
-                            raise UnexpectedError('Unexpected phase encoding direction in PV5.1.')
+                            encdirs = encdir_code_converter(str(v))
+                            val = (encdir_dic[encdirs.index('phase_enc')]
+                                   if 'phase_enc' in encdirs else None)
+                    else:
+                        # handling condition of multiple phase encoding direction
+                        updated_val = []
+                        for v in val:
+                            if isinstance(v, (int, np.integer)):
+                                # in PV 6 if each slice package has distinct phase encoding direction
+                                updated_val.append(encdir_dic[int(v)])
+                            else:
+                                # in PV 5.1, element wise code conversion
+                                encdirs = encdir_code_converter(str(v))
+                                if 'phase_enc' in encdirs:
+                                    pe_idx = encdirs.index('phase_enc')
+                                    updated_val.append(encdir_dic[pe_idx])
+                                else:
+                                    updated_val.append(None)
+                        val = updated_val
+                elif isinstance(val, str):
+                    # in PV 5.1, single value code conversion
+                    encdirs = encdir_code_converter(val)
+                    if 'phase_enc' in encdirs:
+                        pe_idx = encdirs.index('phase_enc')
+                        val = encdir_dic[pe_idx]
+                    else:
+                        val = None
+                else:
+                    raise UnexpectedError('Unexpected phase encoding direction in PV5.1.')
             json_obj[k] = _as_json_value(val)
         return json_obj
 
@@ -525,7 +520,7 @@ class BrukerLoader():
         if condition is not None:
             code, idx = condition
             if code == 'me':    # multi-echo
-                if 'EchoTime' in json_obj.keys():
+                if 'EchoTime' in json_obj:
                     te = json_obj['EchoTime']
                     if isinstance(te, list):
                         json_obj['EchoTime'] = te[idx]
@@ -538,8 +533,8 @@ class BrukerLoader():
                     json_obj['Units'] = units
                 else:
                     warnings.warn("Could not map Bruker 'VisuCoreDataUnits' to a valid BIDS "
-                                  "fieldmap unit (Hz, rad/s, T); 'Units' omitted from {}.json. "
-                                  "Set it manually for a valid fieldmap.".format(filename))
+                                  f"fieldmap unit (Hz, rad/s, T); 'Units' omitted from {filename}.json. "
+                                  "Set it manually for a valid fieldmap.")
                 # IntendedFor (BIDS recommended): subject-relative paths to the target
                 # images, set by the converter. Glob patterns are not valid BIDS.
                 if intended_for:
@@ -565,14 +560,14 @@ class BrukerLoader():
         # https://bids-specification.readthedocs.io/en/latest/04-modality-specific-files/01-magnetic-resonance-imaging-data.html#required-fields
         # To use VolumeTiming, remove the RepetitionTime item in .json file generated from bids_helper.
 
-        if ('RepetitionTime' in json_obj.keys()) and ('VolumeTiming' in json_obj.keys()):
-            if isinstance(json_obj['RepetitionTime'], (int, float)):
-                del json_obj['VolumeTiming']
-                msg = "Both 'RepetitionTime' and 'VolumeTiming' exist in your .json file, removed 'VolumeTiming' to make it valid for BIDS.\
-                \n To use VolumeTiming, remove the RepetitionTime item but keep VolumeTiming from the .json file generated from bids_helper."
-                warnings.warn(msg)
+        if ('RepetitionTime' in json_obj) and ('VolumeTiming' in json_obj) \
+                and isinstance(json_obj['RepetitionTime'], (int, float)):
+            del json_obj['VolumeTiming']
+            msg = "Both 'RepetitionTime' and 'VolumeTiming' exist in your .json file, removed 'VolumeTiming' to make it valid for BIDS.\
+            \n To use VolumeTiming, remove the RepetitionTime item but keep VolumeTiming from the .json file generated from bids_helper."
+            warnings.warn(msg)
 
-        with open(os.path.join(dir, '{}.json'.format(filename)), 'w') as f:
+        with open(os.path.join(dir, f'{filename}.json'), 'w') as f:
             import json
             json.dump(json_obj, f, indent=4)
 
@@ -594,26 +589,28 @@ class BrukerLoader():
 
         if legacy:
             start_time = dt.time(*map(int, legacy.group(1).split(':')))
-            date = dt.datetime.strptime(legacy.group(2), '%d %b %Y').date()
+            # Naive on purpose: Bruker records scanner wall-clock with no zone,
+            # and only the calendar date is kept. Attaching one would shift it.
+            date = dt.datetime.strptime(legacy.group(2), '%d %b %Y').date()  # noqa: DTZ007
             if visu_pars is not None:
                 acq_date = str(get_value(visu_pars, 'VisuAcqDate'))
                 last = re.match(r'(\d{2}:\d{2}:\d{2})', acq_date)
                 acq_time = get_value(visu_pars, 'VisuAcqScanTime') / 1000.0
                 scan_time = (dt.datetime.combine(date, dt.time(*map(int, last.group(1).split(':'))))
                              + dt.timedelta(0, acq_time)).time()
-                return dict(date=date, start_time=start_time, scan_time=scan_time)
+                return {'date': date, 'start_time': start_time, 'scan_time': scan_time}
         elif iso:
             start_time = dt.time(*map(int, iso.group(2).split(':')))
             date = dt.date(*map(int, iso.group(1).split('-')))
             if visu_pars is not None:
                 created = str(np.atleast_1d(get_value(visu_pars, 'VisuCreationDate'))[0])
                 stamp = re.match(r'\d{4}-\d{2}-\d{2}T(\d{2}:\d{2}:\d{2})', created)
-                return dict(date=date, start_time=start_time,
-                            scan_time=dt.time(*map(int, stamp.group(1).split(':'))))
+                return {'date': date, 'start_time': start_time,
+                        'scan_time': dt.time(*map(int, stamp.group(1).split(':')))}
         else:
-            raise Exception(ERROR_MESSAGES['NotIntegrated'])
+            raise InvalidValueInField(ERROR_MESSAGES['NotIntegrated'])
 
-        return dict(date=date, start_time=start_time)
+        return {'date': date, 'start_time': start_time}
 
     # printing functions / help documents
     def print_bids(self, scan_id, reco_id, fobj=None, metadata=None):
@@ -626,7 +623,7 @@ class BrukerLoader():
             if len(k) % 8 >= 7:
                 n_tap -= 1
             tap = ''.join(['\t'] * n_tap)
-            print('{}:{}{}'.format(k, tap, val), file=fobj)
+            print(f'{k}:{tap}{val}', file=fobj)
 
     def info(self, io_handler=None):
         """ Prints out the information of the internal contents in Bruker raw data
@@ -638,8 +635,8 @@ class BrukerLoader():
             io_handler = sys.stdout
 
         if not self._is_pvdataset:
-            io_handler.write("'{}' is not a valid PvDataset "
-                             "(no subject file or no scans found).\n".format(self.path))
+            io_handler.write(f"'{self.path}' is not a valid PvDataset "
+                             "(no subject file or no scans found).\n")
             return
 
         lines = []
@@ -662,17 +659,13 @@ class BrukerLoader():
                     if v is None:
                         param_values[k] = ''
                     if isinstance(v, float):
-                        param_values[k] = '{0:.2f}'.format(v)
+                        param_values[k] = f'{v:.2f}'
                 if j == 0:
-                    params = "[ TR: {0} ms, TE: {1} ms, pixelBW: {2} Hz, FlipAngle: {3} degree]".format(
+                    params = "[ TR: {} ms, TE: {} ms, pixelBW: {} Hz, FlipAngle: {} degree]".format(
                         *param_values)
                     protocol_name = get_value(visu_pars, 'VisuAcquisitionProtocol')
                     sequence_name = get_value(visu_pars, 'VisuAcqSequenceName')
-                    lines.append('[{}]\t{}::{}::{}\n\t{}'.format(str(scan_id).zfill(3),
-                                                               sequence_name,
-                                                               protocol_name,
-                                                               scanname,
-                                                               params))
+                    lines.append(f'[{str(scan_id).zfill(3)}]\t{sequence_name}::{protocol_name}::{scanname}\n\t{params}')
                 lines.append(self._info_reco(scan_id, reco_id, visu_pars))
         lines.append('\n')
         print('\n'.join(lines), file=io_handler)
@@ -690,23 +683,23 @@ class BrukerLoader():
 
     def _info_header(self, dataset, visu_pars):
         """The study-level block of ``info``."""
-        title = 'Paravision {}'.format(self._pv_version(dataset, visu_pars))
+        title = f'Paravision {self._pv_version(dataset, visu_pars)}'
         lines = [title, '-' * len(title)]
         try:
             datetime = self.get_scan_time()
         except Exception:
-            datetime = dict(date='None')
-        lines.append('UserAccount:\t{}'.format(self.user_account))
+            datetime = {'date': 'None'}
+        lines.append(f'UserAccount:\t{self.user_account}')
         lines.append('Date:\t\t{}'.format(datetime['date']))
-        lines.append('Researcher:\t{}'.format(self.user_name))
-        lines.append('Subject ID:\t{}'.format(self.subj_id))
-        lines.append('Session ID:\t{}'.format(self.session_id))
-        lines.append('Study ID:\t{}'.format(self.study_id))
-        lines.append('Date of Birth:\t{}'.format(self.subj_dob))
-        lines.append('Sex:\t\t{}'.format(self.subj_sex))
-        lines.append('Weight:\t\t{} kg'.format(self.subj_weight))
-        lines.append('Subject Type:\t{}'.format(self.subj_type))
-        lines.append('Position:\t{}\t\tEntry:\t{}'.format(self.subj_pose, self.subj_entry))
+        lines.append(f'Researcher:\t{self.user_name}')
+        lines.append(f'Subject ID:\t{self.subj_id}')
+        lines.append(f'Session ID:\t{self.session_id}')
+        lines.append(f'Study ID:\t{self.study_id}')
+        lines.append(f'Date of Birth:\t{self.subj_dob}')
+        lines.append(f'Sex:\t\t{self.subj_sex}')
+        lines.append(f'Weight:\t\t{self.subj_weight} kg')
+        lines.append(f'Subject Type:\t{self.subj_type}')
+        lines.append(f'Position:\t{self.subj_pose}\t\tEntry:\t{self.subj_entry}')
         lines.append('\n[ScanID]\tSequence::Protocol::[Parameters]')
         return lines
 
@@ -714,7 +707,7 @@ class BrukerLoader():
         """The per-reconstruction line of ``info``."""
         dim, cls = self._get_dim_info(visu_pars)
         if cls != 'spatial_only':
-            return '    [{}] dim: {}, {}'.format(str(reco_id).zfill(2), dim, cls)
+            return f'    [{str(reco_id).zfill(2)}] dim: {dim}, {cls}'
         scanobj = self._study.get_scan(scan_id)
         info = scanobj.get_scaninfo(reco_id)
         size = ' x '.join(map(str, image_shape(scanobj.get_dataset(reco_id))))
@@ -722,11 +715,11 @@ class BrukerLoader():
         resol = list(info.image['resolution'])
         if len(resol) == 2:
             resol = resol + [info.slicepack['slice_distances_each_pack'][0]]
-        s_resol = ' x '.join(['{0:.3f}'.format(r) for r in resol])
+        s_resol = ' x '.join([f'{r:.3f}' for r in resol])
         volumes = [size for name, size in self.get_frame_groups(scan_id, reco_id)
                    if not re.search('slice', name, re.IGNORECASE)]
         num_volumes = int(np.prod(volumes or [1]))
-        t_resol = '{0:.3f}'.format(info.cycle['scan_time'] / num_volumes)
+        t_resol = '{:.3f}'.format(info.cycle['scan_time'] / num_volumes)
         return ('    [{}] dim: {}D, matrix_size: {}, fov_size: {} (unit:mm)\n'
                 '         spatial_resol: {} (unit:{}), temporal_resol: {} (unit:{})'.format(
                     str(reco_id).zfill(2), dim, size, fov_size,
@@ -754,7 +747,7 @@ class BrukerLoader():
         dim = int(get_value(visu_pars, 'VisuCoreDim'))
         dim_desc = [str(d) for d in np.atleast_1d(get_value(visu_pars, 'VisuCoreDimDesc'))]
 
-        if not all(map(lambda x: x == 'spatial', dim_desc)):
+        if not all(x == 'spatial' for x in dim_desc):
             if 'spectroscopic' in dim_desc:
                 return dim, 'contain_spectroscopic'  # spectroscopic data
             elif 'temporal' in dim_desc:
@@ -774,13 +767,13 @@ class BrukerLoader():
 
     def _inspect_ids(self, scan_id, reco_id):
         avail = self.avail_reco_id
-        if scan_id not in avail.keys():
+        if scan_id not in avail:
             print('[Error] Invalid Scan ID.\n'
-                  '  - Your input: {}\n'
-                  '  - Available Scan IDs: {}'.format(scan_id, list(avail.keys())))
+                  f'  - Your input: {scan_id}\n'
+                  f'  - Available Scan IDs: {list(avail.keys())}')
             raise ValueError
         if reco_id not in avail[scan_id]:
             print('[Error] Invalid Reco ID.\n'
-                  '  - Your input: {}\n'
-                  '  - Available Reco IDs: {}'.format(reco_id, avail[scan_id]))
+                  f'  - Your input: {reco_id}\n'
+                  f'  - Available Reco IDs: {avail[scan_id]}')
             raise ValueError

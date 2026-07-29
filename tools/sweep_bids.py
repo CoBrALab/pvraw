@@ -39,10 +39,10 @@ def discover(root):
 
 def run(cmd, timeout):
     try:
-        p = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+        p = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, check=False)
         return p.returncode, (p.stdout or '')[-1500:], (p.stderr or '')[-2500:]
     except subprocess.TimeoutExpired:
-        return 'timeout', '', 'TIMEOUT after {}s'.format(timeout)
+        return 'timeout', '', f'TIMEOUT after {timeout}s'
 
 
 def sweep_unit(label, path, kind):
@@ -55,7 +55,7 @@ def sweep_unit(label, path, kind):
         (parent / path.name).symlink_to(path.resolve())
         sheet = tmp / 'map'
         out = tmp / 'raw'
-        rc, so, se = run(['brkraw-legacy', 'bids_helper', str(parent), str(sheet), '-j'], 240)
+        rc, _so, se = run(['brkraw-legacy', 'bids_helper', str(parent), str(sheet), '-j'], 240)
         rec['helper_rc'] = rc
         if rc != 0:
             rec['error'] = 'bids_helper failed: ' + se[-400:]
@@ -64,9 +64,9 @@ def sweep_unit(label, path, kind):
         if not csv.exists():
             rec['error'] = 'no sheet produced'
             return rec
-        rc, so, se = run(['brkraw-legacy', 'bids_convert', str(parent),
-                          str(sheet) + '.csv', '-j', str(sheet) + '.json',
-                          '--output', str(out)], 600)
+        rc, _so, se = run(['brkraw-legacy', 'bids_convert', str(parent),
+                           str(sheet) + '.csv', '-j', str(sheet) + '.json',
+                           '--output', str(out)], 600)
         rec['convert_rc'] = rc
         if rc != 0:
             rec['error'] = 'bids_convert failed: ' + se[-600:]
@@ -76,8 +76,8 @@ def sweep_unit(label, path, kind):
         rec['n_json'] = len(list(out.rglob('*.json')))
         if niis and Path(VALIDATOR).exists():
             vjson = tmp / 'validation.json'
-            vrc, vso, vse = run([VALIDATOR, str(out), '--format', 'json',
-                                 '--outfile', str(vjson)], 240)
+            _vrc, vso, _vse = run([VALIDATOR, str(out), '--format', 'json',
+                                   '--outfile', str(vjson)], 240)
             try:
                 report = json.loads(vjson.read_text() if vjson.exists() else (vso or '{}'))
                 issues = report.get('issues', {})
@@ -85,9 +85,9 @@ def sweep_unit(label, path, kind):
                 errs = [it for it in (items or []) if it.get('severity') == 'error']
                 rec['validator_errors'] = [(e.get('code'), e.get('subCode')) for e in errs]
             except Exception as e:
-                rec['validator_errors'] = 'parse-failed: {}'.format(e)
+                rec['validator_errors'] = f'parse-failed: {e}'
     except Exception as e:
-        rec['error'] = '{}: {}'.format(type(e).__name__, e)
+        rec['error'] = f'{type(e).__name__}: {e}'
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
     return rec
@@ -95,16 +95,15 @@ def sweep_unit(label, path, kind):
 
 def main():
     units = discover(TESTDATA)
-    print('BIDS sweep over %d study/archive units\n' % len(units), flush=True)
+    print(f'BIDS sweep over {len(units)} study/archive units\n', flush=True)
     report = []
     for label, path, kind in units:
         rec = sweep_unit(label, path, kind)
         report.append(rec)
         bad = rec['error'] or (rec['validator_errors'] not in (None, []))
         flag = 'FAIL' if bad else 'ok  '
-        print('[%s] %-4s nii=%-3d json=%-3d helper=%s convert=%s  %s' % (
-            flag, kind[:4], rec['n_nii'], rec['n_json'], rec['helper_rc'],
-            rec['convert_rc'], label[:60]), flush=True)
+        print(f'[{flag}] {kind[:4]:<4} nii={rec["n_nii"]:<3} json={rec["n_json"]:<3} '
+              f'helper={rec["helper_rc"]} convert={rec["convert_rc"]}  {label[:60]}', flush=True)
         if rec['error']:
             print('        ERROR: ' + str(rec['error'])[:300], flush=True)
         if rec['validator_errors']:
@@ -112,9 +111,8 @@ def main():
     OUT.write_text(json.dumps(report, indent=2))
     n_err = sum(bool(r['error']) for r in report)
     n_vld = sum(bool(r['validator_errors']) for r in report)
-    print('\n==== BIDS: units=%d  pipeline-errors=%d  validator-flagged=%d ====' % (
-        len(report), n_err, n_vld))
-    print('Report -> %s' % OUT)
+    print(f'\n==== BIDS: units={len(report)}  pipeline-errors={n_err}  validator-flagged={n_vld} ====')
+    print(f'Report -> {OUT}')
 
 
 if __name__ == '__main__':

@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Canonical subject-position and subject-type handling.
 
 Single source of truth for the pose/type table used by the one affine
@@ -57,7 +56,7 @@ SUBJECT_POSE_ROTATION = {
 
 # Bruker uses Tail_* as the quadruped spelling of Foot_*.
 for _side in SUBJECT_POSE['side']:
-    SUBJECT_POSE_ROTATION['Tail_{}'.format(_side)] = SUBJECT_POSE_ROTATION['Foot_{}'.format(_side)]
+    SUBJECT_POSE_ROTATION[f'Tail_{_side}'] = SUBJECT_POSE_ROTATION[f'Foot_{_side}']
 del _side
 
 

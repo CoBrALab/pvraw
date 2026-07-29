@@ -15,46 +15,45 @@ from brkraw_legacy.lib import bids
 from brkraw_legacy.lib.errors import InvalidApproach
 from brkraw_legacy.scripts.brkraw_legacy import scanMethod
 
-
 # --------------------------------------------------------------------------- #
 # Unit tests: schema-driven path builder
 # --------------------------------------------------------------------------- #
 
 def test_entity_order_rec_before_dir():
     """Regression: the old code emitted dir- before rec-, violating the spec."""
-    ents = dict(subject='01', task='t', acquisition='hi', ceagent='gd',
-                reconstruction='x', direction='AP')
+    ents = {'subject': '01', 'task': 't', 'acquisition': 'hi', 'ceagent': 'gd',
+                'reconstruction': 'x', 'direction': 'AP'}
     _, stem = bids.build_path(ents, 'func', 'bold')
     assert stem == 'sub-01_task-t_acq-hi_ce-gd_rec-x_dir-AP_bold'
     assert stem.index('_rec-') < stem.index('_dir-')
 
 
 def test_func_suffix_is_lowercase_bold():
-    rel_dir, stem = bids.build_path(dict(subject='01', task='rest'), 'func', 'bold')
+    rel_dir, stem = bids.build_path({'subject': '01', 'task': 'rest'}, 'func', 'bold')
     assert rel_dir == 'sub-01/func'
     assert stem.endswith('_bold')
 
 
 def test_session_in_path_and_name():
-    rel_dir, stem = bids.build_path(dict(subject='01', session='pre', task='rest'),
+    rel_dir, stem = bids.build_path({'subject': '01', 'session': 'pre', 'task': 'rest'},
                                     'func', 'bold')
     assert rel_dir == 'sub-01/ses-pre/func'
     assert stem.startswith('sub-01_ses-pre_')
 
 
 def test_anat_and_dwi_and_fmap_paths():
-    assert bids.build_path(dict(subject='01'), 'anat', 'T2w') == ('sub-01/anat', 'sub-01_T2w')
-    assert bids.build_path(dict(subject='01'), 'dwi', 'dwi') == ('sub-01/dwi', 'sub-01_dwi')
+    assert bids.build_path({'subject': '01'}, 'anat', 'T2w') == ('sub-01/anat', 'sub-01_T2w')
+    assert bids.build_path({'subject': '01'}, 'dwi', 'dwi') == ('sub-01/dwi', 'sub-01_dwi')
     # bare `magnitude` is valid in the schema (pybids' bundled patterns wrongly reject it)
-    assert bids.build_path(dict(subject='01'), 'fmap', 'magnitude') == ('sub-01/fmap', 'sub-01_magnitude')
-    assert bids.build_path(dict(subject='01'), 'fmap', 'fieldmap') == ('sub-01/fmap', 'sub-01_fieldmap')
+    assert bids.build_path({'subject': '01'}, 'fmap', 'magnitude') == ('sub-01/fmap', 'sub-01_magnitude')
+    assert bids.build_path({'subject': '01'}, 'fmap', 'fieldmap') == ('sub-01/fmap', 'sub-01_fieldmap')
 
 
 def test_invalid_suffix_rejected():
     with pytest.raises(InvalidApproach):
-        bids.build_path(dict(subject='01'), 'func', 'EPI')        # method-derived junk
+        bids.build_path({'subject': '01'}, 'func', 'EPI')        # method-derived junk
     with pytest.raises(InvalidApproach):
-        bids.build_path(dict(subject='01'), 'etc', 'whatever')    # not a BIDS datatype
+        bids.build_path({'subject': '01'}, 'etc', 'whatever')    # not a BIDS datatype
 
 
 def test_default_suffix_mapping():
@@ -68,8 +67,8 @@ def test_default_suffix_mapping():
 
 def test_build_prefix_excludes_run_echo_and_suffix():
     """FileName carries the prefix; run/echo/suffix are appended downstream."""
-    rel_dir, prefix = bids.build_prefix(dict(subject='01', task='rest', run='02', echo='1'),
-                                        'func')
+    _rel_dir, prefix = bids.build_prefix({'subject': '01', 'task': 'rest', 'run': '02', 'echo': '1'},
+                                         'func')
     assert prefix == 'sub-01_task-rest'
     assert 'run-' not in prefix and 'echo-' not in prefix
 
@@ -116,6 +115,7 @@ def _prepare_anat_dataset(pvdir, tmp_path):
     helper converts just it.
     """
     import pandas as pd
+
     from brkraw_legacy import BrukerLoader
 
     # Pick scans that convert to a single 3D image, so each yields one clean
@@ -151,7 +151,7 @@ def _prepare_anat_dataset(pvdir, tmp_path):
     df['SessID'] = ''
     df['DataType'] = 'anat'
     df['modality'] = 'T2starw'
-    df['acq'] = ['scan{}'.format(i) for i in range(len(df))]
+    df['acq'] = [f'scan{i}' for i in range(len(df))]
     df.to_csv(str(sheet) + '.csv', index=False)
 
     subprocess.check_call(['brkraw-legacy', 'bids_convert', str(sample_parent),
@@ -203,7 +203,7 @@ def test_phase_encoding_direction_is_bids_axis(h2_study, tmp_path):
     for js in out.rglob('*.json'):
         pe = json.loads(js.read_text()).get('PhaseEncodingDirection')
         if pe is not None:
-            assert pe in valid, '{}: {!r}'.format(js.name, pe)
+            assert pe in valid, f'{js.name}: {pe!r}'
             seen += 1
     if not seen:
         pytest.skip('no PhaseEncodingDirection emitted in this sample')
@@ -214,7 +214,7 @@ def test_end_to_end_passes_validator(lego_study, tmp_path):
     out = _prepare_anat_dataset(lego_study, tmp_path)
 
     proc = subprocess.run([_validator_bin(), str(out), '--json'],
-                          capture_output=True, text=True)
+                          capture_output=True, text=True, check=False)
     report = json.loads(proc.stdout or '{}')
     issues = report.get('issues', {})
     items = issues.get('issues', issues) if isinstance(issues, dict) else issues
@@ -240,7 +240,7 @@ def _two_small_3d_scans(study):
     for _, name in by_size:
         try:
             obj = loader.get_niftiobj(int(name), 1)
-        except Exception:                               # noqa: BLE001
+        except Exception:
             continue
         if not isinstance(obj, list) and getattr(obj, 'ndim', 0) == 3:
             found.append(name)
@@ -281,7 +281,7 @@ def test_bids_convert_isolates_failing_scan(h2_study, tmp_path):
     df['SessID'] = ''
     df['DataType'] = 'anat'
     df['modality'] = 'T2starw'
-    df['acq'] = ['scan{}'.format(scan) for scan in df['ScanID']]
+    df['acq'] = [f'scan{scan}' for scan in df['ScanID']]
     df.to_csv(str(sheet) + '.csv', index=False)
 
     doomed, spared = int(df['ScanID'].iloc[0]), int(df['ScanID'].iloc[1])
@@ -293,13 +293,13 @@ def test_bids_convert_isolates_failing_scan(h2_study, tmp_path):
                              '--output', str(out)],
                             check=True, capture_output=True, text=True)
 
-    assert 'ScanID:{}'.format(doomed) in result.stdout, \
-        'the failing scan must be reported, not silently dropped:\n{}'.format(result.stdout)
+    assert f'ScanID:{doomed}' in result.stdout, \
+        f'the failing scan must be reported, not silently dropped:\n{result.stdout}'
     written = [p.name for p in out.rglob('sub-001/anat/*_T2starw.nii.gz')]
-    assert 'sub-001_acq-scan{}_T2starw.nii.gz'.format(spared) in written, \
-        'the convertible scan should still produce output, got {}'.format(written)
-    assert not any('scan{}_'.format(doomed) in name for name in written), \
-        'the failing scan must not produce output, got {}'.format(written)
+    assert f'sub-001_acq-scan{spared}_T2starw.nii.gz' in written, \
+        f'the convertible scan should still produce output, got {written}'
+    assert not any(f'scan{doomed}_' in name for name in written), \
+        f'the failing scan must not produce output, got {written}'
 
 
 def test_method_less_scan_does_not_crash(h2_study, tmp_path):
@@ -408,7 +408,7 @@ def test_asl_scans_not_auto_classified(lego_study, tmp_path):
     for s in asl:
         assigned = set(df[df['ScanID'] == s]['DataType'])
         assert assigned == {'etc'}, \
-            'ASL scan {} classified as {}, expected etc'.format(s, assigned)
+            f'ASL scan {s} classified as {assigned}, expected etc'
 
 
 def test_multiecho_gets_echo_entity(lego_study, tmp_path):
@@ -433,7 +433,7 @@ def test_multiecho_gets_echo_entity(lego_study, tmp_path):
                                 Dir=str(tmp_path), FileName='sub-001', run=None)
     build_bids_json(d, row, 'sub-001', None)
     niis = sorted(p.name for p in tmp_path.glob('*.nii.gz'))
-    assert niis == ['sub-001_echo-{}_T2starw.nii.gz'.format(i + 1) for i in range(n_echo)]
+    assert niis == [f'sub-001_echo-{i + 1}_T2starw.nii.gz' for i in range(n_echo)]
 
 
 def test_derived_reconstructions_not_auto_classified(h2_study, tmp_path):
@@ -459,7 +459,7 @@ def test_derived_reconstructions_not_auto_classified(h2_study, tmp_path):
         if any(g in ('isa', 'dti') for g in groups):
             n_derived += 1
             assert row.DataType == 'etc', \
-                'derived reco {}/{} classified as {}'.format(row.ScanID, row.RecoID, row.DataType)
+                f'derived reco {row.ScanID}/{row.RecoID} classified as {row.DataType}'
     assert n_derived, 'expected at least one derived (FG_ISA/FG_DTI) reconstruction'
 
 
@@ -480,13 +480,13 @@ def test_multislicepack_uses_chunk_entity(h2_study, tmp_path):
                            '--output', str(out)])
     niis = list(out.rglob('*.nii.gz'))
     bad = [p.name for p in niis if re.search(r'-\d{2}\.nii\.gz$', p.name)]
-    assert not bad, 'invalid -NN split filenames: {}'.format(bad)
+    assert not bad, f'invalid -NN split filenames: {bad}'
     chunked = [p for p in niis if '_chunk-' in p.name]
     assert chunked, 'expected chunk- split outputs (0.2H2 fieldmap)'
     for p in chunked:
         if '_magnitude' not in p.name:   # magnitude needs no sidecar
             assert p.with_name(p.name.replace('.nii.gz', '.json')).exists(), \
-                'orphaned/missing sidecar for {}'.format(p.name)
+                f'orphaned/missing sidecar for {p.name}'
 
 
 def test_single_echo_msme_is_t2w_not_mese(h2_study, tmp_path):

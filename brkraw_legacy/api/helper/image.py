@@ -1,12 +1,13 @@
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 import numpy as np
 
 from brkraw_legacy.lib.utils import get_value
 
 from .base import BaseHelper
 
-from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from ..analyzer import ScanInfoAnalyzer
 
@@ -17,7 +18,7 @@ class Image(BaseHelper):
     Dependencies:
         visu_pars
     """
-    def __init__(self, analobj: 'ScanInfoAnalyzer'):
+    def __init__(self, analobj: ScanInfoAnalyzer):
         super().__init__()
         visu_pars = analobj.visu_pars
 

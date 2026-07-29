@@ -33,7 +33,7 @@ class _Dataset:
 
     def get(self, name, default=None):
         if name != 'pv_version':
-            raise AttributeError("'Dataset' object has no attribute '{}'".format(name))
+            raise AttributeError(f"'Dataset' object has no attribute '{name}'")
         return self._pv_version if self._pv_version is not None else default
 
 

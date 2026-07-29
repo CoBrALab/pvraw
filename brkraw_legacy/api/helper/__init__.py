@@ -1,12 +1,23 @@
-from .protocol import Protocol
-from .dataarray import DataArray
-from .image import Image
-from .slicepack import SlicePack
-from .cycle import Cycle
-from .orientation import Orientation, to_matvec, from_matvec, rotate_affine
-from .diffusion import Diffusion
 from .base import axis_labels, frame_groups
+from .cycle import Cycle
+from .dataarray import DataArray
+from .diffusion import Diffusion
+from .image import Image
+from .orientation import Orientation, from_matvec, rotate_affine, to_matvec
+from .protocol import Protocol
+from .slicepack import SlicePack
 
-__all__ = ['Protocol', 'DataArray', 'Image', 'SlicePack', 'Cycle', 'Orientation',
-           'Diffusion', 'axis_labels', 'frame_groups',
-           'to_matvec', 'from_matvec', 'rotate_affine']
+__all__ = [
+           'Cycle',
+           'DataArray',
+           'Diffusion',
+           'Image',
+           'Orientation',
+           'Protocol',
+           'SlicePack',
+           'axis_labels',
+           'frame_groups',
+           'from_matvec',
+           'rotate_affine',
+           'to_matvec',
+]

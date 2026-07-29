@@ -52,7 +52,7 @@ def _expected(pose):
     return _rot(rad_y=PI) @ head
 
 
-ALL_POSES = ['{}_{}'.format(p, s) for p in ('Head', 'Foot', 'Tail') for s in SIDES]
+ALL_POSES = [f'{p}_{s}' for p in ('Head', 'Foot', 'Tail') for s in SIDES]
 
 
 @pytest.mark.parametrize('pose', ALL_POSES)
@@ -68,16 +68,16 @@ def test_feet_first_differs_from_head_first(side):
     ``Foot_Left``/``Foot_Right`` previously shared the ``Head_*`` rotation,
     which silently mislabels left/right for feet-first acquisitions.
     """
-    head = _rot(**get_pose_rotation('Head_{}'.format(side)))
-    foot = _rot(**get_pose_rotation('Foot_{}'.format(side)))
+    head = _rot(**get_pose_rotation(f'Head_{side}'))
+    foot = _rot(**get_pose_rotation(f'Foot_{side}'))
     assert not np.allclose(head, foot, atol=1e-9)
 
 
 @pytest.mark.parametrize('side', SIDES)
 def test_tail_is_alias_of_foot(side):
     """Bruker spells the quadruped feet-first entry Tail_*."""
-    assert (SUBJECT_POSE_ROTATION['Tail_{}'.format(side)]
-            == SUBJECT_POSE_ROTATION['Foot_{}'.format(side)])
+    assert (SUBJECT_POSE_ROTATION[f'Tail_{side}']
+            == SUBJECT_POSE_ROTATION[f'Foot_{side}'])
 
 
 @pytest.mark.parametrize('pose', ALL_POSES)

@@ -11,7 +11,7 @@ import numpy as np
 import pytest
 
 from brkraw_legacy.lib.reference import COMMON_META_REF, FMRI_META_REF
-from brkraw_legacy.lib.utils import meta_get_value, meta_check_express, func_volume_tr
+from brkraw_legacy.lib.utils import func_volume_tr, meta_check_express, meta_get_value
 
 
 class _p(dict):

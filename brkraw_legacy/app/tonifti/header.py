@@ -3,24 +3,28 @@ currently not functioning as expected, need to work more
 """
 
 from __future__ import annotations
+
 import warnings
+from typing import TYPE_CHECKING
+
 import numpy as np
 from nibabel.nifti1 import Nifti1Image
-from typing import TYPE_CHECKING
+
 if TYPE_CHECKING:
-    from typing import Optional, Literal
+    from typing import Literal
+
     from brkraw_legacy.api.data import ScanInfo
 
 
 class Header:
     info: ScanInfo
     scale_mode: int
-    nifti1image: 'Nifti1Image'
+    nifti1image: Nifti1Image
     
     def __init__(self, 
-                 scaninfo: 'ScanInfo',
-                 nifti1image: 'Nifti1Image',
-                 scale_mode: Optional[Literal['header', 'apply']] = None):
+                 scaninfo: ScanInfo,
+                 nifti1image: Nifti1Image,
+                 scale_mode: Literal['header', 'apply'] | None = None):
         self.info = scaninfo
         self.scale_mode = 1 if scale_mode == 'header' else 0
         self.nifti1image = nifti1image

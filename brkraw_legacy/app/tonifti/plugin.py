@@ -1,6 +1,8 @@
 from __future__ import annotations
-from .base import BaseMethods
+
 from brkraw_legacy.api.data import Scan
+
+from .base import BaseMethods
 
 
 class ToNiftiPlugin(Scan, BaseMethods):

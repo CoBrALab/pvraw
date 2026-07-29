@@ -1,18 +1,18 @@
-from typing import Type, Literal, Optional, Union
+from typing import Literal
+
 from .plugin import ToNiftiPlugin
 from .scan import ScanToNifti
 from .study import StudyToNifti
 
+ToNiftiPluginType = type[ToNiftiPlugin]
 
-ToNiftiPluginType = Type[ToNiftiPlugin]
+ScanToNiftiType = type[ScanToNifti]
 
-ScanToNiftiType = Type[ScanToNifti]
+StudyToNiftiType = type[StudyToNifti]
 
-StudyToNiftiType = Type[StudyToNifti]
+ToNiftiObject = type[ToNiftiPlugin | ScanToNifti | StudyToNifti]
 
-ToNiftiObject = Type[Union[ToNiftiPlugin, ScanToNifti, StudyToNifti]]
+ScaleMode = type[Literal['header', 'apply'] | None]
 
-ScaleMode = Type[Optional[Literal['header', 'apply']]]
-
-__all__ = ['ToNiftiPlugin', 'ScanToNifti', 'StudyToNifti']
+__all__ = ['ScanToNifti', 'StudyToNifti', 'ToNiftiPlugin']
 

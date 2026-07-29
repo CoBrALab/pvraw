@@ -5,8 +5,8 @@ Nifti1Image, so these run offline (no ``data`` marker) with a light stub.
 """
 from types import SimpleNamespace
 
-import numpy as np
 import nibabel as nib
+import numpy as np
 import pytest
 
 from brkraw_legacy.app.tonifti.header import Header

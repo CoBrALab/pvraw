@@ -50,7 +50,7 @@ Issues = "https://github.com/gdevenyi/brkraw-legacy/issues"
 
 [project.optional-dependencies]
 dev = [
-    "ruff>=0.11.0",
+    "ruff>=0.16.0",
     "pytest",
     "nbmake",
     "types-PyYAML",
@@ -74,3 +74,30 @@ testpaths = ["tests"]
 markers = [
     "data: needs sample data fetched from the network",
 ]
+
+[tool.ruff]
+target-version = "py311"
+
+[tool.ruff.format]
+# The codebase quotes with '...'; this is what ruff's autofixes generate with.
+quote-style = "single"
+
+[tool.ruff.lint]
+# Ruff's default rule set is the baseline. Listed below are the rules this
+# project deliberately does not follow -- everything else is expected to pass,
+# so a new violation is a real finding rather than noise.
+ignore = [
+    # Converting a study must not abort because one scan of it fails. The
+    # per-scan conversion loops, the optional-parameter fallbacks and the
+    # sweep harnesses under tools/ all catch broadly on purpose; each one
+    # warns, falls back to a documented default, or re-raises a typed error.
+    "BLE001",
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Test modules are named for the layer they cover (02_api_analyzer,
+# 04_api_data, ...) so the suite reads in dependency order; the leading digits
+# are the documented convention, not an invalid module name.
+# S112 flags the scan-and-skip loops that hunt for a convertible scan, which
+# is what those tests are for.
+"tests/*" = ["N999", "S112"]

@@ -7,18 +7,23 @@ orientation and alignment of imaging data.
 """
 
 from __future__ import annotations
+
+from copy import copy
+from typing import TYPE_CHECKING
+
+import numpy as np
+
 from brkraw_legacy.api import helper
 from brkraw_legacy.lib.subject_orient import (
-    SUBJECT_TYPES,
     SUBJECT_POSE,
+    SUBJECT_TYPES,
     get_pose_rotation,
     inspect_subject_info,
     uses_quadruped_frame,
 )
+
 from .base import BaseAnalyzer
-import numpy as np
-from copy import copy
-from typing import TYPE_CHECKING, Optional
+
 if TYPE_CHECKING:
     from ..data.scan import ScanInfo
 
@@ -48,7 +53,7 @@ class AffineAnalyzer(BaseAnalyzer):
         subj_type (str): The type of the subject (e.g., Biped, Quadruped).
         subj_position (str): The position of the subject during the scan.
     """
-    def __init__(self, infoobj: 'ScanInfo', dataset):
+    def __init__(self, infoobj: ScanInfo, dataset):
         infoobj = copy(infoobj)
         packs = infoobj.slicepack['num_slice_packs']
         if packs > 1:
@@ -64,7 +69,7 @@ class AffineAnalyzer(BaseAnalyzer):
         self.subj_type = infoobj.orientation['subject_type'] if hasattr(infoobj, 'orientation') else None
         self.subj_position = infoobj.orientation['subject_position'] if hasattr(infoobj, 'orientation') else None
 
-    def get_affine(self, subj_type: Optional[str] = None, subj_position: Optional[str] = None):
+    def get_affine(self, subj_type: str | None = None, subj_position: str | None = None):
         """Retrieve the affine matrix, applying corrections based on subject type and position.
         """
         subj_type = subj_type or self.subj_type

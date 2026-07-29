@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from .base import BaseHelper, axis_labels, collapse_scale
 
-from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from ..analyzer import ScanInfoAnalyzer
 
@@ -19,7 +20,7 @@ class DataArray(BaseHelper):
     Dependencies:
         dataset
     """
-    def __init__(self, analobj: 'ScanInfoAnalyzer'):
+    def __init__(self, analobj: ScanInfoAnalyzer):
         super().__init__()
         dataset = analobj.dataset
         dtype = dataset.get('numpy_dtype') if dataset is not None else None
