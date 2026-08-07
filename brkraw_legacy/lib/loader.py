@@ -53,6 +53,34 @@ def _as_json_value(value):
     return value
 
 
+def _demote_schema_invalid(json_obj, filename):
+    """Move values that violate the BIDS schema onto a non-BIDS ``<key>Raw`` key.
+
+    The reference validator feeds every *present* field to a JSON Schema validator,
+    so writing a value we can already prove invalid earns a
+    ``JSON_SCHEMA_VALIDATION_ERROR`` -- an error, not a warning. Dropping it outright
+    would instead lose a real Bruker measurement. Keeping it under a name that is
+    honestly not BIDS costs neither: the reading stays in the sidecar, and the
+    warning names the field whose mapping needs fixing.
+
+    Values are checked as they will be written, i.e. after every override
+    ``save_json`` applies, so what is validated is what lands on disk.
+    """
+    from . import bids
+
+    checked = {}
+    for key, value in json_obj.items():
+        problem = bids.value_problem(key, value)
+        if problem is None:
+            checked[key] = value
+            continue
+        warnings.warn(f"{filename}.json: '{key}' is not valid BIDS ({problem}); "
+                      f"kept as '{key}Raw' so the value is not lost. "
+                      f"Its mapping in lib/reference.py needs correcting.")
+        checked[f'{key}Raw'] = _as_json_value(value)
+    return checked
+
+
 def load(path):
     """Open a PvDataset -- a study directory, an exported scan, or an archive."""
     from brkraw_legacy.app.tonifti import StudyToNifti
@@ -566,6 +594,9 @@ class BrukerLoader:
             msg = "Both 'RepetitionTime' and 'VolumeTiming' exist in your .json file, removed 'VolumeTiming' to make it valid for BIDS.\
             \n To use VolumeTiming, remove the RepetitionTime item but keep VolumeTiming from the .json file generated from bids_helper."
             warnings.warn(msg)
+
+        # Last, so what is validated is exactly what gets written.
+        json_obj = _demote_schema_invalid(json_obj, filename)
 
         with open(os.path.join(dir, f'{filename}.json'), 'w') as f:
             import json

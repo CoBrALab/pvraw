@@ -1,4 +1,4 @@
-"""Schema-driven BIDS path and suffix construction.
+"""Schema-driven BIDS path construction and sidecar value checking.
 
 This module replaces the hand-rolled filename/entity-ordering logic that used to
 live in ``brkraw_legacy.scripts.brkraw_legacy``.  Filenames are assembled from the authoritative
@@ -14,6 +14,7 @@ schema is the source of truth used by the reference ``bids-validator``.
 import re
 
 from bidsschematools import schema as _bst_schema
+from jsonschema import Draft202012Validator, FormatChecker
 
 from .errors import InvalidApproach
 
@@ -166,3 +167,54 @@ def build_path(entities, datatype, suffix, validate=True):
 def is_valid_label(value):
     """True when ``value`` is a valid BIDS entity label/index (alphanumeric only)."""
     return bool(_LABEL_RE.match(str(value)))
+
+
+# --------------------------------------------------------------------------- #
+# Sidecar value checking
+#
+# Which fields a sidecar must carry is decided by ``rules/sidecars``, whose
+# selectors are a small expression language that ``bidsschematools`` can parse but
+# not evaluate -- only the reference validator has an evaluator. So field
+# *inventory* stays the validator's job, and what is checked here is field
+# *values*, which needs no selectors: every ``objects/metadata`` entry is already
+# valid JSON Schema, and the reference validator feeds it to Ajv verbatim.
+# --------------------------------------------------------------------------- #
+
+def _build_format_checker():
+    """A ``FormatChecker`` carrying the schema's own ``format`` patterns.
+
+    ``objects/formats`` entries are plain regexes that metadata definitions refer to
+    by name (``Units`` is ``format: unit``, ``IntendedFor`` is
+    ``format: participant_relative``). jsonschema ignores a format it does not know,
+    so without registering these every ``format`` constraint would silently pass.
+    """
+    checker = FormatChecker()
+    for name in _SCHEMA.objects.formats:
+        pattern = _SCHEMA.objects.formats[name].get('pattern')
+        if not pattern:
+            continue
+        matcher = re.compile(f'^(?:{pattern})$')
+        # A format applies to strings only; anything else is the `type` rule's business.
+        checker.checks(name)(
+            lambda value, _m=matcher: not isinstance(value, str) or bool(_m.match(value)))
+    return checker
+
+
+_FORMAT_CHECKER = _build_format_checker()
+
+
+def value_problem(field, value):
+    """The first BIDS schema violation of ``value`` for ``field``, else ``None``.
+
+    Also ``None`` for a name the schema does not define. A sidecar may legitimately
+    carry non-BIDS keys, and deciding about those belongs to whoever put them there
+    (see the deliberate ones marked in ``lib/reference.py``) -- not to a check whose
+    only source of truth is the schema.
+    """
+    definition = _SCHEMA.objects.metadata.get(field)
+    if definition is None:
+        return None
+    errors = sorted(
+        Draft202012Validator(definition, format_checker=_FORMAT_CHECKER).iter_errors(value),
+        key=str)
+    return errors[0].message if errors else None

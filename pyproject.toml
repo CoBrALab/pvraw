@@ -20,6 +20,9 @@ dependencies = [
     # >=1.2 for `schema.bids_version` and the `rules.sidecars` layout the BIDS
     # conformance work reads; 0.7 predates both.
     'bidsschematools>=1.2',
+    # Sidecar values are checked against the schema's own `objects/metadata`
+    # definitions, which are valid JSON Schema (lib/bids.py::value_problem).
+    'jsonschema>=4.0',
 ]
 description = "Bruker PvDataset Loader (maintained fork of the BrkRaw 0.3.x/0.4 line)"
 license = {text = "GPL-3.0-or-later"}
