@@ -503,11 +503,15 @@ def main():
 
                         for i, row in filtered_dset.iterrows():
                             if pd.isnull(row.FileName) or pd.isnull(row.modality):
-                                # Unclassified scan (no valid BIDS suffix): skip it so
-                                # the validated tree never gets an invalid datatype/suffix.
-                                warnings.warn(f'ScanID:[{row.ScanID}] could not be mapped to a valid BIDS '
-                                              'datatype/suffix and was skipped. Set DataType and '
-                                              'modality in the datasheet to convert it.')
+                                # No valid BIDS suffix, so it must not enter the
+                                # validated tree -- but dropping it loses the scan.
+                                # It goes to derivatives/ or sourcedata/ instead,
+                                # both of which the validator ignores by definition.
+                                try:
+                                    convertUnvalidated(root_path, dset, row, subj_code,
+                                                       include_session, scale_mode)
+                                except Exception as e:
+                                    report_conversion_error(row.ScanID, row.RecoID, e)
                                 continue
                             temp_fname = f'{row.FileName}_{row.modality}'
                             if temp_fname not in list_tested_fn:
@@ -780,6 +784,66 @@ def generateModalityAgnosticFiles(root_path, json_fname):
         with open(participants_json, 'w') as f:
             json.dump(descriptions, f, indent=4)
 
+
+
+def convertUnvalidated(root_path, dset, row, subj_code, include_session, scale_mode):
+    """Convert a scan that has no valid BIDS datatype, outside the validated tree.
+
+    Two destinations, because they are two different things. A ParaVision-computed
+    stack with no single BIDS suffix -- a DTI tensor reconstruction, an unrecognised
+    fit -- is a derivative. A scan we simply could not classify is not derived at
+    all; it is source data we are declining to interpret.
+
+    Both directories are ignored by the validator by definition, so the data is kept
+    without costing an error. Naming inside them is ours, so it is the plainest thing
+    that stays traceable to the scan it came from.
+    """
+    import pandas as pd
+
+    from ..lib import derived
+
+    try:
+        groups = dset.get_frame_groups(row.ScanID, row.RecoID)
+    except Exception:
+        groups = []
+    if derived.is_derived(groups):
+        base = os.path.join(root_path, 'derivatives', 'brkraw-legacy')
+        writeDerivativesDescription(base)
+    else:
+        base = os.path.join(root_path, 'sourcedata')
+
+    parts = [subj_code]
+    if include_session and pd.notnull(row.SessID):
+        parts.append(f'ses-{row.SessID}')
+    directory = os.path.join(base, *parts)
+    mkdir(directory)
+    stem = '_'.join([*parts, f'scan-{row.ScanID}', f'reco-{row.RecoID}'])
+
+    niiobj = dset.get_niftiobj(row.ScanID, row.RecoID, scale_mode=scale_mode)
+    for i, nii in enumerate(niiobj if isinstance(niiobj, list) else [niiobj]):
+        name = f'{stem}_chunk-{str(i + 1).zfill(2)}' if isinstance(niiobj, list) and \
+            len(niiobj) > 1 else stem
+        nii.to_filename(os.path.join(directory, f'{name}.nii.gz'))
+
+
+def writeDerivativesDescription(base):
+    """The dataset_description.json a derivatives directory needs to stand alone."""
+    import json
+
+    from ..lib.bids import BIDS_VERSION
+
+    mkdir(base)
+    path = os.path.join(base, 'dataset_description.json')
+    if os.path.exists(path):
+        return
+    with open(path, 'w') as f:
+        json.dump({
+            'Name': 'BrkRaw-legacy derived reconstructions',
+            'BIDSVersion': BIDS_VERSION,
+            'DatasetType': 'derivative',
+            'GeneratedBy': [{'Name': 'BrkRaw-legacy', 'Version': __version__,
+                             'CodeURL': 'https://github.com/gdevenyi/brkraw-legacy'}],
+        }, f, indent=4)
 
 
 def recordScanRows(scan_rows, root_path, dset, row, include_session, written):

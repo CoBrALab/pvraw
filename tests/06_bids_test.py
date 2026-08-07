@@ -652,6 +652,44 @@ def test_derived_reconstructions_classified_by_what_they_contain(h2_study, tmp_p
     assert n_derived, 'expected at least one derived (FG_ISA/FG_DTI) reconstruction'
 
 
+def test_unvalidated_scans_are_kept_outside_the_validated_tree(h2_study, tmp_path):
+    """A scan with no valid BIDS suffix must be kept, not dropped.
+
+    Two destinations, because they are two different things: a ParaVision-computed
+    stack with no single suffix is a derivative, while a scan we could not classify
+    is source data we are declining to interpret. Both are ignored by the validator
+    by definition, so nothing lands in the validated tree.
+    """
+    import json
+
+    sample = tmp_path / 'sample'
+    sample.mkdir()
+    (sample / h2_study.name).symlink_to(h2_study.resolve())
+    sheet = tmp_path / 'map'
+    out = tmp_path / 'out'
+    subprocess.check_call(['brkraw-legacy', 'bids_helper', str(sample), str(sheet), '-j'])
+    subprocess.check_call(['brkraw-legacy', 'bids_convert', str(sample),
+                           str(sheet) + '.csv', '-j', str(sheet) + '.json',
+                           '--output', str(out)])
+
+    derivatives = out / 'derivatives' / 'brkraw-legacy'
+    kept = list((out / 'sourcedata').rglob('*.nii.gz')) + list(derivatives.rglob('*.nii.gz'))
+    assert kept, 'expected unclassified or derived scans to be kept, not dropped'
+
+    if list(derivatives.rglob('*.nii.gz')):
+        # A derivatives directory has to stand on its own.
+        desc = json.loads((derivatives / 'dataset_description.json').read_text())
+        assert desc['DatasetType'] == 'derivative'
+        assert desc['BIDSVersion'] == bids.BIDS_VERSION
+
+    # Neither tree may leak into a datatype directory.
+    for path in kept:
+        assert 'sourcedata' in path.parts or 'derivatives' in path.parts
+    for datatype in ('anat', 'func', 'dwi', 'fmap'):
+        for path in out.rglob(f'sub-*/**/{datatype}/*.nii.gz'):
+            assert 'sourcedata' not in path.parts and 'derivatives' not in path.parts
+
+
 def test_multislicepack_uses_chunk_entity(h2_study, tmp_path):
     """A multi-slicepack reconstruction (e.g. the 0.2H2 fieldmap) must split with
     the BIDS chunk- entity plus a sidecar per chunk, not an invalid '-NN' filename
@@ -667,8 +705,11 @@ def test_multislicepack_uses_chunk_entity(h2_study, tmp_path):
     subprocess.check_call(['brkraw-legacy', 'bids_convert', str(sample),
                            str(sheet) + '.csv', '-j', str(sheet) + '.json',
                            '--output', str(out)])
-    niis = list(out.rglob('*.nii.gz'))
-    bad = [p.name for p in niis if re.search(r'-\d{2}\.nii\.gz$', p.name)]
+    # The validated tree only: sourcedata/ and derivatives/ are outside BIDS
+    # filename rules, and their chunk-NN spelling is not what this guards against.
+    niis = [p for p in out.rglob('*.nii.gz')
+            if 'sourcedata' not in p.parts and 'derivatives' not in p.parts]
+    bad = [p.name for p in niis if re.search(r'(?<!chunk)-\d{2}\.nii\.gz$', p.name)]
     assert not bad, f'invalid -NN split filenames: {bad}'
     chunked = [p for p in niis if '_chunk-' in p.name]
     assert chunked, 'expected chunk- split outputs (0.2H2 fieldmap)'
