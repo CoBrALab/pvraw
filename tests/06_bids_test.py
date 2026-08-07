@@ -612,14 +612,21 @@ def test_multiecho_gets_echo_entity(lego_study, tmp_path):
     assert niis == [f'sub-001_echo-{i + 1}_T2starw.nii.gz' for i in range(n_echo)]
 
 
-def test_derived_reconstructions_not_auto_classified(h2_study, tmp_path):
-    """ISA parametric maps and generated DTI tensor images are BIDS derivatives;
-    bids_helper must leave them 'etc', not label them anat/MESE or dwi -- which
-    produced a single-frame "MESE" with no echo-/EchoTime and a "dwi" whose
-    bval/bvec length did not match the volumes."""
+def test_derived_reconstructions_classified_by_what_they_contain(h2_study, tmp_path):
+    """A derived reconstruction is a stack, and only some of it is raw BIDS.
+
+    An ISA fit holds one volume BIDS has a suffix for -- the relaxation time -- so
+    it is labelled T1map/T2map and the converter extracts that element. Everything
+    else derived (tensor stacks, unrecognised fits) stays 'etc'.
+
+    What must never happen is the whole stack being labelled by its acquisition
+    method: that produced a single-frame "MESE" with no echo-/EchoTime and a "dwi"
+    whose bval/bvec length did not match the volumes.
+    """
     import pandas as pd
 
     from brkraw_legacy import BrukerLoader
+    from brkraw_legacy.lib import derived
 
     sample = tmp_path / 'sample'
     sample.mkdir()
@@ -631,11 +638,17 @@ def test_derived_reconstructions_not_auto_classified(h2_study, tmp_path):
     d = BrukerLoader(str(h2_study))
     n_derived = 0
     for _, row in df.iterrows():
-        groups = [name for name, _ in d.get_frame_groups(int(row.ScanID), int(row.RecoID))]
-        if any(g in ('isa', 'dti') for g in groups):
-            n_derived += 1
+        scan_id, reco_id = int(row.ScanID), int(row.RecoID)
+        if not derived.is_derived(d.get_frame_groups(scan_id, reco_id)):
+            continue
+        n_derived += 1
+        found = derived.isa_map(d.get_visu_pars(scan_id, reco_id))
+        if found:
+            assert row.DataType == 'anat' and row.modality == found[1], \
+                f'ISA map {scan_id}/{reco_id} should be anat/{found[1]}'
+        else:
             assert row.DataType == 'etc', \
-                f'derived reco {row.ScanID}/{row.RecoID} classified as {row.DataType}'
+                f'derived reco {scan_id}/{reco_id} classified as {row.DataType}'
     assert n_derived, 'expected at least one derived (FG_ISA/FG_DTI) reconstruction'
 
 

@@ -4,6 +4,7 @@ import re
 import warnings
 
 from .. import BrukerLoader, __version__
+from ..lib import derived
 from ..lib.errors import FileNotValidError, InvalidApproach, ValueConflictInField
 from ..lib.utils import get_value, mkdir, save_meta_files, set_rescale
 
@@ -306,20 +307,30 @@ def main():
                                 and not is_localizer(dset, scan_id, reco_id)):
                             datatype = assignDataType(method)
 
-                            # Derived/computed reconstructions -- ISA parametric
-                            # maps (T2/T1 relaxation, ...) and generated DTI tensor
-                            # images -- are BIDS derivatives, not raw data. Auto-
-                            # classifying them as a raw datatype produced invalid
-                            # output (a single-frame "MESE" with no echo-/EchoTime;
-                            # a "dwi" whose bval/bvec length did not match the
-                            # volumes). Leave them 'etc' so they are not converted.
-                            groups = [name for name, _ in dset.get_frame_groups(scan_id, reco_id)]
-                            if any(g in ('isa', 'dti') for g in groups):
-                                datatype = 'etc'
-                                warnings.warn(f'ScanID:[{scan_id}] RecoID:[{reco_id}] is a derived '
-                                              'reconstruction (parametric/tensor map); '
-                                              'marked as "etc" (BIDS derivative). Set '
-                                              'DataType/modality to convert it.')
+                            # A derived reconstruction is a STACK, not an image: an
+                            # ISA fit writes five volumes and a DTI reconstruction
+                            # twenty-two, each index meaning something different.
+                            # Converting one whole is what produced the old invalid
+                            # output (a single-frame "MESE" with no echo-/EchoTime, a
+                            # "dwi" whose bval/bvec length did not match the volumes).
+                            #
+                            # An ISA fit does contain one volume BIDS has a suffix
+                            # for -- the relaxation time -- so it is named here and
+                            # the converter extracts it. Everything else derived
+                            # stays 'etc' and is routed out of the validated tree.
+                            derived_map = None
+                            groups = dset.get_frame_groups(scan_id, reco_id)
+                            if derived.is_derived(groups):
+                                found = derived.isa_map(visu_pars)
+                                if found:
+                                    _, derived_map, _ = found
+                                    datatype = 'anat'
+                                else:
+                                    datatype = 'etc'
+                                    warnings.warn(
+                                        f'ScanID:[{scan_id}] RecoID:[{reco_id}] is a derived '
+                                        'reconstruction with no single BIDS suffix (tensor or '
+                                        'unrecognised fit); it goes to derivatives/.')
 
                             # ASL / perfusion (FAIR, (p)CASL, PASL, ...) is
                             # neither BOLD nor anatomical; it belongs in BIDS
@@ -357,6 +368,12 @@ def main():
                                     df = pd.concat([df, pd.DataFrame([item])], ignore_index=True)
                             elif datatype == 'dwi':
                                 item['modality'] = 'dwi'
+                                df = pd.concat([df, pd.DataFrame([item])], ignore_index=True)
+                            elif derived_map:
+                                # Checked before the MSME branch: an ISA T2 map is
+                                # usually fitted FROM an MSME scan, so matching on the
+                                # method would relabel the map as MESE/T2w.
+                                item['modality'] = derived_map
                                 df = pd.concat([df, pd.DataFrame([item])], ignore_index=True)
                             elif datatype == 'anat' and re.search('MSME', method, re.IGNORECASE):
                                 # MSME is multi-slice multi-echo, but only a
