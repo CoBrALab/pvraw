@@ -257,7 +257,8 @@ def main():
         output = f'{ds_fname}.{ds_format}' 
 
         Headers = ['RawData', 'SubjID', 'SessID', 'ScanID', 'RecoID', 'DataType',
-                   'task', 'acq', 'ce', 'rec', 'dir', 'run', 'inv', 'flip', 'mt', 'part', 'modality', 'Start', 'End']
+                   'task', 'acq', 'ce', 'rec', 'dir', 'run', 'inv', 'flip', 'mt', 'part', 'modality',
+                   'b0group', 'Start', 'End']
         df = pd.DataFrame(columns=Headers)
 
         # if the path directly contains scan files for one participant
@@ -565,6 +566,7 @@ def main():
             except FileNotValidError:
                 pass
 
+        writeFieldmapLinks(root_path, scan_rows)
         writeParticipantTables(root_path, participant_rows, session_rows, scan_rows)
     else:
         parser.print_help()
@@ -872,6 +874,8 @@ def recordScanRows(scan_rows, root_path, dset, row, include_session, written):
         scan_rows.setdefault((subject, session), []).append({
             'filename': os.path.relpath(path, base).replace(os.sep, '/'),
             'acq_time': acquired,
+            # The datasheet's say on which fieldmap covers this scan, if given.
+            'b0group': row.b0group if ('b0group' in row and pd.notnull(row.b0group)) else None,
         })
 
 
@@ -905,6 +909,56 @@ def recordParticipant(participant_rows, session_rows, dset, subj_code, filtered_
             label = f'ses-{sess_id}'
             if not any(r['session_id'] == label for r in rows):
                 rows.append({'session_id': label, 'acq_time': acquired})
+
+
+def writeFieldmapLinks(root_path, scan_rows):
+    """Link each fieldmap to the images it corrects, in both BIDS mechanisms.
+
+    Run after conversion because it needs the final filenames: run- indices are
+    only resolved while converting, and IntendedFor has to name what was written.
+
+    Two mechanisms on purpose. `B0FieldIdentifier`/`B0FieldSource` pair by name and
+    survive a rename, which is the spec's current answer; `IntendedFor` is a path
+    list and is still what most tools read.
+    """
+    from ..lib import bids
+
+    for (subject, session), rows in scan_rows.items():
+        directory = os.path.join(root_path, subject, session) if session \
+            else os.path.join(root_path, subject)
+        pairs = bids.pair_fieldmaps(rows)
+        for index, (fieldmap, targets) in enumerate(sorted(pairs.items()), start=1):
+            if not targets:
+                warnings.warn(f'{fieldmap}: no image follows this fieldmap that it could '
+                              'correct, so it is left unlinked. Set b0group in the '
+                              'datasheet if it belongs to a scan acquired before it.')
+                continue
+            identifier = next((r.get('b0group') for r in rows
+                               if r['filename'] == fieldmap and r.get('b0group')), None)
+            identifier = identifier or f'b0map{index}'
+            # IntendedFor is participant-relative, so it carries the session.
+            prefix = f'{session}/' if session else ''
+            _patchSidecar(directory, fieldmap, {
+                'B0FieldIdentifier': identifier,
+                'IntendedFor': [f'{prefix}{t}' for t in targets],
+            })
+            for target in targets:
+                _patchSidecar(directory, target, {'B0FieldSource': identifier})
+
+
+def _patchSidecar(directory, nifti_relpath, fields):
+    """Merge `fields` into the sidecar of `nifti_relpath`, if it has one."""
+    import json
+
+    path = os.path.join(directory, nifti_relpath).replace('.nii.gz', '.json')
+    if not os.path.exists(path):
+        # magnitude images are written without a sidecar, by design
+        return
+    with open(path) as f:
+        sidecar = json.load(f)
+    sidecar.update(fields)
+    with open(path, 'w') as f:
+        json.dump(sidecar, f, indent=4)
 
 
 def writeParticipantTables(root_path, participant_rows, session_rows, scan_rows):

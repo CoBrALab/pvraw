@@ -170,6 +170,82 @@ def is_valid_label(value):
 
 
 # --------------------------------------------------------------------------- #
+# Fieldmap pairing
+# --------------------------------------------------------------------------- #
+
+#: Suffixes whose images are distorted by B0 inhomogeneity, so a fieldmap can
+#: correct them. Anatomical scans are not in the list: they are not EPI readouts,
+#: and naming one here would claim a correction nobody applies.
+CORRECTABLE_SUFFIXES = ('bold', 'sbref', 'dwi', 'asl')
+
+#: Fieldmap suffixes. `epi` is both -- a reversed-PE spin-echo IS the fieldmap --
+#: so it is listed here and deliberately not above.
+FIELDMAP_SUFFIXES = ('fieldmap', 'phasediff', 'phase1', 'phase2', 'epi')
+
+
+def suffix_of(filename):
+    """The BIDS suffix of a filename, or None."""
+    stem = str(filename).split('/')[-1].split('.')[0]
+    return stem.rsplit('_', 1)[-1] if '_' in stem else None
+
+
+def pair_fieldmaps(rows):
+    """Map each fieldmap onto the images it plausibly corrects.
+
+    ``rows`` are ``{'filename', 'acq_time'}`` dicts for one subject/session, i.e.
+    what ``_scans.tsv`` already collects.
+
+    The rule is: a fieldmap corrects the correctable images acquired AFTER it and
+    before the next fieldmap. Claiming every image in the session instead is wrong
+    the moment a session has two fieldmaps, which is the normal case -- and on the
+    PV6 corpus study it would wrongly claim three dwi runs acquired an hour BEFORE
+    the fieldmap was measured.
+
+    This is inference about intent, not something Bruker records. Nothing in the
+    file says which images a fieldmap was meant for, so callers must let the user
+    override it.
+
+    A row carrying a ``b0group`` label overrides all of that: rows sharing a label
+    are paired with each other and acquisition order is not consulted. That is the
+    datasheet's say, and it wins because the operator knows what the fieldmap was
+    for and the clock does not.
+
+    Returns ``{fieldmap filename: [target filename, ...]}``, fieldmaps with no
+    targets included, so a caller can report them.
+    """
+    if any(r.get('b0group') for r in rows):
+        return _pair_by_label(rows)
+    return _pair_by_time(rows)
+
+
+def _pair_by_label(rows):
+    pairs = {}
+    for label in {r.get('b0group') for r in rows if r.get('b0group')}:
+        group = [r for r in rows if r.get('b0group') == label]
+        maps = [r['filename'] for r in group if suffix_of(r['filename']) in FIELDMAP_SUFFIXES]
+        targets = [r['filename'] for r in group
+                   if suffix_of(r['filename']) in CORRECTABLE_SUFFIXES]
+        for fieldmap in maps:
+            pairs[fieldmap] = list(targets)
+    return pairs
+
+
+def _pair_by_time(rows):
+    ordered = sorted((r for r in rows if r.get('acq_time')),
+                     key=lambda r: (r['acq_time'], r['filename']))
+    pairs = {}
+    current = None
+    for row in ordered:
+        suffix = suffix_of(row['filename'])
+        if suffix in FIELDMAP_SUFFIXES:
+            current = row['filename']
+            pairs.setdefault(current, [])
+        elif suffix in CORRECTABLE_SUFFIXES and current is not None:
+            pairs[current].append(row['filename'])
+    return pairs
+
+
+# --------------------------------------------------------------------------- #
 # Sidecar value checking
 #
 # Which fields a sidecar must carry is decided by ``rules/sidecars``, whose
