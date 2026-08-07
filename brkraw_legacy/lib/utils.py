@@ -68,20 +68,28 @@ def multiply_all(list):
 
 
 # META handler
-def meta_get_value(value, acqp, method, visu_pars):
+def meta_get_value(value, *sources):
+    """Resolve one ``*_META_REF`` entry against the scan's parameter files.
+
+    ``sources`` are parameter objects in priority order -- ``acqp``, ``method``,
+    ``visu_pars``, and optionally ``reco``. Taking them variadically rather than as
+    fixed arguments is what lets a mapping reach a parameter that lives outside the
+    original three (``RecoCombineMode`` is in ``pdata/N/reco``) without touching
+    every resolver in this module.
+    """
     if isinstance(value, str):
-        return meta_check_source(value, acqp, method, visu_pars)
+        return meta_check_source(value, *sources)
     elif isinstance(value, dict):
         if is_keywhere(value):
-            return meta_check_where(value, acqp, method, visu_pars)
+            return meta_check_where(value, *sources)
         elif is_keyindex(value):
-            return meta_check_index(value, acqp, method, visu_pars)
+            return meta_check_index(value, *sources)
         elif is_express(value):
-            return meta_check_express(value, acqp, method, visu_pars)
+            return meta_check_express(value, *sources)
         else:
             parser = {}
             for k, v in value.items():
-                sub = meta_get_value(v, acqp, method, visu_pars)
+                sub = meta_get_value(v, *sources)
                 if sub is not None:
                     parser[k] = sub
             # Drop the whole group when nothing resolved, so empty objects are omitted.
@@ -89,7 +97,7 @@ def meta_get_value(value, acqp, method, visu_pars):
     elif isinstance(value, list):
         # Fallback list: try each candidate in order, return the first resolved value.
         for vi in value:
-            val = meta_get_value(vi, acqp, method, visu_pars)
+            val = meta_get_value(vi, *sources)
             if val is not None:
                 return val
         return None
@@ -109,25 +117,25 @@ def is_express(value):
     return 'Equation' in value
 
 
-def meta_check_where(value, acqp, method, visu_pars):
+def meta_check_where(value, *sources):
     """The position of a marker within a parameter's values (e.g. the phase axis)."""
-    val = meta_get_value(value['key'], acqp, method, visu_pars)
+    val = meta_get_value(value['key'], *sources)
     if val is None:
         return None
     # a multi-valued parameter reads back as an array; index it as a sequence
     values = list(np.atleast_1d(val))
     where = value['where'] if isinstance(value['where'], str) \
-        else meta_get_value(value['where'], acqp, method, visu_pars)
+        else meta_get_value(value['where'], *sources)
     return values.index(where) if where in values else None
 
 
-def meta_check_index(value, acqp, method, visu_pars):
-    val = meta_get_value(value['key'], acqp, method, visu_pars)
+def meta_check_index(value, *sources):
+    val = meta_get_value(value['key'], *sources)
     if val is not None:
         if isinstance(value['idx'], int):
             return val[value['idx']]
         else:
-            idx = meta_get_value(value['idx'], acqp, method, visu_pars)
+            idx = meta_get_value(value['idx'], *sources)
         if idx is not None:
             return val[idx]
         else:
@@ -136,7 +144,7 @@ def meta_check_index(value, acqp, method, visu_pars):
         return None
 
 
-def meta_check_express(value, acqp, method, visu_pars):
+def meta_check_express(value, *sources):
     # Resolve every non-Equation key to a variable, then eval the Equation
     # against them. The previous implementation assigned the variables with
     # exec() into locals() and read the result back from locals(); PEP 667
@@ -147,7 +155,7 @@ def meta_check_express(value, acqp, method, visu_pars):
     for k, v in value.items():
         if k == 'Equation':
             continue
-        val = meta_get_value(v, acqp, method, visu_pars)
+        val = meta_get_value(v, *sources)
         if isinstance(val, str):
             val = None
         namespace[k] = val
@@ -164,13 +172,13 @@ def meta_check_express(value, acqp, method, visu_pars):
         return None
 
 
-def meta_check_source(key_string, acqp, method, visu_pars):
-    """The first of acqp, method, visu_pars carrying `key_string`, else None.
+def meta_check_source(key_string, *sources):
+    """The first of `sources` carrying `key_string`, else None.
 
     A parameter absent from every source omits the field rather than echoing
     the Bruker parameter name as the metadata value.
     """
-    for parameters in (acqp, method, visu_pars):
+    for parameters in sources:
         if parameters is not None and key_string in parameters:
             return get_value(parameters, key_string)
     return None
@@ -262,6 +270,10 @@ def get_bids_ref_obj(ref_path, row):
             ref_data = json.load(f)
         ref = ref_data['common']
         if row.modality in ['bold', 'cbv', 'epi'] and 'func' in ref_data:
+            # AcquisitionDuration is deprecated by BIDS for func (superseded by
+            # FrameAcquisitionDuration, which Bruker never writes) while staying
+            # optional elsewhere -- so it is dropped here and kept for anat/dwi.
+            ref.pop('AcquisitionDuration', None)
             for k, v in ref_data['func'].items():
                 if k in ref:
                     raise InvalidApproach(f'Duplicated key is found at func: {k}')

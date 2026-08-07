@@ -5,6 +5,7 @@ data. The end-to-end tests convert a public sample study (lego_phantom); the
 validator check is skipped unless the ``bids-validator`` (Deno) binary is
 available.
 """
+import itertools
 import json
 import shutil
 import subprocess
@@ -156,6 +157,91 @@ def test_invalid_value_is_demoted_rather_than_written_or_dropped():
     assert any('FlipAngle' in str(w.message) for w in caught)
 
 
+# --------------------------------------------------------------------------- #
+# The verdict table: every schema field is accounted for
+# --------------------------------------------------------------------------- #
+
+#: Rule groups covering the datatypes this converter emits. `asl` is deliberately
+#: absent until the perf datatype lands; add it with that work, not before.
+_VERDICT_GROUPS = ('mri', 'anat', 'func', 'dwi', 'fmap', 'qmri', 'entity_rules')
+
+
+def _schema_sidecar_fields():
+    """Every sidecar field named by a rule group for a datatype we can emit."""
+    names = set()
+    for group in _VERDICT_GROUPS:
+        for rule in bids._SCHEMA.rules.sidecars[group].values():
+            for field in rule.get('fields', {}):
+                # A few names are disambiguated per modality in the schema
+                # (`AnatomicalLandmarkCoordinates__mri`); the sidecar key is the stem.
+                names.add(field.split('__')[0])
+    return names
+
+
+def _verdicts():
+    from brkraw_legacy.lib import reference as ref
+
+    mapped = set()
+    for table in (ref.COMMON_META_REF, ref.FMRI_META_REF, ref.FIELDMAP_META_REF):
+        mapped |= {k for k, v in table.items() if v is not None}
+    return {
+        'mapped': mapped,
+        'computed at write time': set(ref.COMPUTED_AT_WRITE),
+        'source known, not yet mapped': set(ref.UNMAPPED_WITH_SOURCE),
+        'no Bruker source': set(ref.NO_BRUKER_SOURCE),
+    }
+
+
+def test_every_schema_field_has_a_verdict():
+    """No BIDS field may be silently unaccounted for.
+
+    Each one is mapped, computed at write time, known-but-unmapped (the gap list),
+    or recorded as having no Bruker source *with the reason*. A `bidsschematools`
+    bump that introduces a field then shows up as a failing test rather than as
+    metadata quietly going missing -- which is the whole point, since the reference
+    validator says nothing about a missing OPTIONAL field.
+    """
+    verdicts = _verdicts()
+    accounted = set().union(*verdicts.values())
+    missing = sorted(_schema_sidecar_fields() - accounted)
+    assert not missing, (
+        'schema fields with no verdict in lib/reference.py: ' + ', '.join(missing))
+
+
+def test_no_field_carries_two_verdicts():
+    """A field is in exactly one state; two would make the gap list a guess."""
+    verdicts = _verdicts()
+    for a, b in itertools.combinations(sorted(verdicts), 2):
+        overlap = sorted(verdicts[a] & verdicts[b])
+        assert not overlap, f"'{a}' and '{b}' both claim: {', '.join(overlap)}"
+
+
+def test_keys_we_emit_are_either_bids_or_declared_non_bids():
+    """A key that is neither a BIDS field nor a declared exception is a typo."""
+    from brkraw_legacy.lib import reference as ref
+
+    emitted = _verdicts()['mapped'] | set(ref.COMPUTED_AT_WRITE)
+    undeclared = sorted(emitted - set(bids._SCHEMA.objects.metadata) - set(ref.NON_SCHEMA_KEYS))
+    assert not undeclared, (
+        'emitted keys that BIDS does not define and NON_SCHEMA_KEYS does not '
+        'declare: ' + ', '.join(undeclared))
+
+
+def test_no_deprecated_field_is_emitted():
+    """Deprecated means the spec is removing it; extracting more is not extracting worse."""
+    emitted = _verdicts()['mapped'] | set(_verdicts()['computed at write time'])
+    deprecated = set()
+    for group in _VERDICT_GROUPS:
+        for rule in bids._SCHEMA.rules.sidecars[group].values():
+            for field, spec in rule.get('fields', {}).items():
+                level = spec if isinstance(spec, str) else spec.get('level')
+                if level == 'deprecated':
+                    deprecated.add(field.split('__')[0])
+    # AcquisitionDuration is deprecated for func only, and is dropped in the func
+    # merge (lib/utils.get_bids_ref_obj); it stays optional -- and emitted -- elsewhere.
+    assert emitted & deprecated <= {'AcquisitionDuration'}
+
+
 def test_subject_session_id_sanitized_to_valid_bids_label():
     """A subject/session ID must become an alphanumeric BIDS label. Regression:
     a version-derived id like PV360's ``std_PV360_3.7`` kept its '.', which is
@@ -264,11 +350,16 @@ def test_end_to_end_bids_convert(lego_study, tmp_path):
         assert 'Visu' not in text                       # echoed Bruker param name
 
 
-def test_phase_encoding_direction_is_bids_axis(h2_study, tmp_path):
-    """Every emitted PhaseEncodingDirection must be a BIDS axis (i/j/k[-]), not a
-    raw Bruker code. Regression: PV5.1's uniform ``VisuAcqImagePhaseEncDir`` of
-    ``col_dir`` reached the sidecar verbatim (schema-invalid)."""
-    valid = {'i', 'i-', 'j', 'j-', 'k', 'k-'}
+def test_phase_encode_axis_emitted_without_a_polarity_claim(h2_study, tmp_path):
+    """The PE axis ships as ``PhaseEncodingAxis``; BIDS ``PhaseEncodingDirection``
+    must not appear at all.
+
+    Two regressions in one. PV5.1's uniform ``VisuAcqImagePhaseEncDir`` of
+    ``col_dir`` once reached the sidecar verbatim. And ``PhaseEncodingDirection``
+    has no unsigned value -- the schema reads the polarity as positive unless '-'
+    is present -- so emitting a bare 'j' claimed a sign we cannot derive.
+    """
+    valid_axes = {'i', 'j', 'k'}
     sample = tmp_path / 'sample'
     sample.mkdir()
     (sample / h2_study.name).symlink_to(h2_study.resolve())
@@ -280,12 +371,14 @@ def test_phase_encoding_direction_is_bids_axis(h2_study, tmp_path):
                            '--output', str(out)])
     seen = 0
     for js in out.rglob('*.json'):
-        pe = json.loads(js.read_text()).get('PhaseEncodingDirection')
-        if pe is not None:
-            assert pe in valid, f'{js.name}: {pe!r}'
+        sidecar = json.loads(js.read_text())
+        assert 'PhaseEncodingDirection' not in sidecar, f'{js.name} claims a PE polarity'
+        axis = sidecar.get('PhaseEncodingAxis')
+        if axis is not None:
+            assert axis in valid_axes, f'{js.name}: {axis!r}'
             seen += 1
     if not seen:
-        pytest.skip('no PhaseEncodingDirection emitted in this sample')
+        pytest.skip('no PhaseEncodingAxis emitted in this sample')
 
 
 @pytest.mark.skipif(_validator_bin() is None, reason='bids-validator (deno) not available')
