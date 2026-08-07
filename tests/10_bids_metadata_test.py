@@ -285,6 +285,50 @@ def test_rf_spoiling_phase_increment(params, expected):
     assert _resolve('SpoilingRFPhaseIncrement', method=_p(**params)) == expected
 
 
+@pytest.mark.parametrize(('param', 'spoil', 'dur', 'ampl', 'res_mm'), [
+    # FLASH family: ReadSpoiler, `spoil` referenced to the read voxel size
+    ('ReadSpoiler', 2.0, 0.90021978021978, 50.0, 0.15625),        # PV6 scan 3, FLASH
+    ('ReadSpoiler', 2.0, 1.732, 25.987868943989, 0.15625),        # PV6 scan 6, MGE
+    ('ReadSpoiler', 2.0, 2.042, 11.0212999537192, 0.3125),        # PV7 scan 6, B1Map
+    ('ReadSpoiler', 2.0, 2.05764521193093, 50.0, 0.068359375),    # PV7 scan 19, FLASH
+    # RARE family: RepetitionSpoiler, `spoil` referenced to slice thickness
+    ('RepetitionSpoiler', 4.0, 0.75, 9.37728937728938, 2.0),      # PV6 scan 7, MSME
+    ('RepetitionSpoiler', 8.0, 3.0, 8.08387015283567, 1.16),      # PV6 scan 10, RAREVTR
+    ('RepetitionSpoiler', 2.5, 0.45, 19.5360195360195, 1.0),      # PV7 scan 17, FAIR_RARE
+])
+def test_spoiler_moment_reproduces_brukers_own_cycles_per_pixel(param, spoil, dur, ampl, res_mm):
+    """Closed-loop check of the spoiler derivation against Bruker's stated intent.
+
+    The spoiler struct is (automatic, spoil, dur, ampl), where ``spoil`` is the
+    dephasing the sequence asks for in CYCLES PER PIXEL -- an independent statement
+    of the same physics that nothing in our derivation uses. If the moment is right,
+
+        cycles = (gamma/2pi) * moment * voxel_size
+
+    must return that number. It does, exactly, on every corpus scan declaring either
+    spoiler. That is what makes SpoilingGradientMoment safe to emit at all: nothing
+    records the moment itself, so without this the derivation would be a guess.
+    """
+    gamma = 42577.478   # Hz/mT
+    # 28437.5 Hz/mm is what every corpus scan reports: a 667.9 mT/m gradient set.
+    method = _p(**{param: [['Yes', spoil, dur, ampl]]}, PVM_GradCalConst=28437.5)
+
+    duration = _resolve('SpoilingGradientDuration', method=method)
+    moment = _resolve('SpoilingGradientMoment', method=method)
+
+    assert duration == pytest.approx(dur / 1000.0)
+    assert gamma * moment * (res_mm / 1000.0) == pytest.approx(spoil, rel=1e-3)
+
+
+def test_spoiler_fields_absent_when_only_a_slice_spoiler_exists():
+    """SliceSpoiler fires before excitation -- a pre-excitation crusher, not the
+    residual-transverse spoiler BIDS means. EPI, FISP, UTE and SPIRAL declare only
+    that one, and must emit neither field rather than the wrong lobe."""
+    method = _p(SliceSpoiler=[['Yes', 2, 0.225, 31.25]], PVM_GradCalConst=28437)
+    assert _resolve('SpoilingGradientDuration', method=method) is None
+    assert _resolve('SpoilingGradientMoment', method=method) is None
+
+
 @pytest.mark.parametrize(('on', 'mode', 'suppressed', 'technique'), [
     ('On', 'VAPOR', True, 'VAPOR'),
     ('On', 'CHESS', True, 'CHESS'),

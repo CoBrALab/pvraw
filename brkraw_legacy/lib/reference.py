@@ -225,6 +225,47 @@ COMMON_META_REF = {
         {'R': 'RFSpoiling', 'Equation': "117.0 if R == 'Yes' else None"},
         {'R': 'RFSpoilerOnOff', 'Equation': "117.0 if R == 'On' else None"},
     ],
+    # The end-of-TR spoiler lobe. Bruker declares several spoilers per method and
+    # only one is what BIDS means -- "the spoiler gradient lobe" that suppresses
+    # RESIDUAL TRANSVERSE magnetization. The pulse programs settle which:
+    #
+    #   FLASH-family   ACQ_gradient_amplitude[6] = ReadSpoiler.ampl, and FLASH.ppg
+    #                  plays g6 after the ADC under its own ';-- read spoiler --'
+    #                  comment. MDEFT, which declares both spoilers, does the same.
+    #   RARE-family    RARE.ppg line 69 is `d9 grad_ramp{g1, 0, g1} ;TR spoiler`,
+    #                  with ACQ_gradient_amplitude[1] = RepetitionSpoiler.ampl.
+    #
+    # SliceSpoiler is NOT it: g9 fires before excitation, a pre-excitation crusher.
+    # Neither are ReadSpoilGradL/R and SliceSpoilGradL/R, the per-echo crushers
+    # around a RARE train's refocusing pulses.
+    #
+    # The duration is the whole lobe. BaseLevelRelations.c sets D[11] = RewGradDur
+    # and D[12] = ReadSpoiler.dur - RewGradDur, so the two pulse-program delays sum
+    # to `dur`, with the ramp-off (d3) excluded -- exactly BIDS's "ramp-up plus
+    # plateau". The struct is (automatic, spoil, dur[ms], ampl[% of maximum]).
+    'SpoilingGradientDuration': [
+        {'S': 'ReadSpoiler', 'Equation': 'float(np.atleast_2d(S)[0][2])/1000.0'},
+        {'S': 'RepetitionSpoiler', 'Equation': 'float(np.atleast_2d(S)[0][2])/1000.0'},
+    ],
+    # Zeroth moment of that lobe in mT.s/m: amplitude (a percentage of the maximum
+    # gradient) times duration. PVM_GradCalConst is the full-scale gradient in Hz/mm,
+    # so Gmax[mT/m] = GradCalConst / (gamma/2pi) * 1000.
+    #
+    # Verified rather than trusted, because nothing records the moment itself. The
+    # struct's `spoil` field states the intended dephasing in CYCLES PER PIXEL, so
+    # gamma * moment * voxel_size must reproduce it -- and it does, exactly, on every
+    # corpus scan that declares either spoiler: 2.000 for the FLASH family against
+    # the read voxel size, and 2.5/4.0/8.0 for the RARE family against slice
+    # thickness, across nine methods and two ParaVision versions. See the round-trip
+    # test in tests/10_bids_metadata_test.py.
+    'SpoilingGradientMoment': [
+        {'S': 'ReadSpoiler', 'G': 'PVM_GradCalConst',
+         'Equation': '(float(np.atleast_2d(S)[0][3])/100.0) * (G/42577.478*1000.0) '
+                     '* (float(np.atleast_2d(S)[0][2])/1000.0)'},
+        {'S': 'RepetitionSpoiler', 'G': 'PVM_GradCalConst',
+         'Equation': '(float(np.atleast_2d(S)[0][3])/100.0) * (G/42577.478*1000.0) '
+                     '* (float(np.atleast_2d(S)[0][2])/1000.0)'},
+    ],
     # WATER SUPPRESSION
     # The flag and the mode disagree in real data -- On/NO_SUPPRESSION appears 14
     # times and Off/VAPOR twice across the corpus -- so neither alone is a safe
@@ -309,15 +350,6 @@ UNMAPPED_WITH_SOURCE = {
     'MTPulseShape': 'PVM_MagTransPulse1Enum; no corpus scan has MT on, and only bp/gauss/'
                     'sinc reach a BIDS enum value -- FERMI/GAUSSHANN/SINCHANN/SINCGAUSS '
                     'have no Bruker equivalent',
-    # Bruker has three independent spoilers (ReadSpoiler, SliceSpoiler,
-    # RepetitionSpoiler) with different durations on the same scan -- e.g. 0.900 ms
-    # and 0.225 ms on PV6 lego scan 3. BIDS has one field, so choosing among them is
-    # a guess. Needs: a decision on which lobe the BIDS field means.
-    'SpoilingGradientDuration': 'ReadSpoiler/SliceSpoiler/RepetitionSpoiler .dur (ms -> s); '
-                                'they differ on the same scan and BIDS has only one field',
-    'SpoilingGradientMoment': 'derivable as (ampl/100) * Gmax * dur with Gmax from '
-                              'PVM_GradCalConst, but nothing records the moment itself, so '
-                              'the derivation cannot be checked against ground truth',
     'ScanOptions': 'PV6+ composition of VisuAcqSaturation / VisuAcqPartialFourier / '
                    'VisuAcqSpectralSuppression / VisuAcqFlowCompensation / '
                    'VisuCardiacSynchUsed / VisuRespSynchUsed into DICOM (0018,0022) codes. '
