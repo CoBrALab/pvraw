@@ -28,7 +28,10 @@ it and block nothing.
 
 ## Track 1 — the PR stack
 
-### PR1 · Schema pin and version unification
+PR1–PR4 are done. On the PV6 lego phantom the validator reports **0 errors**
+throughout, with warnings 499 → 429.
+
+### PR1 · Schema pin and version unification — done
 
 `BIDSVersion` comes from `schema.bids_version` instead of a literal. Dependency
 floor raised to `bidsschematools>=1.2`. `_supporting_bids_ver` derived, not
@@ -38,7 +41,7 @@ hardcoded. `tests/06_bids_test.py` asserts against the schema rather than
 
 First, because everything downstream asserts against the version.
 
-### PR2 · The value checker
+### PR2 · The value checker — done
 
 Shipped in `lib/bids.py` and called by `save_json`, so it also catches bad values on
 users' own data, which is where the last several of these bugs lived. Each emitted
@@ -66,7 +69,7 @@ emitted value, rather than only the ones a rule happens to name, is what finds t
 neither mapped nor explicitly marked unmappable fails the build — was listed here.
 It belongs to PR3, because the table it enforces is not populated until then.
 
-### PR3 · `reference.py` becomes the complete verdict table
+### PR3 · `reference.py` becomes the complete verdict table — done
 
 Delete the dead `COMMON_METADATA_FIELD` (no Python file reads it). Every schema
 field gets an entry: mapped, or `None` with the reason it cannot be. `CoilConfigName`
@@ -81,9 +84,10 @@ Three claims in the file are wrong and get corrected:
 | `MultibandAccelerationFactor` | "no parameter on PV5/6/7" | true for PV5.1/PV6, **false for PV7/PV360** (`PVM_MbEncAccelFactor`) |
 
 `reco` is added as a fourth parameter source, which unlocks `CoilCombinationMethod`.
-`CONFIG_SCAN_gradient_system` lives in `configscan`, which `brukerapi` does not load
-— an upstream issue is filed and `GradientSetType` stays unmapped with a corrected
-comment, because reading it here would reintroduce exactly what ADR 0002 removed.
+`CONFIG_SCAN_gradient_system` lives in `configscan`, which `brukerapi` does not load,
+so `GradientSetType` stays unmapped with a corrected comment — reading that file here
+would reintroduce exactly what ADR 0002 removed. **Still open:** an upstream
+`brukerapi` issue asking it to expose `configscan` has not been filed yet.
 
 `RepetitionTime` needs the guard `InversionTime` already has: variable-TR sequences
 (RAREVTR) return an array, and `{'TR': 'VisuAcqRepetitionTime', 'Equation': 'TR/1000'}`
@@ -102,25 +106,57 @@ merely optional elsewhere, so it is dropped for func and kept for anat/dwi.
 `PhaseEncodingDirection` is omitted; `PhaseEncodingAxis` is emitted instead — see
 Track 2 for why.
 
-### PR4 · Gap fields
+### PR4 · Gap fields — done
 
-Roughly 25 fields with verified Bruker sources that are not emitted today: the MT
-group (`MTState`, `MTOffsetFrequency`, `MTPulseBandwidth`, `MTNumberOfPulses`,
-`MTPulseDuration`, partial `MTPulseShape`), the spoiling group (`VisuAcqSpoiling`
-maps 1:1 onto the BIDS enum), `AcquisitionVoxelSize`, `ReconMatrixPE`, `DelayTime`,
-`DelayAfterTrigger`, `EchoTime1`/`EchoTime2`, `RepetitionTimeExcitation`,
-`RepetitionTimePreparation`, `WaterSuppression`,
-`ParallelReductionFactorOutOfPlane`, `ParallelAcquisitionTechnique`, `ScanOptions`,
-`B0ShimmingTechnique`/`B1ShimmingTechnique`, `ContrastBolusIngredient`.
+18 fields mapped, leaving **8** in the gap list. The verdict table now stands at
+53 mapped, 3 computed at write time, 8 known-but-unmapped, 32 with no Bruker
+source, 2 deliberate non-BIDS keys.
 
-Method: validator warnings first (proven gaps), then the systematic schema walk
-(the only way to see optional fields).
+Mapped: `MTState`, `SpoilingState`, `SpoilingType`, `SpoilingRFPhaseIncrement`,
+`SpoilingGradientDuration`, `SpoilingGradientMoment`, `RepetitionTimeExcitation`,
+`RepetitionTimePreparation`, `ParallelReductionFactorOutOfPlane`,
+`ParallelAcquisitionTechnique`, `MultibandAccelerationFactor`, `WaterSuppression`,
+`WaterSuppressionTechnique`, `B0ShimmingTechnique`, `DelayTime`,
+`DelayAfterTrigger`, and `EchoTime1`/`EchoTime2` (in `FIELDMAP_META_REF`, since on
+a multi-echo anat the first two echoes of a train are not a phase-difference map).
+
+**Checking each mapping against real values, rather than against the parameter's
+name, caught three wrong claims**: `PVM_MagTransPulse1` is a struct *row*, not a
+flat array; `PVM_WsOnOff` and `PVM_WsMode` disagree in real data (`On/NO_SUPPRESSION`
+14×, `Off/VAPOR` 2×) so neither alone answers "was water suppressed"; and
+`PVM_EncPpi` has 2 elements in 2D, 3 in 3D, so an unguarded `[2]` raises on every
+2D scan.
+
+**Equations can now read strings.** `meta_check_express` replaced every string
+input with `None` before `eval`, which made every Bruker enum unusable — and had
+been silently dropping `DeviceSerialNumber` (`str(SN)` over a string parameter)
+from every sidecar. 52 → 1 missing after the fix.
+
+**Which spoiler BIDS means, settled from the pulse programs.** The end-of-TR lobe
+is `ReadSpoiler` for the FLASH family (`g6`, played after the ADC) and
+`RepetitionSpoiler` for the RARE family (`d9 grad_ramp{g1,0,g1} ;TR spoiler`).
+`SliceSpoiler` fires *before* excitation and is not it. The derived moment is
+verified against Bruker's own `spoil` field — the intended dephasing in cycles per
+pixel, which the derivation does not use — and `γ · moment · voxel_size`
+reproduces it exactly across nine methods and two ParaVision versions.
+
+The 8 that remain are not oversights. Each is unverifiable here, with the entry
+saying what would settle it: the five MT pulse fields (`PVM_MagTransOnOff` is
+`Off` in all 1642 corpus files, so they describe a module that never played),
+`ScanOptions` (ParaVision leaves that DICOM tag empty, so the codes would be ours
+to invent), `B1ShimmingTechnique` (`AutoAdj` is coil scaling), and
+`ContrastBolusIngredient` (PV360-only, absent from the corpus).
 
 Traps carried into the mappings: in 3D, `PVM_SliceThick` is the whole slab, not the
 voxel; `PVM_SpatResol` is already anti-alias corrected, so deriving from
 `PVM_EncMatrix` is wrong; `PackDel`'s floor of 0.001 ms means "no delay";
 `PVM_TriggerDelay` must be gated on `PVM_TriggerModule`; no Bruker pulse shape maps
 to the BIDS `FERMI`, `GAUSSHANN`, `SINCHANN` or `SINCGAUSS` values.
+
+**Warnings do not only fall.** Emitting a field can activate a conditional rule:
+`rules.sidecars.mri.SpoilingGradient` selects on `SpoilingType` being `GRADIENT`
+or `COMBINED` and then recommends the moment and duration. Errors stay 0, which is
+the limit; the warning count is a weaker signal than it looks.
 
 ### PR5 · Modality-agnostic and tabular files
 
