@@ -740,7 +740,6 @@ def generateModalityAgnosticFiles(root_path, json_fname):
     import json
     from copy import deepcopy
 
-    from ..lib import tabular
     from ..lib.bids import BIDS_VERSION
     from ..lib.reference import DATASET_DESC_REF
 
@@ -779,16 +778,11 @@ def generateModalityAgnosticFiles(root_path, json_fname):
             f.write(f'1.0.0 {datetime.datetime.now().astimezone().date().isoformat()}\n'
                     f' - Dataset created with BrkRaw v{__version__}.\n')
 
-    # https://bids-specification.readthedocs.io/en/stable/03-modality-agnostic-files.html
-    # participants.tsv is written once, after conversion, by writeParticipantTables:
-    # its rows are only known then, and a header written here would have to be
-    # rewritten anyway. Its sidecar has no such dependency, so it goes now.
-    participants_json = os.path.join(root_path, 'participants.json')
-    if not os.path.exists(participants_json):
-        descriptions = {'participant_id': {'Description': 'Participant identifier'}}
-        descriptions.update(tabular.PARTICIPANT_DESCRIPTIONS)
-        with open(participants_json, 'w') as f:
-            json.dump(descriptions, f, indent=4)
+    # participants.tsv and participants.json are deliberately NOT written here.
+    # Both are written after conversion by writeParticipantTables, and only when
+    # there is a participant to record: a study whose every scan is unclassifiable
+    # produces no rows at all, and a sidecar written up front would then be left
+    # describing a table that does not exist (SIDECAR_WITHOUT_DATAFILE).
 
 
 
@@ -966,12 +960,21 @@ def _patchSidecar(directory, nifti_relpath, fields):
 
 
 def writeParticipantTables(root_path, participant_rows, session_rows, scan_rows):
-    """Write participants.tsv and every _sessions.tsv / _scans.tsv."""
+    """Write participants.tsv/.json and every _sessions.tsv / _scans.tsv."""
+    import json
+
     from ..lib import tabular
 
     if participant_rows:
         tabular.write_tsv(os.path.join(root_path, 'participants.tsv'),
                           tabular.PARTICIPANT_COLUMNS, participant_rows)
+        # Written with the table, never before it: the sidecar of a table that was
+        # never created is an error, and every column here needs describing anyway
+        # because `weight` is not a BIDS-defined column.
+        descriptions = {'participant_id': {'Description': 'Participant identifier'}}
+        descriptions.update(tabular.PARTICIPANT_DESCRIPTIONS)
+        with open(os.path.join(root_path, 'participants.json'), 'w') as f:
+            json.dump(descriptions, f, indent=4)
     for subject, rows in session_rows.items():
         tabular.write_tsv(os.path.join(root_path, subject, f'{subject}_sessions.tsv'),
                           ('session_id', 'acq_time'), rows)
