@@ -28,8 +28,8 @@ it and block nothing.
 
 ## Track 1 — the PR stack
 
-PR1–PR5 are done. On the PV6 lego phantom the validator reports **0 errors**
-throughout, with warnings 499 → 428. Roughly 375 of those remaining are fields
+PR1–PR7 are done. On the PV6 lego phantom the validator reports **0 errors**
+throughout, with warnings 499 → 447. Roughly 375 of those remaining are fields
 Bruker simply does not record, so they are not a backlog.
 
 ### PR1 · Schema pin and version unification — done
@@ -203,25 +203,60 @@ subject to a primate.
 dataset, and `.bidsignore` is no longer written — its only content was `etc/`, for
 scans that are skipped and never emitted.
 
-### PR6 · Routing
+### PR6 · Routing — done
 
-Bruker ISA relaxation maps go to **raw** `anat/` under their qMRI suffix — `T1map`,
-`T2map`, `R1map`, `R2map`, `T2starmap`, `MTRmap`, `S0map`, `M0map`, `PDmap` and
-`MWFmap` are all valid raw anat suffixes, so no derivatives tree is needed for them.
-DTI tensor images have no raw suffix and go to `derivatives/brkraw-legacy/` with its
-own `dataset_description.json`. Unclassifiable scans go to `sourcedata/`. Both are
-validator-ignored by definition, so the data is preserved without costing an error.
+**A derived reconstruction turned out to be a stack, not an image**, which is what
+made this more than moving files. An ISA fit writes five volumes and a DTI
+reconstruction twenty-two, each index meaning something different:
 
-### PR7 · `IntendedFor` and `B0FieldIdentifier`
+```
+[0] signal intensity              [3] std dev of T2 relaxation time
+[1] std dev of signal intensity   [4] std dev of the fit
+[2] T2 relaxation time            <- the only volume BIDS has a suffix for
+```
 
-Rule: same-session EPI-family images acquired after this fieldmap and before the
-next. Assigning every func/dwi in the session is wrong whenever a session has two
-fieldmaps, which is the normal case.
+Both identifiers are machine-readable and consistent on PV5.1 and PV6:
+`VisuFGOrderDesc` names the model, `VisuFGElemComment` names every element. So new
+`lib/derived.py` finds the map by **label** rather than position, and the converter
+writes that one volume as raw `anat/..._T1map|T2map.nii.gz`.
 
-Both mechanisms are emitted. `B0FieldIdentifier`/`B0FieldSource` pair by name and
-survive renaming; `IntendedFor` is still what most tools read. Neither has a Bruker
-source — they are synthesised organisational labels, i.e. inference about intent,
-not extracted information. A datasheet column overrides them.
+**The units were the catch.** BIDS states T1map/T2map are "In seconds (s)" and
+ParaVision fits in milliseconds, so writing the element as it stands is off by 1000.
+The maps come out at 6.6002 s and 1.3295 s instead of 6600.19 and 1329.49.
+
+The label check runs *before* the MSME branch, because an ISA T2 map is usually
+fitted from an MSME scan — matching on the acquisition method would relabel the map
+as `MESE`, the exact confusion this ends.
+
+Everything else derived, and everything unclassifiable, is now **kept** rather than
+dropped — 33 scans on the PV6 study. A ParaVision-computed stack with no single
+suffix goes to `derivatives/brkraw-legacy/` with its own `dataset_description.json`
+(`DatasetType: derivative`); a scan we could not classify goes to `sourcedata/`,
+since it is not derived at all, only uninterpreted. Both directories are
+validator-ignored by definition, so 33 recovered scans cost no errors and no
+warnings.
+
+### PR7 · `IntendedFor` and `B0FieldIdentifier` — done
+
+`save_json` had accepted an `intended_for` argument all along and nothing ever
+passed one, so every fieldmap came out unlinked and unusable without hand-editing.
+
+Both mechanisms are written. `B0FieldIdentifier`/`B0FieldSource` pair by name and
+survive a rename; `IntendedFor` is the path list most tools still read.
+
+The rule — correctable images acquired **after** this fieldmap, up to the next one —
+earns its complexity on the data we already have: on the PV6 study three dwi runs
+precede the fieldmap by about an hour and one follows it, so "every dwi in the
+session" would attach a fieldmap to scans acquired before it was measured.
+Anatomical scans are never claimed; they are not EPI readouts.
+
+Neither field has a Bruker source — nothing records what a fieldmap was measured
+for — so the datasheet gets a `b0group` column, and rows sharing a label pair
+regardless of acquisition order.
+
+It runs **after** conversion, because `run-` indices are only resolved while
+converting and `IntendedFor` must name what was actually written. PR5's `_scans.tsv`
+rows already carry filename and `acq_time`, which is exactly the input.
 
 ### PR8 · ASL / `perf`
 
