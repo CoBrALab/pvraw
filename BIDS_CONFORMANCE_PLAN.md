@@ -46,13 +46,25 @@ value is validated against `objects.metadata[<field>]` as JSON Schema, with
 `objects.formats` patterns registered as format checkers. `jsonschema` becomes a
 declared runtime dependency.
 
-On failure: warn, omit the BIDS key, and write the raw value under a non-schema key.
-Writing a value already proven invalid would produce `JSON_SCHEMA_VALIDATION_ERROR`
-(`"level": "error"`), which the hard limit forbids; silently dropping it would lose
-information the whole converter exists to preserve.
+On failure: warn, omit the BIDS key, and write the raw value under a `<key>Raw`
+non-schema key. Writing a value already proven invalid would produce
+`JSON_SCHEMA_VALIDATION_ERROR` (`"level": "error"`), which the hard limit forbids;
+silently dropping it would lose information the whole converter exists to preserve.
 
-Offline, so it runs in `pytest -m "not data"`. Plus the guard test: a schema field
-that is neither mapped nor explicitly marked unmappable fails the build.
+Offline, so it runs in `pytest -m "not data"`.
+
+**This check is deliberately stricter than the reference validator, and that is not
+redundant.** The validator only value-checks a field named by a rule group whose
+selectors pass. `RepetitionTime` is named in just two groups —
+`func.MRIFuncRepetitionTime` and `mrs.MRSRepetitionTime` — so on an `anat` file it
+is never type-checked at all. Two PV6 and five PV5.1 sidecars were shipping
+`"RepetitionTime": [0.5, 1.18, 5.0]` from variable-TR RAREVTR scans, an array where
+BIDS wants one number, with the validator reporting zero errors. Checking every
+emitted value, rather than only the ones a rule happens to name, is what finds these.
+
+*Correction to an earlier draft of this plan:* the guard test — a schema field
+neither mapped nor explicitly marked unmappable fails the build — was listed here.
+It belongs to PR3, because the table it enforces is not populated until then.
 
 ### PR3 · `reference.py` becomes the complete verdict table
 
@@ -72,6 +84,11 @@ Three claims in the file are wrong and get corrected:
 `CONFIG_SCAN_gradient_system` lives in `configscan`, which `brukerapi` does not load
 — an upstream issue is filed and `GradientSetType` stays unmapped with a corrected
 comment, because reading it here would reintroduce exactly what ADR 0002 removed.
+
+`RepetitionTime` needs the guard `InversionTime` already has: variable-TR sequences
+(RAREVTR) return an array, and `{'TR': 'VisuAcqRepetitionTime', 'Equation': 'TR/1000'}`
+passes it straight through. Found by PR2's checker, which demotes it safely in the
+meantime.
 
 Two mappings fail silently on PV5.1 and are fixed: `AcquisitionDuration` reads
 `PVM_ScanTime`, which does not exist there (`VisuAcqScanTime` does, and is identical
