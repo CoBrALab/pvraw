@@ -8,8 +8,6 @@ from .. import BrukerLoader, __version__
 from ..lib.errors import FileNotValidError, InvalidApproach, ValueConflictInField
 from ..lib.utils import get_value, mkdir, save_meta_files, set_rescale
 
-_supporting_bids_ver = '1.10.0'
-
 
 def main():
     parser = argparse.ArgumentParser(prog='brkraw-legacy',
@@ -381,9 +379,13 @@ def main():
             raise InvalidApproach('Invalid input for datasheet!')
 
         if make_json:
+            # Imported here rather than at module scope: loading the BIDS schema costs a
+            # 589 KB JSON parse, and only the BIDS sub-commands need it.
+            from ..lib.bids import BIDS_VERSION
+
             json_fname = f'{ds_fname}.json'
             print('Creating JSON syntax template for parsing the BIDS required metadata '
-                  f'(BIDS v{_supporting_bids_ver}): {json_fname}')
+                  f'(BIDS v{BIDS_VERSION}): {json_fname}')
             with open(json_fname, 'w') as f:
                 import json
 
@@ -697,6 +699,7 @@ def generateModalityAgnosticFiles(root_path, json_fname):
     import json
     from copy import deepcopy
 
+    from ..lib.bids import BIDS_VERSION
     from ..lib.reference import DATASET_DESC_REF
 
     data_des = os.path.join(root_path, 'dataset_description.json')
@@ -706,6 +709,8 @@ def generateModalityAgnosticFiles(root_path, json_fname):
 
     if not os.path.exists(data_des):
         desc = deepcopy(DATASET_DESC_REF)
+        # Assigning an existing key keeps its position, so BIDSVersion stays second.
+        desc['BIDSVersion'] = BIDS_VERSION
         # Record BrkRaw-legacy as the generator (BIDS recommended provenance).
         desc['GeneratedBy'] = [{'Name': 'BrkRaw-legacy',
                                     'Version': __version__,

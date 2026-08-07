@@ -19,6 +19,12 @@ from .errors import InvalidApproach
 
 _SCHEMA = _bst_schema.load_schema()
 
+#: BIDS version of the loaded schema.  The single source for the ``BIDSVersion`` we
+#: write and for the schema tag we validate against, so a dataset can never claim one
+#: version while being checked against another.  Bumping ``bidsschematools`` in
+#: ``uv.lock`` is what moves this -- there is no literal to forget.
+BIDS_VERSION = _SCHEMA.bids_version
+
 #: BIDS entity *long* names in canonical filename order (e.g. ``acquisition``).
 ENTITY_ORDER = list(_SCHEMA.rules.entities)
 

@@ -252,7 +252,11 @@ FIELDMAP_META_REF = {
 
 DATASET_DESC_REF = {
     'Name': 'Untitled',
-    'BIDSVersion': '1.10.0',
+    # Filled from the loaded schema (lib.bids.BIDS_VERSION) at write time; the key is
+    # kept here to hold its position in the emitted JSON. Left empty on purpose: an
+    # unfilled value is stripped with the other placeholders, which is a safer failure
+    # than shipping a version literal that has drifted from the schema we validate with.
+    'BIDSVersion': '',
     'DatasetType': 'raw',
     'License': '',
     'Authors': [],

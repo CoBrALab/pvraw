@@ -17,7 +17,9 @@ dependencies = [
     'reshipe>=0.1.0',
     'nibabel>=3.2.1',
     'pandas>=1.5.0',
-    'bidsschematools>=0.7',
+    # >=1.2 for `schema.bids_version` and the `rules.sidecars` layout the BIDS
+    # conformance work reads; 0.7 predates both.
+    'bidsschematools>=1.2',
 ]
 description = "Bruker PvDataset Loader (maintained fork of the BrkRaw 0.3.x/0.4 line)"
 license = {text = "GPL-3.0-or-later"}
