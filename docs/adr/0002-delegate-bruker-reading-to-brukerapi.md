@@ -68,7 +68,8 @@ framing and BIDS.** All file reading is delegated; `api/pvobj/` and
 - **Vocabulary does not follow the dependency.** The CLI, README and Python API
   keep `scan_id`/`reco_id`; `exp_id`/`proc_id` appears at one call site. See
   `CONTEXT.md`.
-- **`brukerapi>=0.4.1`**, floor only. Not `>=0.4`: 0.4.0 applies
+- **`brukerapi>=0.4.4`** — the addenda below record each raise. Floor only.
+  Never `>=0.4`: 0.4.0 applies
   `RECO_transposition`, which the reconstruction has already applied, and
   silently transposes 73% of reconstructions. Reported as
   isi-nmr/brukerapi-python#153 and #154, removed upstream, released as 0.4.1.
@@ -286,6 +287,28 @@ confirmation, to 4.8e-07, of the affine this ADR delegates.
 **Still ours, and not a gap upstream:** the subject-type/position correction
 (ADR 0001, as amended), diffusion `bvals`/`bvecs`, the archive root, and the
 BIDS-facing acquisition parameters.
+
+## Addendum, 2026-08-07: 0.4.4 makes `JCAMPDX` iterable
+
+`JCAMPDX` defined `keys()`, `__contains__` and `__getitem__`, but no
+`__iter__`. Python then used the old iteration protocol: `for key in pars`
+called `pars[0]`, which raised `KeyError: 0` against a name-keyed store. That
+failure is worse than a `TypeError`, because the message points at the data
+instead of at the missing method.
+
+Ruff 0.16 found it. The `SIM118` autofix changed `for k in pars.keys()` to
+`for k in pars` and broke 21 tests. We kept `.keys()` and a `noqa` at the two
+sites that iterate one, and reported the defect as
+isi-nmr/brukerapi-python#184. Upstream added `__iter__` and `__len__` for
+0.4.4.
+
+The floor is now `>=0.4.4`, and both `noqa`s are gone. Verified against the
+corpus: 0 differing entries over 1618 converted images, and 674 subject-header
+and sidecar entries identical.
+
+`Dataset`, `Folder`, `Study`, `Experiment` and `Processing` still supply
+`__getitem__` without `__iter__`. Do not iterate one of those. Only `JCAMPDX`
+is corrected.
 
 ## Do not re-litigate
 

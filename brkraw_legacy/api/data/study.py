@@ -222,10 +222,8 @@ class Study(BaseAnalyzer):
         self.header = None
         if self._subject is None:
             return
-        # .keys() is required: JCAMPDX exposes keys() but no __iter__, so bare
-        # iteration falls back to __getitem__(0) and raises KeyError.
         self.header = {key.replace('SUBJECT_', ''): get_value(self._subject, key)
-                       for key in self._subject.keys() if key.startswith('SUBJECT')}  # noqa: SIM118
+                       for key in self._subject if key.startswith('SUBJECT')}
         title = get_value(self._subject, 'TITLE')
         self.header['sw_version'] = (str(title).split(',')[-1].strip()
                                      if title and 'ParaVision' in str(title)

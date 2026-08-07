@@ -66,9 +66,7 @@ class ScanInfoAnalyzer(BaseAnalyzer):
         primary = self._primary_visu_pars
         if self.visu_pars is None or primary is None or primary is self.visu_pars:
             return
-        # .keys() is required: JCAMPDX exposes keys() but no __iter__, so bare
-        # iteration falls back to __getitem__(0) and raises KeyError.
-        for key in primary.keys():  # noqa: SIM118
+        for key in primary:
             if key.startswith('VisuAcq') and key not in self.visu_pars:
                 self.visu_pars.set_parameter(key, primary.get_parameter(key))
 

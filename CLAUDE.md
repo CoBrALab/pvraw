@@ -130,13 +130,17 @@ which emits a bare `NoneType: None` when raised outside an `except` block.
 
 Run the tests after any `--fix`, and never take `--unsafe-fixes` without
 reading the diff. Reading is delegated to `brukerapi`, whose types only look
-dict-like:
+dict-like: several define `__getitem__` without `__iter__`, so bare iteration
+falls back to `__getitem__(0)` and raises `KeyError` against a name-keyed
+store instead of a clear `TypeError`. `Dataset`, `Folder`, `Study`,
+`Experiment` and `Processing` are all still like this as of `brukerapi` 0.4.4
+-- do not write `for x in <one of those>`.
 
-- **`SIM118` is wrong on `JCAMPDX`.** It defines `keys()` and `__contains__`
-  but no `__iter__`, so rewriting `for k in pars.keys()` to `for k in pars`
-  falls back to `__getitem__(0)` and raises `KeyError`. Its autofix once broke
-  21 tests. The two sites that iterate one keep `.keys()` with a `noqa`;
-  `key in pars` checks are fine and are left alone.
+`JCAMPDX` was the same until 0.4.4, which is how this was found: `SIM118`
+rewrote `for k in pars.keys()` to `for k in pars` and broke 21 tests. Reported
+as isi-nmr/brukerapi-python#184 and fixed upstream by adding `__iter__` and
+`__len__` -- which is why the floor is now `>=0.4.4` and the two `noqa`s it
+needed are gone. Iterating a `JCAMPDX` directly is correct.
 
 Because `--fix` rewrites in bulk, verify behaviour rather than assuming: run
 `uv run pytest`, and for anything touching geometry or sidecars use
