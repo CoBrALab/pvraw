@@ -90,7 +90,7 @@ brkraw-legacy tonii <input> -s 2 -r 1 -o out      # only ScanID 2, RecoID 1 -> o
 | `-r, --recoid <id>` | Reconstruction id (default 1) |
 | `-t, --subjecttype <T>` | Override subject type (`Biped`, `Quadruped`, `Phantom`, `Other`, `OtherAnimal`) |
 | `-p, --position <P>` | Override position, `<BodyPart>_<Side>` (e.g. `Head_Supine`) |
-| `--ignore-slope` / `--ignore-offset` / `--ignore-rescale` | Drop scaling values from the NIfTI header |
+| `--ignore-rescale` | Write raw stored values, with no intensity scaling in the header. `--ignore-slope` and `--ignore-offset` are aliases: slope and offset cannot be suppressed independently |
 | `--ignore-localizer` | Skip localizer/tripilot scans (on by default for `tonii`) |
 
 Non-image scans (spectroscopy, etc.) and unclassifiable scans are skipped with a clear message
@@ -132,6 +132,20 @@ unclassifiable scans are skipped rather than written as invalid datatypes.
 
 ## Python API
 
+> **Changed in 0.5.0.** All Bruker file reading is delegated to
+> [`brukerapi`](https://github.com/isi-nmr/brukerapi-python) (see
+> `docs/adr/0002-delegate-bruker-reading-to-brukerapi.md`). `study.pvobj` is now a
+> `brukerapi` folder rather than a `PvDataset`, the scan/reco listings and subject fields
+> moved onto the loader itself, parameter files are `brukerapi` `JCAMPDX` objects, and
+> `get_dataobj` returns an array with one named axis per Frame Group -- which is also the
+> shape `brkraw-legacy info` prints, where it used to print a collapsed matrix size.
+>
+> Requires `brukerapi>=0.4.3`, which supplies the voxel-to-patient affine
+> (`affine_of_package`), the slice-package division and the slice spacing
+> (`slice_distance`), and which returns JCAMP-DX string values without their
+> `<...>` delimiters. Earlier releases either lack those or place volumes
+> wrongly.
+
 ```python
 import brkraw_legacy
 
@@ -141,9 +155,11 @@ study.is_pvdataset          # True if a valid PvDataset
 study.num_scans             # number of scans
 study.info()                # print the same summary as `brkraw-legacy info`
 
-study.pvobj.avail_scan_id   # e.g. [1, 2, 3, ...]
-study.pvobj.avail_reco_id   # {scan_id: [reco_id, ...]}
-study.pvobj.subj_id, study.pvobj.study_id, study.pvobj.session_id
+study.avail_scan_id         # e.g. [1, 2, 3, ...]
+study.avail_reco_id         # {scan_id: [reco_id, ...]}
+study.subj_id, study.study_id, study.session_id
+
+study.pvobj                 # the brukerapi folder the data is read through
 ```
 
 ### Images (high-level)
@@ -158,19 +174,30 @@ study.save_as(2, 1, 'output_name')
 # raw ndarray and 4x4 affine
 data   = study.get_dataobj(2, 1)
 affine = study.get_affine(2, 1)
+
+# one name per axis of that array: ('spatial', 'spatial', 'slice', 'echo', ...)
+study.get_axis_labels(2, 1)
+study.get_frame_groups(2, 1)   # [('echo', 6), ('slice', 5)]
 ```
-Multi-slice-package or multi-echo scans return a **list** of images; `save_nifti` writes
-them as `name-01.nii.gz`, `name-02.nii.gz`, ....
+The array carries one axis per ParaVision Frame Group, named. Multi-slice-package or
+multi-echo scans return a **list** of images; `save_nifti` writes them as
+`name-01.nii.gz`, `name-02.nii.gz`, ....
 
 ### Parameters (low-level)
 ```python
-method = study.get_method(2)            # method file
+from brkraw_legacy.lib.utils import get_value
+
+method = study.get_method(2)            # method file  (a brukerapi JCAMPDX)
 acqp   = study.get_acqp(2)              # acqp file
 visu   = study.get_visu_pars(2, 1)      # visu_pars (per reconstruction)
 
-method.parameters['Method']             # access any parameter by key
-acqp.parameters['ACQ_size']
+get_value(method, 'Method')             # any parameter by key
+get_value(acqp, 'ACQ_size')
+get_value(visu, 'NotThere', default=0)  # absence is version-dependent; default it
 ```
+`get_value` resolves the JCAMP-DX representation -- it unwraps `<...>` string literals,
+returns a struct array as a list of rows, and returns `default` for an absent key
+(which `brukerapi`'s own `get_value` raises on).
 
 ### Diffusion
 ```python

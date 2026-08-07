@@ -23,6 +23,11 @@ jobs:
         python-version: "3.13"
     - name: Install uv
       uses: astral-sh/setup-uv@v5
+    # Run the ruff pinned in uv.lock rather than `uvx ruff`/a fresh resolve, so
+    # a ruff release that enables new rules by default (as 0.16 did, going from
+    # 59 to 413) lands as a deliberate lockfile bump instead of breaking every
+    # open PR's lint job.
+    - name: Install dependencies
+      run: uv sync --locked --extra dev --python 3.13
     - name: Lint with ruff
-      run: |
-        uvx ruff check . --statistics
+      run: uv run --no-sync ruff check . --statistics

@@ -1,16 +1,17 @@
-from .errors import FileNotValidError, InvalidApproach, UnexpectedError
-from .subject_orient import SUBJECT_POSE, SUBJECT_TYPES, normalize_subject_type
-from .pvobj import PvDatasetDir, PvDatasetZip
-from functools import reduce
-from .utils import get_value, is_all_element_same, multiply_all, encdir_code_converter, meta_get_value
-from .reference import ERROR_MESSAGES, ISSUE_REPORT, COMMON_META_REF
-import numpy as np
-import zipfile
-import pathlib
+import enum
 import os
+import pathlib
 import re
 import warnings
-import enum
+
+import numpy as np
+
+from ..api.helper.base import image_shape
+from .errors import InvalidApproach, InvalidValueInField, UnexpectedError
+from .reference import COMMON_META_REF, ERROR_MESSAGES
+from .subject_orient import SUBJECT_POSE, SUBJECT_TYPES, normalize_subject_type
+from .utils import encdir_code_converter, get_value, is_all_element_same, meta_get_value
+
 np.set_printoptions(formatter={'float_kind':'{:f}'.format})
 
 
@@ -26,7 +27,7 @@ def _bids_fieldmap_units(raw_units):
     BIDS requires fieldmap ``Units`` to be one of ``Hz``, ``rad/s`` or ``T``.
     Returns the matching canonical unit, or ``None`` when no safe mapping exists.
     """
-    if isinstance(raw_units, (list, tuple)):
+    if isinstance(raw_units, (list, tuple, np.ndarray)):
         raw_units = raw_units[0] if len(raw_units) else None
     if raw_units is None:
         return None
@@ -35,26 +36,35 @@ def _bids_fieldmap_units(raw_units):
     return mapping.get(token)
 
 
+def _as_json_value(value):
+    """Plain Python types for a BIDS sidecar.
+
+    Parameters read back as numpy scalars and arrays, which ``json.dump``
+    cannot serialise.
+    """
+    if isinstance(value, np.ndarray):
+        return value.tolist()
+    if isinstance(value, np.generic):
+        return value.item()
+    if isinstance(value, dict):
+        return {k: _as_json_value(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_as_json_value(v) for v in value]
+    return value
+
+
 def load(path):
-    path = pathlib.Path(path)
-    if os.path.isdir(path):
-        return PvDatasetDir(path)
-    elif os.path.isfile(path):
-        if zipfile.is_zipfile(path):
-            return PvDatasetZip(path)
-        else:
-            raise FileNotValidError(path, DataType.PVDATASET)
-    else:
-        raise FileNotValidError(path, DataType.PVDATASET)
+    """Open a PvDataset -- a study directory, an exported scan, or an archive."""
+    from brkraw_legacy.app.tonifti import StudyToNifti
+    return StudyToNifti(pathlib.Path(path))
 
 
-class BrukerLoader():
+class BrukerLoader:
     """ The front-end handler for Bruker PvDataset
 
-    This class is designed to use for handle PvDataset and optimized for PV 6.0.1, but
-    also provide backward compatibility with PV 5.1. This class can import naive
-    PvDataset with directory as well as compressed dataset by zip and Paravision 6.0.1
-    (*.zip and *.PvDatasets).
+    Reading -- directory and archive traversal, JCAMP-DX parsing and binary
+    assembly -- is delegated to `brukerapi` (ADR 0002). What this class adds is
+    orientation, NIfTI headers and BIDS metadata.
 
     Attributes:
         num_scans (int): The number of scan objects on the loaded dataset.
@@ -64,9 +74,7 @@ class BrukerLoader():
     Methods:
         - get method for data object
         get_dataobj(scan_id, reco_id)
-            return dataobj without reshape (numpy.array)
-        get_fid(scan_id)
-            return binary fid object
+            return the image array, one named axis per Frame Group (numpy.array)
         get_niftiobj(scan_id, reco_id)
             return nibabel's NifTi1Image object
 
@@ -79,12 +87,10 @@ class BrukerLoader():
             return visu_pars parameter object
 
         - get method for image parameters
-        get_matrix_size(scan_id, reco_id)
-            return matrix shape to reshape dataobj
         get_affine(scan_id, reco_id)
             return affine transform matrix
-        get_bdata(scan_id, reco_id)
-            return bvals, bvecs, as string
+        get_bdata(scan_id)
+            return bvals, bvecs
         get_scan_time(visu_pars=None)
             return dictionary contains the datetime object for session initiate time
             if visu_pars parameter object is given, it will contains scan start time
@@ -104,7 +110,7 @@ class BrukerLoader():
         info(fobj=None)
             print out the PvDataset major parameters
             if fileobject is given, it will be written in file instead of stdout
-    
+
         - method to override header
         override_subjtype(subjtype)
             override subject type (e.g. Biped)
@@ -117,9 +123,7 @@ class BrukerLoader():
             path (str): Path of PvDataset.
         """
         self._path = path
-        self._pvobj = load(path)
-        self._tonifti = None
-        self._tonifti_scan = None
+        self._study = load(path)
         self._override_position = None
         self._override_type = None
 
@@ -131,80 +135,121 @@ class BrukerLoader():
 
     @property
     def pvobj(self):
-        return self._pvobj
+        """The `brukerapi` folder this dataset reads through."""
+        return self._study.pvobj
 
     @property
-    def _as_tonifti(self):
-        """Lazily bridge to the app.tonifti API (StudyToNifti) so this loader,
-        the BIDS conversion, and the app.tonifti path all share one
-        image-assembly implementation and cannot diverge."""
-        if self._tonifti is None:
-            from brkraw_legacy.app.tonifti import StudyToNifti
-            self._tonifti = StudyToNifti(self._path)
-        return self._tonifti
+    def study(self):
+        """The StudyToNifti this loader delegates image assembly to."""
+        return self._study
 
     @property
-    def _as_tonifti_scan(self):
-        """Lazily bridge a standalone scan directory to a ScanToNifti.
-
-        ScanToNifti is the app.tonifti scan-level entry; its constructor builds a
-        PvScan from a bare ``acqp``/``method``/``pdata`` directory
-        (FILE_FORMAT.md 1.2). StudyToNifti cannot load this shape because
-        PvStudy registers scans by numbered subdirectory, which an
-        individually-exported scan lacks."""
-        if self._tonifti_scan is None:
-            from brkraw_legacy.app.tonifti import ScanToNifti
-            self._tonifti_scan = ScanToNifti(pathlib.Path(self._path))
-        return self._tonifti_scan
+    def path(self):
+        """The dataset's name, as recorded in a BIDS datasheet's ``RawData``."""
+        container = self._study.pvobj
+        if container is None:
+            return os.path.basename(str(self._path))
+        if pathlib.Path(str(self._path)).is_dir():
+            return os.path.basename(os.path.normpath(str(self._path)))
+        return container.path.name           # the study directory inside an archive
 
     def _scan_bridge(self, scan_id, reco_id=None):
-        """Return the app.tonifti ScanToNifti for one scan.
+        """The ScanToNifti for one scan.
 
         Every image/affine request funnels through here so a single affine and
         header implementation (AffineAnalyzer + the tonifti Header) serves the
-        loader/CLI path, the BIDS conversion, and the app.tonifti API -- they
-        cannot diverge. A standalone exported scan uses the scan-level entry; a
-        normal study uses the cached StudyToNifti's per-scan ScanToNifti."""
-        if self._is_standalone_scan():
-            return self._as_tonifti_scan
-        return self._as_tonifti.get_scan(scan_id, reco_id)
-
-    def _is_standalone_scan(self):
-        """True for an individually-exported scan directory (``acqp`` at its root
-        and no numbered scan subdirs). ScanToNifti loads this shape directly (its
-        constructor builds a PvScan from an ``acqp``/``method``/``pdata``
-        directory); StudyToNifti cannot, because PvStudy registers scans by
-        numbered subdirectory. ``_scan_bridge`` routes such scans accordingly."""
-        p = pathlib.Path(self._path)
-        return (p.is_dir() and (p / 'acqp').exists()
-                and not any(c.is_dir() and c.name.isdigit() for c in p.iterdir()))
+        loader/CLI path, the BIDS conversion, and the app.tonifti API."""
+        return self._study.get_scan(scan_id, reco_id)
 
     @property
     def num_scans(self):
-        # [20210820] Add-paravision 360 related.
-        len_scans = len(self._pvobj._fid.keys())
-        if len_scans > 0:
-            return len_scans
-        else:
-            return len(self._pvobj._2dseq.keys())
+        return len(self._study.avail)
 
     @property
     def num_recos(self):
-        return sum([len(r) for r in self._avail.values()])
+        return sum(len(r) for r in self.avail_reco_id.values())
 
     @property
     def is_pvdataset(self):
         return self._is_pvdataset
+
+    @property
+    def avail_scan_id(self):
+        """Available ``scan_id``s, ascending."""
+        return self._study.avail
+
+    @property
+    def avail_reco_id(self):
+        """``{scan_id: [reco_id, ...]}`` for every scan holding a reconstruction."""
+        return self._study.avail_reco_id
+
+    # subject-level fields; None when the export carries no `subject` file
+    def _subject_value(self, key, default=None):
+        subject = self._study.subject
+        return get_value(subject, key, default)
+
+    @property
+    def user_account(self):
+        return self._subject_value('OWNER')
+
+    @property
+    def user_name(self):
+        return self._subject_value('SUBJECT_name_string')
+
+    @property
+    def subj_id(self):
+        return self._subject_value('SUBJECT_id')
+
+    @property
+    def study_id(self):
+        return self._subject_value('SUBJECT_study_name')
+
+    @property
+    def session_id(self):
+        return self._subject_value('SUBJECT_study_nr')
+
+    @property
+    def subj_entry(self):
+        # PV360 records entry and position in one parameter
+        position = self._subject_value('SUBJECT_study_instrument_position')
+        if position is not None:
+            return str(position).split('_')[0]
+        entry = self._subject_value('SUBJECT_entry')
+        return str(entry).split('_')[-1] if entry is not None else None
+
+    @property
+    def subj_pose(self):
+        position = self._subject_value('SUBJECT_study_instrument_position')
+        if position is not None:
+            return str(position).split('_')[-1]
+        pose = self._subject_value('SUBJECT_position')
+        return str(pose).split('_')[-1] if pose is not None else None
+
+    @property
+    def subj_sex(self):
+        return self._subject_value('SUBJECT_sex')
+
+    @property
+    def subj_type(self):
+        return self._subject_value('SUBJECT_type')
+
+    @property
+    def subj_weight(self):
+        return self._subject_value('SUBJECT_weight')
+
+    @property
+    def subj_dob(self):
+        return self._subject_value('SUBJECT_dbirth')
 
     def override_subjtype(self, subjtype):
         """ override subject type
         Arge:
             subtype(str): subject type that supported by PV
         """
-        err_msg = 'Unknown subject type [{}]'.format(subjtype)
+        err_msg = f'Unknown subject type [{subjtype}]'
         subjtype = normalize_subject_type(subjtype)
         if subjtype not in SUBJECT_TYPES:
-            raise Exception(err_msg)
+            raise InvalidValueInField(err_msg)
         self._override_type = subjtype
 
     def override_position(self, position_string):
@@ -212,20 +257,15 @@ class BrukerLoader():
         Arge:
             position_string: subject position that supported by PV
         """
-        err_msg = 'Unknown position string [{}]'.format(position_string)
-        try:
-            part, side = position_string.split('_')
-            if part not in SUBJECT_POSE['part']:
-                raise Exception(err_msg)
-            if side not in SUBJECT_POSE['side']:
-                raise Exception(err_msg)
-            self._override_position = position_string
-        except Exception:
-            raise Exception(err_msg)
+        err_msg = f'Unknown position string [{position_string}]'
+        parts = position_string.split('_')
+        if (len(parts) != 2 or parts[0] not in SUBJECT_POSE['part']
+                or parts[1] not in SUBJECT_POSE['side']):
+            raise InvalidValueInField(err_msg)
+        self._override_position = position_string
 
     def close(self):
-        self._pvobj.close()
-        self._pvobj = None
+        self._study = None
 
     def get_affine(self, scan_id, reco_id):
         # Delegate to the single affine implementation (AffineAnalyzer via the
@@ -237,174 +277,75 @@ class BrukerLoader():
             subj_type=self._override_type,
             subj_position=self._override_position)
 
-    def _get_dataobj(self, scan_id, reco_id):
-        dataobj = self._pvobj.get_dataobj(scan_id, reco_id)
-        return dataobj
-
-    def _get_dataslp(self, visu_pars):
-        """ Return data slope and offset for value correction
-        Args:
-            visu_pars:
-
-        Returns:
-            data_slp
-            data_off
-        """
-        data_slp = get_value(visu_pars, 'VisuCoreDataSlope')
-        data_off = get_value(visu_pars, 'VisuCoreDataOffs')
-        if isinstance(data_slp, list):
-            data_slp = data_slp[0] if is_all_element_same(data_slp) else data_slp
-        if isinstance(data_off, list):
-            data_off = data_off[0] if is_all_element_same(data_off) else data_off
-        return data_slp, data_off
-
-    def get_dataobj(self, scan_id, reco_id, slope=True, offset=True):
-        """ Return dataobj that has 3D(spatial) + extra frame
+    def get_dataobj(self, scan_id, reco_id, scale_mode='apply'):
+        """ Return the image array with one named axis per Frame Group
         Args:
             scan_id: scan id
             reco_id: reco id
-            slope: if True correct slope
+            scale_mode: 'apply' bakes the intensity slope/offset into the
+                values, 'header'/'none' return them as stored.
         Returns:
             dataobj
         """
-        visu_pars   = self._get_visu_pars(scan_id, reco_id)
-        dim, dim_type = self._get_dim_info(visu_pars)
-        if dim_type != 'spatial_only':
-            # Spectroscopic / non-image data cannot be represented as a NIfTI image.
-            raise UnexpectedError('ScanID:{} RecoID:{} is non-image data '
-                                  '({}); skipped for NIfTI conversion.'
-                                  ''.format(scan_id, reco_id, dim_type))
-        fg_info     = self._get_frame_group_info(visu_pars)
-        matrix_size = self.get_matrix_size(scan_id, reco_id)
-        dataobj = self._get_dataobj(scan_id, reco_id)
-        group_id    = fg_info['group_id']
+        return self._scan_bridge(scan_id, reco_id).get_dataobj(
+            reco_id=reco_id, scale_mode=scale_mode)
 
-        data_slp, data_off = self._get_dataslp(visu_pars)
-
-        if slope:
-            # This option apply the slope to data array directly instead of header
-            f = fg_info['frame_size']
-            if isinstance(data_slp, list):
-                if f != len(data_slp):
-                    raise UnexpectedError(message='data_slp mismatch;{}'.format(ISSUE_REPORT))
-                else:
-                    if dim == 2:
-                        x, y = matrix_size[:2]
-                        _dataobj = dataobj.reshape([f, x * y]).T
-                    elif dim == 3:
-                        x, y, z = matrix_size[:3]
-                        _dataobj = dataobj.reshape([f, x * y * z]).T
-                    else:
-                        raise UnexpectedError(message='Unexpected frame shape on DTI image;{}'.format(ISSUE_REPORT))
-                dataobj = (_dataobj * data_slp).T
-            else:
-                dataobj = dataobj * data_slp
-
-        if offset:
-            # This option apply the offset to data array directly instead of header
-            f = fg_info['frame_size']
-            if isinstance(data_off, list):
-                if f != len(data_off):
-                    raise UnexpectedError(message='data_off mismatch;{}'.format(ISSUE_REPORT))
-                else:
-                    if dim == 2:
-                        x, y = matrix_size[:2]
-                        _dataobj = dataobj.reshape([f, x * y]).T
-                    elif dim == 3:
-                        x, y, z = matrix_size[:3]
-                        _dataobj = dataobj.reshape([f, x * y * z]).T
-                    else:
-                        raise UnexpectedError(message='Unexpected frame shape on DTI image;{}'.format(ISSUE_REPORT))
-                dataobj = (_dataobj + data_off).T
-            else:
-                dataobj = dataobj + data_off
-
-        dataobj = dataobj.reshape(matrix_size[::-1]).T
-
-        def swap_slice_axis(group_id_, dataobj_):
-            """ swap slice axis to third axis """
-            slice_code = 'FG_SLICE'
-            if slice_code not in group_id_:
-                pass
-            else:
-                slice_axis_ = group_id_.index(slice_code) + 2
-                dataobj_ = np.swapaxes(dataobj_, 2, slice_axis_)
-            return dataobj_
-
-        if fg_info['frame_type'] is not None:
-            if group_id[0] == 'FG_SLICE':
-                pass
-
-            elif group_id[0] == 'FG_ECHO':  # multi-echo
-                if self.is_multi_echo(scan_id, reco_id):
-                    # push echo to last axis for BIDS
-                    if 'FG_SLICE' not in group_id:
-                        dataobj = np.swapaxes(dataobj, dim, -1)
-                    else:
-                        slice_axis = group_id.index('FG_SLICE') + 2
-                        dataobj = np.swapaxes(dataobj, slice_axis, -1)
-                        dataobj = np.swapaxes(dataobj, 2, -1)
-
-            elif group_id[0] in ['FG_DIFFUSION', 'FG_DTI', 'FG_MOVIE', 'FG_COIL',
-                                 'FG_CYCLE', 'FG_COMPLEX', 'FG_CARDIAC_MOVIE',
-                                 'FG_FLOW', 'FG_IRMODE', 'FG_ISA']:
-                dataobj = swap_slice_axis(group_id, dataobj)
-            else:
-                # Unrecognized leading frame group: still place any slice dimension
-                # on the third axis so the spatial layout is correct, and warn.
-                warnings.warn('Unexpected frame group combination ({});{}'
-                              ''.format(group_id, ISSUE_REPORT), UserWarning)
-                dataobj = swap_slice_axis(group_id, dataobj)
-        return dataobj
-
-    def get_fid(self, scan_id):
-        return self._pvobj.get_fid(scan_id)
+    def get_axis_labels(self, scan_id, reco_id):
+        """One name per axis of the image array (``echo``, ``slice``, ...)."""
+        return self._scan_bridge(scan_id, reco_id).get_data_dict(reco_id)['axis_labels']
 
     @property
     def get_visu_pars(self):
         return self._get_visu_pars
 
     def get_method(self, scan_id):
-        return self._method[scan_id]
+        """The scan's ``method`` file, or None when the export has none."""
+        return self._parameters(scan_id).get('method')
 
     def get_acqp(self, scan_id):
-        return self._acqp[scan_id]
+        """The scan's ``acqp`` file, or None when the export has none."""
+        return self._parameters(scan_id).get('acqp')
+
+    def _parameters(self, scan_id, reco_id=None):
+        scanobj = self._study.get_scan(scan_id)
+        return scanobj.get_dataset(reco_id).parameters
 
     def get_bdata(self, scan_id):
-        method = self.get_method(scan_id)
-        return self._get_bdata(method)
+        return self._get_bdata(self.get_method(scan_id))
 
-    def get_matrix_size(self, scan_id, reco_id):
-        visu_pars = self._get_visu_pars(scan_id, reco_id)
-        dataobj = self._get_dataobj(scan_id, reco_id)
-        return self._get_matrix_size(visu_pars, dataobj)
+    def get_frame_groups(self, scan_id, reco_id):
+        """``(name, size)`` for each Frame Group of a reconstruction."""
+        from brkraw_legacy.api.helper import frame_groups
+        return frame_groups(self._study.get_scan(scan_id).get_dataset(reco_id))
 
     def is_multi_echo(self, scan_id, reco_id):
+        """Number of echoes when the reconstruction is genuinely multi-echo, else False.
+
+        A field map stores its two echoes as one derived image and is handled
+        separately, so it is not multi-echo here.
+        """
         visu_pars = self._get_visu_pars(scan_id, reco_id)
-        fg_info = self._get_frame_group_info(visu_pars)
-        group_id = fg_info['group_id']
-        if 'FG_ECHO' in group_id and 'FieldMap' not in fg_info['group_comment']:  #FieldMap will be treated different
-            num_echos = fg_info['matrix_shape'][group_id.index('FG_ECHO')]
-            # a single echo in an FG_ECHO group is not multi-echo data
-            return num_echos if num_echos > 1 else False
-        else:
+        protocol = str(get_value(visu_pars, 'VisuAcquisitionProtocol') or '')
+        if 'FieldMap' in protocol:
             return False
+        for name, size in self.get_frame_groups(scan_id, reco_id):
+            if name == 'echo':
+                # a single echo in an FG_ECHO group is not multi-echo data
+                return size if size > 1 else False
+        return False
 
     # methods to dump data into file object
     ## - NifTi1
-    def get_niftiobj(self, scan_id, reco_id, crop=None, slope=False, offset=False):
+    def get_niftiobj(self, scan_id, reco_id, crop=None, scale_mode='header'):
         """Return a nibabel Nifti1Image (or a list) for a scan.
 
         Delegates to the app.tonifti API so this loader/CLI path, the BIDS
         conversion, and the app.tonifti API share one image-assembly
-        implementation and cannot diverge. Standalone exported scans route
-        through the scan-level entry, a normal study through StudyToNifti; both
-        resolve to a ScanToNifti via ``_scan_bridge``. ``slope``/``offset`` pick
-        the API scale mode: 'apply' bakes the intensity slope/offset into the
-        data, 'header' leaves it in scl_slope/scl_inter (the loader default).
-        Subject-type/position overrides ride through to the affine.
+        implementation and cannot diverge. ``scale_mode`` is 'header' (the
+        default: intensity slope/offset in scl_slope/scl_inter), 'apply' (baked
+        into the data) or 'none' (no rescaling at all). Subject-type/position
+        overrides ride through to the affine.
         """
-        scale_mode = 'apply' if (slope or offset) else 'header'
         niiobj = self._scan_bridge(scan_id, reco_id).get_nifti1image(
             reco_id=reco_id, scale_mode=scale_mode,
             subj_type=self._override_type, subj_position=self._override_position)
@@ -421,30 +362,16 @@ class BrukerLoader():
     def save_as(self):
         return self.save_nifti
 
-    def _inspect_ids(self, scan_id, reco_id):
-        if scan_id not in self._avail.keys():
-            print('[Error] Invalid Scan ID.\n'
-                  '  - Your input: {}\n'
-                  '  - Available Scan IDs: {}'.format(scan_id, list(self._avail.keys())))
-            raise ValueError
-        else:
-            if reco_id not in self._avail[scan_id]:
-                print('[Error] Invalid Reco ID.\n'
-                      '  - Your input: {}\n'
-                      '  - Available Reco IDs: {}'.format(reco_id, self._avail[scan_id]))
-                raise ValueError
-
     def save_nifti(self, scan_id, reco_id, filename, dir='./', ext='nii.gz',
-                crop=None, slope=False, offset=False):
-        niiobj = self.get_niftiobj(scan_id, reco_id, crop=crop, slope=slope, offset=offset)
+                crop=None, scale_mode='header'):
+        niiobj = self.get_niftiobj(scan_id, reco_id, crop=crop, scale_mode=scale_mode)
         if isinstance(niiobj, list):
             for i, nii in enumerate(niiobj):
                 output_path = os.path.join(dir,
-                                           '{}-{}.{}'.format(filename,
-                                                             str(i+1).zfill(2), ext))
+                                           f'{filename}-{str(i+1).zfill(2)}.{ext}')
                 nii.to_filename(output_path)
         else:
-            output_path = os.path.join(dir, '{}.{}'.format(filename, ext))
+            output_path = os.path.join(dir, f'{filename}.{ext}')
             niiobj.to_filename(output_path)
 
     # - FSL bval, bvec, and bmat
@@ -472,9 +399,7 @@ class BrukerLoader():
         return rot.T @ bvecs
 
     def save_bdata(self, scan_id, filename, dir='./', reco_id=1, num_volumes=None):
-        method = self._method[scan_id]
-        # bval, bvec, bmat = self._get_bdata(method) # [220201] bmat seems not necessary
-        bvals, bvecs = self._get_bdata(method)
+        bvals, bvecs = self._get_bdata(self.get_method(scan_id))
         # A multi-cycle/repetition DWI keeps every repeat as a separate volume, so
         # the image holds an integer multiple of the per-direction gradient count
         # with the diffusion block repeated per cycle (FG_CYCLE is the outer frame
@@ -495,23 +420,23 @@ class BrukerLoader():
             bvecs = self._reorient_bvecs(bvecs, affine)
         except Exception as exc:
             warnings.warn('Could not reorient b-vectors into the image frame '
-                          '({}); writing them unrotated.'.format(exc), UserWarning)
+                          f'({exc}); writing them unrotated.', UserWarning)
         output_path = os.path.join(dir, filename)
 
-        with open('{}.bval'.format(output_path), 'w') as bval_fobj:
+        with open(f'{output_path}.bval', 'w') as bval_fobj:
             bval_fobj.write(' '.join(bvals.astype('str')) + '\n')
 
-        with open('{}.bvec'.format(output_path), 'w') as bvec_fobj:
-            for row in bvecs:
-                bvec_fobj.write(' '.join(row.astype('str')) + '\n')
+        with open(f'{output_path}.bvec', 'w') as bvec_fobj:
+            bvec_fobj.writelines(' '.join(row.astype('str')) + '\n' for row in bvecs)
 
     # BIDS JSON
     def _parse_json(self, scan_id, reco_id, metadata=None):
-        acqp = self._acqp[scan_id]
-        method = self._method[scan_id]
-        visu_pars = self._get_visu_pars(scan_id, reco_id)
+        parameters = self._parameters(scan_id, reco_id)
+        acqp = parameters['acqp']
+        method = parameters['method']
+        visu_pars = parameters['visu_pars']
 
-        json_obj = dict()
+        json_obj = {}
         # Axis only (i/j/k); the polarity sign (i-/j-/k-) is intentionally not
         # emitted -- see the PhaseEncodingDirection note in lib/reference.py.
         encdir_dic = {0: 'i', 1: 'j', 2: 'k'}
@@ -520,56 +445,53 @@ class BrukerLoader():
             metadata = COMMON_META_REF.copy()
         for k, v in metadata.items():
             val = meta_get_value(v, acqp, method, visu_pars)
-            if k == 'PhaseEncodingDirection':
+            if k == 'PhaseEncodingDirection' and val is not None:
                 # Convert the encoding direction meta data into BIDS format
                 # (SliceEncodingDirection is resolved directly to 'k'/None by its
                 # mapping and needs no code-to-axis conversion.)
-                if val is not None:
-                    if isinstance(val, int):
-                        val = encdir_dic[val]
-                    else:
-                        if isinstance(val, list):
-                            if is_all_element_same(val):
-                                # A uniform per-slice direction: reduce to the single
-                                # value and convert it like the scalar case below, so a
-                                # PV5.1 string code ('col_dir'/'row_dir') becomes a BIDS
-                                # axis instead of reaching the sidecar verbatim.
-                                v = val[0]
-                                if isinstance(v, int):
-                                    val = encdir_dic[v]
-                                else:
-                                    encdirs = encdir_code_converter(v)
-                                    val = (encdir_dic[encdirs.index('phase_enc')]
-                                           if 'phase_enc' in encdirs else None)
-                            else:
-                                # handling condition of multiple phase encoding direction
-                                updated_val = []
-                                for v in val:
-                                    if isinstance(v, int):
-                                        # in PV 6 if each slice package has distinct phase encoding direction
-                                        updated_val.append(encdir_dic[v])
-                                    else:
-                                        # in PV 5.1, element wise code conversion
-                                        encdirs = encdir_code_converter(v)
-                                        if 'phase_enc' in encdirs:
-                                            pe_idx = encdirs.index('phase_enc')
-                                            updated_val.append(encdir_dic[pe_idx])
-                                        else:
-                                            updated_val.append(None)
-                                val = updated_val
-                        elif isinstance(val, str):
-                            # in PV 5.1, single value code conversion
-                            encdirs = encdir_code_converter(val)
-                            if 'phase_enc' in encdirs:
-                                pe_idx = encdirs.index('phase_enc')
-                                val = encdir_dic[pe_idx]
-                            else:
-                                val = None
+                if isinstance(val, (int, np.integer)):
+                    val = encdir_dic[int(val)]
+                elif isinstance(val, (list, np.ndarray)):
+                    val = list(val)
+                    if is_all_element_same(val):
+                        # A uniform per-slice direction: reduce to the single
+                        # value and convert it like the scalar case below, so a
+                        # PV5.1 string code ('col_dir'/'row_dir') becomes a BIDS
+                        # axis instead of reaching the sidecar verbatim.
+                        v = val[0]
+                        if isinstance(v, (int, np.integer)):
+                            val = encdir_dic[int(v)]
                         else:
-                            raise UnexpectedError('Unexpected phase encoding direction in PV5.1.')
-            if isinstance(val, np.ndarray):
-                val = val.tolist()
-            json_obj[k] = val
+                            encdirs = encdir_code_converter(str(v))
+                            val = (encdir_dic[encdirs.index('phase_enc')]
+                                   if 'phase_enc' in encdirs else None)
+                    else:
+                        # handling condition of multiple phase encoding direction
+                        updated_val = []
+                        for v in val:
+                            if isinstance(v, (int, np.integer)):
+                                # in PV 6 if each slice package has distinct phase encoding direction
+                                updated_val.append(encdir_dic[int(v)])
+                            else:
+                                # in PV 5.1, element wise code conversion
+                                encdirs = encdir_code_converter(str(v))
+                                if 'phase_enc' in encdirs:
+                                    pe_idx = encdirs.index('phase_enc')
+                                    updated_val.append(encdir_dic[pe_idx])
+                                else:
+                                    updated_val.append(None)
+                        val = updated_val
+                elif isinstance(val, str):
+                    # in PV 5.1, single value code conversion
+                    encdirs = encdir_code_converter(val)
+                    if 'phase_enc' in encdirs:
+                        pe_idx = encdirs.index('phase_enc')
+                        val = encdir_dic[pe_idx]
+                    else:
+                        val = None
+                else:
+                    raise UnexpectedError('Unexpected phase encoding direction in PV5.1.')
+            json_obj[k] = _as_json_value(val)
         return json_obj
 
     def save_json(self, scan_id, reco_id, filename, dir='./', metadata=None, condition=None,
@@ -598,7 +520,7 @@ class BrukerLoader():
         if condition is not None:
             code, idx = condition
             if code == 'me':    # multi-echo
-                if 'EchoTime' in json_obj.keys():
+                if 'EchoTime' in json_obj:
                     te = json_obj['EchoTime']
                     if isinstance(te, list):
                         json_obj['EchoTime'] = te[idx]
@@ -611,8 +533,8 @@ class BrukerLoader():
                     json_obj['Units'] = units
                 else:
                     warnings.warn("Could not map Bruker 'VisuCoreDataUnits' to a valid BIDS "
-                                  "fieldmap unit (Hz, rad/s, T); 'Units' omitted from {}.json. "
-                                  "Set it manually for a valid fieldmap.".format(filename))
+                                  f"fieldmap unit (Hz, rad/s, T); 'Units' omitted from {filename}.json. "
+                                  "Set it manually for a valid fieldmap.")
                 # IntendedFor (BIDS recommended): subject-relative paths to the target
                 # images, set by the converter. Glob patterns are not valid BIDS.
                 if intended_for:
@@ -634,61 +556,61 @@ class BrukerLoader():
         # BIDS sidecars should only contain known values.
         json_obj = {k: v for k, v in json_obj.items() if v is not None}
 
-        # RepetitionTime is mutually exclusive with VolumeTiming, here default with RepetitionTime. 
+        # RepetitionTime is mutually exclusive with VolumeTiming, here default with RepetitionTime.
         # https://bids-specification.readthedocs.io/en/latest/04-modality-specific-files/01-magnetic-resonance-imaging-data.html#required-fields
         # To use VolumeTiming, remove the RepetitionTime item in .json file generated from bids_helper.
 
-        if ('RepetitionTime' in json_obj.keys()) and ('VolumeTiming' in json_obj.keys()):
-            if isinstance(json_obj['RepetitionTime'], (int, float)):
-                del json_obj['VolumeTiming']
-                msg = "Both 'RepetitionTime' and 'VolumeTiming' exist in your .json file, removed 'VolumeTiming' to make it valid for BIDS.\
-                \n To use VolumeTiming, remove the RepetitionTime item but keep VolumeTiming from the .json file generated from bids_helper."
-                warnings.warn(msg)
+        if ('RepetitionTime' in json_obj) and ('VolumeTiming' in json_obj) \
+                and isinstance(json_obj['RepetitionTime'], (int, float)):
+            del json_obj['VolumeTiming']
+            msg = "Both 'RepetitionTime' and 'VolumeTiming' exist in your .json file, removed 'VolumeTiming' to make it valid for BIDS.\
+            \n To use VolumeTiming, remove the RepetitionTime item but keep VolumeTiming from the .json file generated from bids_helper."
+            warnings.warn(msg)
 
-        with open(os.path.join(dir, '{}.json'.format(filename)), 'w') as f:
+        with open(os.path.join(dir, f'{filename}.json'), 'w') as f:
             import json
             json.dump(json_obj, f, indent=4)
 
     def get_scan_time(self, visu_pars=None):
+        """Session date and start time, plus the scan end time when given a reco.
+
+        ParaVision writes the subject date in one of two forms: a PV5.1
+        ``HH:MM:SS D Mon YYYY`` or an ISO ``YYYY-MM-DDTHH:MM:SS`` optionally
+        followed by a fraction and UTC offset.
+        """
         import datetime as dt
-        subject_date = get_value(self._subject, 'SUBJECT_date')
-        subject_date = subject_date[0] if isinstance(subject_date, list) else subject_date
-        pattern_1 = r'(\d{2}:\d{2}:\d{2})\s+(\d+\s\w+\s\d{4})'
-        pattern_2 = r'(\d{4}-\d{2}-\d{2})[T](\d{2}:\d{2}:\d{2})'
-        if re.match(pattern_1, subject_date):
-            # start time
-            start_time = dt.time(*map(int, re.sub(pattern_1, r'\1', subject_date).split(':')))
-            # date
-            date = dt.datetime.strptime(re.sub(pattern_1, r'\2', subject_date), '%d %b %Y').date()
-            # end time
+        subject_date = self._subject_value('SUBJECT_date')
+        if isinstance(subject_date, (list, tuple, np.ndarray)):
+            subject_date = subject_date[0] if len(subject_date) else None
+        subject_date = str(subject_date)
+
+        legacy = re.match(r'(\d{2}:\d{2}:\d{2})\s+(\d+\s\w+\s\d{4})', subject_date)
+        iso = re.match(r'(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2}:\d{2})', subject_date)
+
+        if legacy:
+            start_time = dt.time(*map(int, legacy.group(1).split(':')))
+            # Naive on purpose: Bruker records scanner wall-clock with no zone,
+            # and only the calendar date is kept. Attaching one would shift it.
+            date = dt.datetime.strptime(legacy.group(2), '%d %b %Y').date()  # noqa: DTZ007
             if visu_pars is not None:
-                last_scan_time = get_value(visu_pars, 'VisuAcqDate')
-                last_scan_time = dt.time(*map(int, re.sub(pattern_1, r'\1', last_scan_time).split(':')))
+                acq_date = str(get_value(visu_pars, 'VisuAcqDate'))
+                last = re.match(r'(\d{2}:\d{2}:\d{2})', acq_date)
                 acq_time = get_value(visu_pars, 'VisuAcqScanTime') / 1000.0
-                time_delta = dt.timedelta(0, acq_time)
-                scan_time = (dt.datetime.combine(date, last_scan_time) + time_delta).time()
-                return dict(date=date,
-                            start_time=start_time,
-                            scan_time=scan_time)
-        elif re.match(pattern_2, subject_date):
-            # start time
-            # subject_date = get_value(self._subject, 'SUBJECT_date')[0]
-            start_time = dt.time(*map(int, re.sub(pattern_2, r'\2', subject_date).split(':')))
-            # date
-            date = dt.date(*map(int, re.sub(pattern_2, r'\1', subject_date).split('-')))
-
-            # end date
+                scan_time = (dt.datetime.combine(date, dt.time(*map(int, last.group(1).split(':'))))
+                             + dt.timedelta(0, acq_time)).time()
+                return {'date': date, 'start_time': start_time, 'scan_time': scan_time}
+        elif iso:
+            start_time = dt.time(*map(int, iso.group(2).split(':')))
+            date = dt.date(*map(int, iso.group(1).split('-')))
             if visu_pars is not None:
-                scan_time = get_value(visu_pars, 'VisuCreationDate')[0]
-                scan_time = dt.time(*map(int, re.sub(pattern_2, r'\2', scan_time).split(':')))
-                return dict(date=date,
-                            start_time=start_time,
-                            scan_time=scan_time)
+                created = str(np.atleast_1d(get_value(visu_pars, 'VisuCreationDate'))[0])
+                stamp = re.match(r'\d{4}-\d{2}-\d{2}T(\d{2}:\d{2}:\d{2})', created)
+                return {'date': date, 'start_time': start_time,
+                        'scan_time': dt.time(*map(int, stamp.group(1).split(':')))}
         else:
-            raise Exception(ERROR_MESSAGES['NotIntegrated'])
+            raise InvalidValueInField(ERROR_MESSAGES['NotIntegrated'])
 
-        return dict(date=date,
-                    start_time=start_time)
+        return {'date': date, 'start_time': start_time}
 
     # printing functions / help documents
     def print_bids(self, scan_id, reco_id, fobj=None, metadata=None):
@@ -701,7 +623,7 @@ class BrukerLoader():
             if len(k) % 8 >= 7:
                 n_tap -= 1
             tap = ''.join(['\t'] * n_tap)
-            print('{}:{}{}'.format(k, tap, val), file=fobj)
+            print(f'{k}:{tap}{val}', file=fobj)
 
     def info(self, io_handler=None):
         """ Prints out the information of the internal contents in Bruker raw data
@@ -713,130 +635,102 @@ class BrukerLoader():
             io_handler = sys.stdout
 
         if not self._is_pvdataset:
-            io_handler.write("'{}' is not a valid PvDataset "
-                             "(no subject file or no scans found).\n".format(self._pvobj.path))
+            io_handler.write(f"'{self.path}' is not a valid PvDataset "
+                             "(no subject file or no scans found).\n")
             return
 
-        pvobj = self._pvobj
-        user_account = pvobj.user_account
-        subj_id = pvobj.subj_id
-        study_id = pvobj.study_id
-        session_id = pvobj.session_id
-        user_name = pvobj.user_name
-        subj_entry = pvobj.subj_entry
-        subj_pose = pvobj.subj_pose
-        subj_sex = pvobj.subj_sex
-        subj_type = pvobj.subj_type
-        subj_weight = pvobj.subj_weight
-        subj_dob = pvobj.subj_dob
-
         lines = []
-        for i, (scan_id, recos) in enumerate(self._avail.items()):
+        for i, (scan_id, recos) in enumerate(self.avail_reco_id.items()):
             for j, reco_id in enumerate(recos):
                 visu_pars = self._get_visu_pars(scan_id, reco_id)
                 if i == 0 and j == 0:
-                    sw_version = get_value(visu_pars, 'VisuCreatorVersion')
-
-                    title = 'Paravision {}'.format(sw_version)
-                    lines.append(title)
-                    lines.append('-' * len(title))
-
-                    try:
-                        datetime = self.get_scan_time()
-                    except Exception:
-                        datetime = dict(date='None')
-                    lines.append('UserAccount:\t{}'.format(user_account))
-                    lines.append('Date:\t\t{}'.format(datetime['date']))
-                    lines.append('Researcher:\t{}'.format(user_name))
-                    lines.append('Subject ID:\t{}'.format(subj_id))
-                    lines.append('Session ID:\t{}'.format(session_id))
-                    lines.append('Study ID:\t{}'.format(study_id))
-                    lines.append('Date of Birth:\t{}'.format(subj_dob))
-                    lines.append('Sex:\t\t{}'.format(subj_sex))
-                    lines.append('Weight:\t\t{} kg'.format(subj_weight))
-                    lines.append('Subject Type:\t{}'.format(subj_type))
-                    lines.append('Position:\t{}\t\tEntry:\t{}'.format(subj_pose, subj_entry))
-
-                    lines.append('\n[ScanID]\tSequence::Protocol::[Parameters]')
-                # try:
+                    lines.extend(self._info_header(
+                        self._study.get_scan(scan_id).get_dataset(reco_id), visu_pars))
                 tr = get_value(visu_pars, 'VisuAcqRepetitionTime')
-                tr = ','.join(map(str, tr)) if isinstance(tr, list) else tr
+                tr = ','.join(map(str, tr)) if isinstance(tr, (list, np.ndarray)) else tr
                 te = get_value(visu_pars, 'VisuAcqEchoTime')
                 te = 0 if te is None else te
-                te = ','.join(map(str, te)) if isinstance(te, list) else te
+                te = ','.join(map(str, te)) if isinstance(te, (list, np.ndarray)) else te
                 pixel_bw = get_value(visu_pars, 'VisuAcqPixelBandwidth')
                 flip_angle = get_value(visu_pars, 'VisuAcqFlipAngle')
-                acqpars  = self.get_acqp(int(scan_id))
-                scanname = acqpars._parameters['ACQ_scan_name']
+                scanname = get_value(self.get_acqp(scan_id), 'ACQ_scan_name')
                 param_values = [tr, te, pixel_bw, flip_angle]
                 for k, v in enumerate(param_values):
                     if v is None:
                         param_values[k] = ''
                     if isinstance(v, float):
-                        param_values[k] = '{0:.2f}'.format(v)
+                        param_values[k] = f'{v:.2f}'
                 if j == 0:
-                    params = "[ TR: {0} ms, TE: {1} ms, pixelBW: {2} Hz, FlipAngle: {3} degree]".format(
+                    params = "[ TR: {} ms, TE: {} ms, pixelBW: {} Hz, FlipAngle: {} degree]".format(
                         *param_values)
                     protocol_name = get_value(visu_pars, 'VisuAcquisitionProtocol')
                     sequence_name = get_value(visu_pars, 'VisuAcqSequenceName')
-                    lines.append('[{}]\t{}::{}::{}\n\t{}'.format(str(scan_id).zfill(3),
-                                                               sequence_name,
-                                                               protocol_name,
-                                                               scanname,
-                                                               params))
-
-                dim, cls = self._get_dim_info(visu_pars)
-                if cls == 'spatial_only':
-                    size = self._get_matrix_size(visu_pars)
-                    size = ' x '.join(map(str, size))
-                    spatial_info = self._get_spatial_info(visu_pars)
-                    temp_info = self._get_temp_info(visu_pars)
-                    s_resol = spatial_info['spatial_resol']
-                    fov_size = spatial_info['fov_size']
-                    fov_size = ' x '.join(map(str, fov_size))
-                    s_unit = spatial_info['unit']
-                    t_resol = '{0:.3f}'.format(temp_info['temporal_resol'])
-                    t_unit = temp_info['unit']
-                    s_resol = list(s_resol[0]) if is_all_element_same(s_resol) else s_resol
-                    s_resol = ' x '.join(['{0:.3f}'.format(r) for r in s_resol])
-
-                    lines.append('    [{}] dim: {}D, matrix_size: {}, fov_size: {} (unit:mm)\n'
-                                 '         spatial_resol: {} (unit:{}), temporal_resol: {} (unit:{})'.format(
-                        str(reco_id).zfill(2), dim, size,
-                        fov_size,
-                        s_resol, s_unit,
-                        t_resol, t_unit))
-                else:
-                    lines.append('    [{}] dim: {}, {}'.format(str(reco_id).zfill(2), dim, cls))
+                    lines.append(f'[{str(scan_id).zfill(3)}]\t{sequence_name}::{protocol_name}::{scanname}\n\t{params}')
+                lines.append(self._info_reco(scan_id, reco_id, visu_pars))
         lines.append('\n')
         print('\n'.join(lines), file=io_handler)
 
-    # method to parse information of each scan
-    # methods of protocol specific
+    @staticmethod
+    def _pv_version(dataset, visu_pars):
+        """The ParaVision version, as `brukerapi` normalises it.
 
-    # EPI
-    def _get_temp_info(self, visu_pars):
-        """return temporal resolution for each volume of image"""
-        total_time = get_value(visu_pars, 'VisuAcqScanTime')
-        fg_info = self._get_frame_group_info(visu_pars)
-        parser = []
-        if fg_info['frame_type'] is not None:
-            for id, fg in enumerate(fg_info['group_id']):
-                if not re.search('slice', fg, re.IGNORECASE):
-                    parser.append(fg_info['matrix_shape'][id])
-        frame_size = multiply_all(parser) if len(parser) > 0 else 1
-        if total_time is None:  # derived reco data
-            total_time = 0
-        return dict(temporal_resol=(total_time / frame_size),
-                    num_frames=frame_size,
-                    unit='msec')
+        ``VisuCreatorVersion`` is not always a bare version -- PV5.1 writes
+        ``5.1;5.1``. The direct read stays as the fallback for a dataset whose
+        properties did not resolve.
+        """
+        version = dataset.get('pv_version')
+        return str(version) if version is not None else get_value(visu_pars, 'VisuCreatorVersion')
+
+    def _info_header(self, dataset, visu_pars):
+        """The study-level block of ``info``."""
+        title = f'Paravision {self._pv_version(dataset, visu_pars)}'
+        lines = [title, '-' * len(title)]
+        try:
+            datetime = self.get_scan_time()
+        except Exception:
+            datetime = {'date': 'None'}
+        lines.append(f'UserAccount:\t{self.user_account}')
+        lines.append('Date:\t\t{}'.format(datetime['date']))
+        lines.append(f'Researcher:\t{self.user_name}')
+        lines.append(f'Subject ID:\t{self.subj_id}')
+        lines.append(f'Session ID:\t{self.session_id}')
+        lines.append(f'Study ID:\t{self.study_id}')
+        lines.append(f'Date of Birth:\t{self.subj_dob}')
+        lines.append(f'Sex:\t\t{self.subj_sex}')
+        lines.append(f'Weight:\t\t{self.subj_weight} kg')
+        lines.append(f'Subject Type:\t{self.subj_type}')
+        lines.append(f'Position:\t{self.subj_pose}\t\tEntry:\t{self.subj_entry}')
+        lines.append('\n[ScanID]\tSequence::Protocol::[Parameters]')
+        return lines
+
+    def _info_reco(self, scan_id, reco_id, visu_pars):
+        """The per-reconstruction line of ``info``."""
+        dim, cls = self._get_dim_info(visu_pars)
+        if cls != 'spatial_only':
+            return f'    [{str(reco_id).zfill(2)}] dim: {dim}, {cls}'
+        scanobj = self._study.get_scan(scan_id)
+        info = scanobj.get_scaninfo(reco_id)
+        size = ' x '.join(map(str, image_shape(scanobj.get_dataset(reco_id))))
+        fov_size = ' x '.join(map(str, info.image['field_of_view']))
+        resol = list(info.image['resolution'])
+        if len(resol) == 2:
+            resol = resol + [info.slicepack['slice_distances_each_pack'][0]]
+        s_resol = ' x '.join([f'{r:.3f}' for r in resol])
+        volumes = [size for name, size in self.get_frame_groups(scan_id, reco_id)
+                   if not re.search('slice', name, re.IGNORECASE)]
+        num_volumes = int(np.prod(volumes or [1]))
+        t_resol = '{:.3f}'.format(info.cycle['scan_time'] / num_volumes)
+        return ('    [{}] dim: {}D, matrix_size: {}, fov_size: {} (unit:mm)\n'
+                '         spatial_resol: {} (unit:{}), temporal_resol: {} (unit:{})'.format(
+                    str(reco_id).zfill(2), dim, size, fov_size,
+                    s_resol, info.image['unit'], t_resol, info.cycle['unit']))
 
     # DTI
     @staticmethod
     def _get_bdata(method):
         """Extract, format, and return diffusion bval and bvec"""
         bvals = np.array(get_value(method, 'PVM_DwEffBval'))
-        bvecs = np.array(get_value(method, 'PVM_DwGradVec').T)
+        bvecs = np.array(np.asarray(get_value(method, 'PVM_DwGradVec')).T)
         # Correct for single b-vals
         if np.size(bvals) < 2:
             bvals = np.array([bvals])
@@ -847,33 +741,13 @@ class BrukerLoader():
         bvecs = bvecs / np.expand_dims(bvecs_L2_norm, bvecs_axis)
         return bvals, bvecs
 
-    # Generals
     @staticmethod
-    def _get_gradient_encoding_info(visu_pars):
-        version = get_value(visu_pars, 'VisuVersion')
-
-        if version == 1:  # case PV 5.1, prepare compatible form of variable
-            phase_enc = get_value(visu_pars, 'VisuAcqImagePhaseEncDir')
-            phase_enc = phase_enc[0] if is_all_element_same(phase_enc) else phase_enc
-            if isinstance(phase_enc, list) and len(phase_enc) > 1:
-                encoding_axis = []
-                for d in phase_enc:
-                    encoding_axis.append(encdir_code_converter(d))
-            else:
-                encoding_axis = encdir_code_converter(phase_enc)
-        else:  # case PV 6.0.1
-            encoding_axis = get_value(visu_pars, 'VisuAcqGradEncoding')
-        return encoding_axis
-
-    def _get_dim_info(self, visu_pars):
+    def _get_dim_info(visu_pars):
         """check if the frame contains only spatial components"""
-        dim      = get_value(visu_pars, 'VisuCoreDim')
-        dim_desc = get_value(visu_pars, 'VisuCoreDimDesc')
+        dim = int(get_value(visu_pars, 'VisuCoreDim'))
+        dim_desc = [str(d) for d in np.atleast_1d(get_value(visu_pars, 'VisuCoreDimDesc'))]
 
-        # VisuCoreDimDesc may be a single string (1D) or a list; normalise.
-        if isinstance(dim_desc, str):
-            dim_desc = [dim_desc]
-        if not all(map(lambda x: x == 'spatial', dim_desc)):
+        if not all(x == 'spatial' for x in dim_desc):
             if 'spectroscopic' in dim_desc:
                 return dim, 'contain_spectroscopic'  # spectroscopic data
             elif 'temporal' in dim_desc:
@@ -883,230 +757,23 @@ class BrukerLoader():
         else:
             return dim, 'spatial_only'
 
-    def _get_spatial_info(self, visu_pars):
-        dim, dim_type = self._get_dim_info(visu_pars)
-        if dim_type != 'spatial_only':
-            if dim != 1:
-                raise Exception(ERROR_MESSAGES['DimType'])
-            else:
-                # experimental approaches
-                matrix_size = get_value(visu_pars, 'VisuCoreSize')
-                fov_size    = get_value(visu_pars, 'VisuCoreExtent')
-                voxel_resol = np.divide(fov_size, matrix_size).tolist()
-            return dict(spatial_resol = [voxel_resol],
-                        matrix_size = [matrix_size],
-                        fov_size    = fov_size,
-                        unit        = 'mm',
-                        )
-        else:
-            matrix_size = get_value(visu_pars, 'VisuCoreSize')
-            fov_size    = get_value(visu_pars, 'VisuCoreExtent')
-            voxel_resol = np.divide(fov_size, matrix_size).tolist()
-            slice_resol = self._get_slice_info(visu_pars)
-
-            if dim == 3:
-                spatial_resol = [voxel_resol]
-                matrix_size = [matrix_size]
-            elif dim == 2:
-                xr, yr = voxel_resol
-                xm, ym = matrix_size
-                spatial_resol = [(xr, yr, zr) for zr in slice_resol['slice_distances_each_pack']]
-                matrix_size   = [(xm, ym, zm) for zm in slice_resol['num_slices_each_pack']]
-            else:
-                raise Exception(ERROR_MESSAGES['DimSize'])
-            return dict(spatial_resol = spatial_resol,
-                        matrix_size   = matrix_size,
-                        fov_size=fov_size,
-                        unit          = 'mm',
-                        )
-
-    def _get_slice_info(self, visu_pars, method=None):
-        version = get_value(visu_pars, 'VisuVersion')
-        fg_info = self._get_frame_group_info(visu_pars)
-        num_slice_packs = None
-        num_slices_each_pack = []
-        slice_distances_each_pack = []
-
-        if fg_info['frame_type'] is None:
-            num_slice_packs = 1
-            # below will be 1 in 3D protocol
-            num_slices_each_pack = [get_value(visu_pars, 'VisuCoreFrameCount')]
-            # below will be size of slice_enc axis in 3D protocol
-            slice_distances_each_pack = [get_value(visu_pars, 'VisuCoreFrameThickness')]
-        else:
-            frame_groups = fg_info['group_id']
-            if version == 1: # PV 5.1 support
-                try:
-                    phase_enc_dir = get_value(visu_pars, 'VisuAcqImagePhaseEncDir')
-                    phase_enc_dir = [phase_enc_dir[0]] if is_all_element_same(phase_enc_dir) else phase_enc_dir
-                    num_slice_packs = len(phase_enc_dir)
-                except Exception:
-                    num_slice_packs = 1
-                matrix_shape = fg_info['matrix_shape']
-                frame_thickness = get_value(visu_pars, 'VisuCoreFrameThickness')
-                num_slice_frames = 0
-                # for id, fg in enumerate(frame_groups):
-                for _, fg in enumerate(frame_groups):
-                    if re.search('slice', fg, re.IGNORECASE):
-                        num_slice_frames += 1
-                        if num_slice_frames > 2:
-                            raise Exception(ERROR_MESSAGES['SlicePacksSlices'])
-                        if num_slice_packs > 1:
-                            for s in range(num_slice_packs):
-                                num_slices_each_pack.append(int(matrix_shape[0]/num_slice_packs))
-                        else:
-                            num_slices_each_pack.append(matrix_shape[0])
-                slice_distances_each_pack = [frame_thickness for _ in range(num_slice_packs)]
-            else:
-                if version not in (3, 4, 5, 8):  # 8 = ParaVision 360
-                    warnings.warn('Unexpected version[VisuVersion];{}'.format(version), UserWarning)
-
-                num_slice_packs = get_value(visu_pars, 'VisuCoreSlicePacksDef')
-                if num_slice_packs is None:
-                    num_slice_packs = 1
-                else:
-                    num_slice_packs = num_slice_packs[0][1]
-
-                slices_info_in_pack = get_value(visu_pars, 'VisuCoreSlicePacksSlices')
-                slice_distance = get_value(visu_pars, 'VisuCoreSlicePacksSliceDist')
-                num_slice_frames = 0
-                for _, fg in enumerate(frame_groups):
-                    if re.search('slice', fg, re.IGNORECASE):
-                        num_slice_frames += 1
-                        if num_slice_frames > 2:
-                            raise Exception(ERROR_MESSAGES['SlicePacksSlices'])
-                        try:
-                            # VisuCoreSlicePacksSlices holds [first_slice_index, count]
-                            # per package; use each package's own count.
-                            num_slices_each_pack = [slices_info_in_pack[p][1]
-                                                    for p in range(num_slice_packs)]
-                        except Exception:
-                            raise Exception(ERROR_MESSAGES['SlicePacksSlices'])
-                        if isinstance(slice_distance, list):
-                            slice_distances_each_pack = [slice_distance[0] for _ in range(num_slice_packs)]
-                        elif isinstance(slice_distance, float) or isinstance(slice_distance, int):
-                            slice_distances_each_pack = [slice_distance for _ in range(num_slice_packs)]
-                        else:
-                            raise Exception(ERROR_MESSAGES['SliceDistDatatype'])
-            if len(slice_distances_each_pack) == 0:
-                slice_distances_each_pack = [get_value(visu_pars, 'VisuCoreFrameThickness')]
-            else:
-                for i, d in enumerate(slice_distances_each_pack):
-                    if d == 0:
-                        slice_distances_each_pack[i] = get_value(visu_pars, 'VisuCoreFrameThickness')
-            if len(num_slices_each_pack) == 0:
-                num_slices_each_pack = [1]
-
-        return dict(num_slice_packs            = num_slice_packs,
-                    num_slices_each_pack       = num_slices_each_pack,
-                    slice_distances_each_pack  = slice_distances_each_pack,
-                    unit_slice_distances       = 'mm'
-                    )
-
-    def _get_matrix_size(self, visu_pars, dataobj=None):
-
-        spatial_info        = self._get_spatial_info(visu_pars)
-        slice_info          = self._get_slice_info(visu_pars)
-        temporal_info       = self._get_temp_info(visu_pars)
-        # patch the case of multi-echo
-        fg_info             = self._get_frame_group_info(visu_pars)
-
-        matrix_size         = spatial_info['matrix_size']
-        num_temporal_frame  = temporal_info['num_frames']
-        num_slice_packs     = slice_info['num_slice_packs']
-
-        if num_slice_packs > 1:
-            # Slice packages may hold different slice counts but must share the
-            # in-plane matrix; stack them along the slice axis.
-            inplane = [tuple(m[:-1]) for m in matrix_size]
-            if is_all_element_same(inplane):
-                matrix_size         = list(matrix_size[0])
-                total_num_slices    = sum(slice_info['num_slices_each_pack'])
-                matrix_size[-1]     = total_num_slices
-            else:
-                raise UnexpectedError('Matrix size mismatch with multi-slice-packs dataobj;'
-                                      '{}{}'.format(matrix_size, ISSUE_REPORT))
-        else:
-            matrix_size = list(matrix_size[0])
-            if 'FG_SLICE' in fg_info['group_id']:
-                if fg_info['group_id'].index('FG_SLICE'):  # in the case the slicing frame group happen later
-                    matrix_size     = matrix_size[:2]
-                    matrix_size.extend(fg_info['matrix_shape'])
-                else:
-                    if num_temporal_frame > 1:
-                        matrix_size.append(num_temporal_frame)
-            else:
-                if num_temporal_frame > 1:
-                    matrix_size.append(num_temporal_frame)
-
-        if isinstance(dataobj, np.ndarray):
-            # matrix size inspection
-            dataobj_shape = dataobj.shape[0]
-            if multiply_all(matrix_size) != dataobj_shape:
-                raise UnexpectedError('Matrix size mismatch with dataobj;'
-                                      '{} != {}{}'.format(multiply_all(matrix_size),
-                                                          dataobj_shape,
-                                                          ISSUE_REPORT))
-        return matrix_size
-
-    @staticmethod
-    def _get_disk_slice_order(visu_pars):
-        # check disk_slice_order #
-        _fo = get_value(visu_pars, 'VisuCoreDiskSliceOrder')
-        if _fo in [None, 'disk_normal_slice_order']:
-            disk_slice_order = 'normal'
-        elif _fo == 'disk_reverse_slice_order':
-            disk_slice_order = 'reverse'
-        else:
-            raise UnexpectedError('Invalid VisuCoreDiskSliceOrder:{};{}'.format(_fo, ISSUE_REPORT))
-        return disk_slice_order
+    def _get_slice_info(self, scan_id, reco_id):
+        """Slice packages of a reconstruction: counts and distances per pack."""
+        return self._study.get_scan(scan_id).get_scaninfo(reco_id).slicepack
 
     def _get_visu_pars(self, scan_id, reco_id):
-        # test validation of scan_id and reco_id here
         self._inspect_ids(scan_id, reco_id)
-        return self._pvobj.get_visu_pars(scan_id, reco_id)
+        return self._study.get_scan(scan_id).get_visu_pars(reco_id)
 
-    @staticmethod
-    def _get_frame_group_info(visu_pars):
-        frame_group = get_value(visu_pars, 'VisuFGOrderDescDim')
-        parser = dict(frame_type=None,
-                      frame_size=0, matrix_shape=[],
-                      group_id=[], group_comment=[],
-                      dependent_vals=[])
-        if frame_group is None:
-            # there are no frame group exist
-            return parser
-        else:
-            parser['frame_type'] = get_value(visu_pars, 'VisuCoreFrameType')
-            for idx, d in enumerate(get_value(visu_pars, 'VisuFGOrderDesc')):
-                (num_fg_elements, fg_id, fg_commt,
-                 valsStart, valsCnt) = d
-                # calsCnt = Number of dependent parameters
-                # valsStart = index of starting of dependent parameter (described in 'VisuGroupDepVals')
-                # e.g. if calcCnt is 2, and valsStart is 1, parameter index will be 1, and 2
-                parser['matrix_shape'].append(num_fg_elements)
-                parser['group_id'].append(fg_id)
-                parser['group_comment'].append(fg_commt)
-                parser['dependent_vals'].append([])
-                if valsCnt > 0:
-                    for i in range(valsCnt):
-                        parser['dependent_vals'][idx].append(get_value(visu_pars, 'VisuGroupDepVals')[valsStart + i])
-            parser['frame_size'] = reduce(lambda x, y: x * y, parser['matrix_shape'])
-            return parser
-
-    @property
-    def _subject(self):
-        return self._pvobj._subject
-
-    @property
-    def _acqp(self):
-        return self._pvobj._acqp
-
-    @property
-    def _method(self):
-        return self._pvobj._method
-
-    @property
-    def _avail(self):
-        return self._pvobj.avail_reco_id
-
+    def _inspect_ids(self, scan_id, reco_id):
+        avail = self.avail_reco_id
+        if scan_id not in avail:
+            print('[Error] Invalid Scan ID.\n'
+                  f'  - Your input: {scan_id}\n'
+                  f'  - Available Scan IDs: {list(avail.keys())}')
+            raise ValueError
+        if reco_id not in avail[scan_id]:
+            print('[Error] Invalid Reco ID.\n'
+                  f'  - Your input: {reco_id}\n'
+                  f'  - Available Reco IDs: {avail[scan_id]}')
+            raise ValueError

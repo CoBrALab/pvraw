@@ -1,6 +1,9 @@
 from __future__ import annotations
+
 from typing import TYPE_CHECKING
+
 from .base import BaseHelper
+
 if TYPE_CHECKING:
     from ..analyzer import ScanInfoAnalyzer
 
@@ -11,7 +14,7 @@ class SeqParams(BaseHelper):
     Args:
         BaseHelper (_type_): _description_
     """
-    def __init__(self, analobj: 'ScanInfoAnalyzer'):
+    def __init__(self, analobj: ScanInfoAnalyzer):
         super().__init__()
         
         acqp = analobj.acqp

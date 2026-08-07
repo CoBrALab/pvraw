@@ -1,12 +1,12 @@
-# -*- coding: utf-8 -*-
-from ..lib.errors import FileNotValidError, InvalidApproach, ValueConflictInField
-from .. import BrukerLoader, __version__
-from ..lib.utils import set_rescale, save_meta_files, mkdir
 import argparse
 import os
 import re
 import sys
 import warnings
+
+from .. import BrukerLoader, __version__
+from ..lib.errors import FileNotValidError, InvalidApproach, ValueConflictInField
+from ..lib.utils import get_value, mkdir, save_meta_files, set_rescale
 
 _supporting_bids_ver = '1.10.0'
 
@@ -14,7 +14,7 @@ _supporting_bids_ver = '1.10.0'
 def main():
     parser = argparse.ArgumentParser(prog='brkraw-legacy',
                                      description="BrkRaw-legacy command-line interface")
-    parser.add_argument("-v", "--version", action='version', version='%(prog)s v{}'.format(__version__))
+    parser.add_argument("-v", "--version", action='version', version=f'%(prog)s v{__version__}')
 
     subparsers = parser.add_subparsers(title='Sub-commands',
                                        description='To run this command, you must specify one of the functions listed'
@@ -118,61 +118,60 @@ def main():
         scan_id  = args.scanid
         reco_id  = args.recoid
         study    = BrukerLoader(path)
-        slope, offset = set_rescale(args)
+        scale_mode = set_rescale(args)
         ignore_localizer = args.ignore_localizer
         study = override_header(study, args.subjecttype, args.position)
         
         if study.is_pvdataset:
             if args.output:
                 output = args.output
-            elif study._pvobj.subj_id is not None:
-                output = '{}_{}'.format(study._pvobj.subj_id,study._pvobj.study_id)
+            elif study.subj_id is not None:
+                output = f'{study.subj_id}_{study.study_id}'
             else:
                 # standalone scan without a subject file: name after the input dir
                 output = os.path.basename(os.path.normpath(path))
             if scan_id:
-                acqpars  = study.get_acqp(int(scan_id))
-                scanname = acqpars._parameters['ACQ_scan_name']
+                scanname = str(get_value(study.get_acqp(int(scan_id)), 'ACQ_scan_name'))
                 scanname = scanname.replace(' ','-')
-                output_fname = '{}-{}-{}-{}'.format(output, scan_id, reco_id, scanname)
+                output_fname = f'{output}-{scan_id}-{reco_id}-{scanname}'
                 scan_id = int(scan_id)
                 reco_id = int(reco_id)
                 
                 if ignore_localizer and is_localizer(study, scan_id, reco_id):
-                    print('Identified a localizer, the file will not be converted: ScanID:{}'.format(str(scan_id)))
+                    print(f'Identified a localizer, the file will not be converted: ScanID:{scan_id!s}')
                 else:
                     try:
-                        study.save_as(scan_id, reco_id, output_fname, slope=slope, offset=offset)
+                        study.save_as(scan_id, reco_id, output_fname, scale_mode=scale_mode)
                         save_meta_files(study, args, scan_id, reco_id, output_fname)
-                        print('NifTi file is generated... [{}]'.format(output_fname))
+                        print(f'NifTi file is generated... [{output_fname}]')
                     except Exception as e:
                         report_conversion_error(scan_id, reco_id, e)
             else:
-                for scan_id, recos in study._pvobj.avail_reco_id.items():
-                    acqpars  = study.get_acqp(int(scan_id))
-                    scanname = acqpars._parameters['ACQ_scan_name']
+                for scan_id, recos in study.avail_reco_id.items():
+                    scanname = str(get_value(study.get_acqp(int(scan_id)), 'ACQ_scan_name'))
                     scanname = scanname.replace(' ','-')
                     if ignore_localizer and is_localizer(study, scan_id, recos[0]):
-                        print('Identified a localizer, the file will not be converted: ScanID:{}'.format(str(scan_id)))
+                        print(f'Identified a localizer, the file will not be converted: ScanID:{scan_id!s}')
                     else:
                         for reco_id in recos:
-                            output_fname = '{}-{}-{}-{}'.format(output, str(scan_id).zfill(2), reco_id, scanname)
+                            output_fname = f'{output}-{str(scan_id).zfill(2)}-{reco_id}-{scanname}'
                             try:
-                                study.save_as(scan_id, reco_id, output_fname, slope=slope, offset=offset)
+                                study.save_as(scan_id, reco_id, output_fname, scale_mode=scale_mode)
                                 save_meta_files(study, args, scan_id, reco_id, output_fname)
-                                print('NifTi file is generated... [{}]'.format(output_fname))
+                                print(f'NifTi file is generated... [{output_fname}]')
                             except Exception as e:
                                 report_conversion_error(scan_id, reco_id, e)
         else:
-            print('{} is not PvDataset.'.format(path))
+            print(f'{path} is not PvDataset.')
 
     elif args.function == 'tonii_all':
-        from os.path import join as opj, isdir, isfile
+        from os.path import isdir, isfile
+        from os.path import join as opj
 
         path = args.input
-        slope, offset = set_rescale(args)
+        scale_mode = set_rescale(args)
         ignore_localizer = args.ignore_localizer
-        invalid_error_message = '[Error] Invalid input path: {}\n'.format(path)
+        invalid_error_message = f'[Error] Invalid input path: {path}\n'
         empty_folder = '        The input path does not contain any raw data.'
         wrong_target = '        The input path indicates raw data itself. \n' \
                        '        You must input the parents folder instead of path of the raw data\n' \
@@ -198,22 +197,22 @@ def main():
             study = BrukerLoader(sub_path)
             if study.is_pvdataset:
                 study = override_header(study, args.subjecttype, args.position)
-                if len(study._pvobj.avail_scan_id):
-                    subj_path = os.path.join(base_path, 'sub-{}'.format(study._pvobj.subj_id))
+                if len(study.avail_scan_id):
+                    subj_path = os.path.join(base_path, f'sub-{study.subj_id}')
                     mkdir(subj_path)
-                    sess_path = os.path.join(subj_path, 'ses-{}'.format(study._pvobj.study_id))
+                    sess_path = os.path.join(subj_path, f'ses-{study.study_id}')
                     mkdir(sess_path)
-                    for scan_id, recos in study._pvobj.avail_reco_id.items():
-                        if scan_id not in study._pvobj._method:
+                    for scan_id, recos in study.avail_reco_id.items():
+                        method = scanMethod(study, scan_id)
+                        if method is None:
                             # A scan can carry reconstruction data (2dseq) without a
                             # method file (e.g. an adjustment/reference scan). Skip it
-                            # rather than KeyError on the method lookup below.
-                            print('ScanID:{} has no method file; skipping.'.format(scan_id))
+                            # rather than fail on the method lookup below.
+                            print(f'ScanID:{scan_id} has no method file; skipping.')
                             continue
                         if ignore_localizer and is_localizer(study, scan_id, recos[0]): # add option to exclude localizer during mass conversion
-                            print('Identified a localizer, the file will not be converted: ScanID:{}'.format(str(scan_id)))
+                            print(f'Identified a localizer, the file will not be converted: ScanID:{scan_id!s}')
                         else:
-                            method = study._pvobj._method[scan_id].parameters['Method']
                             if re.search('epi', method, re.IGNORECASE) and not re.search('dti', method, re.IGNORECASE):
                                 output_path = os.path.join(sess_path, 'func')
                             elif re.search('dti', method, re.IGNORECASE):
@@ -223,21 +222,19 @@ def main():
                             else:
                                 output_path = os.path.join(sess_path, 'etc')
                             mkdir(output_path)
-                            filename = 'sub-{}_ses-{}_{}'.format(study._pvobj.subj_id, study._pvobj.study_id,
-                                                                str(scan_id).zfill(2))
+                            filename = f'sub-{study.subj_id}_ses-{study.study_id}_{str(scan_id).zfill(2)}'
                             for reco_id in recos:
-                                output_fname = os.path.join(output_path, '{}_reco-{}'.format(filename,
-                                                                                            str(reco_id).zfill(2)))
+                                output_fname = os.path.join(output_path, f'{filename}_reco-{str(reco_id).zfill(2)}')
                                 try:
-                                    study.save_as(scan_id, reco_id, output_fname, slope=slope, offset=offset)
+                                    study.save_as(scan_id, reco_id, output_fname, scale_mode=scale_mode)
                                     save_meta_files(study, args, scan_id, reco_id, output_fname)
                                 except Exception as e:
                                     report_conversion_error(scan_id, reco_id, e)
-                    print('{} is converted...'.format(raw))
+                    print(f'{raw} is converted...')
                 else:
-                    print('{} does not contains any scan data to convert...'.format(raw))
+                    print(f'{raw} does not contains any scan data to convert...')
             else:
-                print('{} is not PvDataset.'.format(raw))
+                print(f'{raw} is not PvDataset.')
 
     elif args.function == 'bids_helper':
         import pandas as pd
@@ -259,7 +256,7 @@ def main():
             ds_format = args.format
 
         # [220202] make compatible with csv and tsv
-        output = '{}.{}'.format(ds_fname, ds_format) 
+        output = f'{ds_fname}.{ds_format}' 
 
         Headers = ['RawData', 'SubjID', 'SessID', 'ScanID', 'RecoID', 'DataType',
                    'task', 'acq', 'ce', 'rec', 'dir', 'run', 'inv', 'flip', 'mt', 'part', 'modality', 'Start', 'End']
@@ -279,128 +276,125 @@ def main():
             except Exception:
                 dset = None
 
-            if dset is not None:
-                if dset.is_pvdataset:
-                    pvobj = dset.pvobj
+            if dset is not None and dset.is_pvdataset:
+                rawdata = dset.path
 
-                    rawdata = pvobj.path
-                    
-                    if swap_id:
-                         subj_id = pvobj.study_id
-                    else:
-                        subj_id = pvobj.subj_id
+                if swap_id:
+                    subj_id = dset.study_id
+                else:
+                    subj_id = dset.subj_id
 
-                    if swap_sess:
-                        sess_id = pvobj.study_id
-                    else:
-                        sess_id = pvobj.session_id
+                if swap_sess:
+                    sess_id = dset.study_id
+                else:
+                    sess_id = dset.session_id
 
-                    # make subj_id bids appropriate
-                    subj_id = cleanSubjectID(subj_id)
+                # make subj_id bids appropriate
+                subj_id = cleanSubjectID(subj_id)
 
-                    # make sess_id bids appropriate
-                    sess_id = cleanSessionID(sess_id)
+                # make sess_id bids appropriate
+                sess_id = cleanSessionID(sess_id)
 
-                    for scan_id, recos in pvobj.avail_reco_id.items():
-                        if scan_id not in pvobj._method:
-                            # Reconstruction data with no method file (e.g. an
-                            # adjustment/reference scan): can't be classified, so skip
-                            # it rather than KeyError on the method lookup below.
-                            warnings.warn('ScanID:[{}] has no method file; skipping.'
-                                          ''.format(scan_id))
-                            continue
-                        for reco_id in recos:
-                            visu_pars = dset.get_visu_pars(scan_id, reco_id)
-                            if dset._get_dim_info(visu_pars)[1] == 'spatial_only':
-                                
-                                if not is_localizer(dset, scan_id, reco_id):
-                                    method = dset.get_method(scan_id).parameters['Method']
+                for scan_id, recos in dset.avail_reco_id.items():
+                    method = scanMethod(dset, scan_id)
+                    if method is None:
+                        # Reconstruction data with no method file (e.g. an
+                        # adjustment/reference scan): can't be classified, so skip
+                        # it rather than fail on the method lookup below.
+                        warnings.warn(f'ScanID:[{scan_id}] has no method file; skipping.')
+                        continue
+                    for reco_id in recos:
+                        visu_pars = dset.get_visu_pars(scan_id, reco_id)
+                        if (dset._get_dim_info(visu_pars)[1] == 'spatial_only'
+                                and not is_localizer(dset, scan_id, reco_id)):
+                            datatype = assignDataType(method)
 
-                                    datatype = assignDataType(method)
+                            # Derived/computed reconstructions -- ISA parametric
+                            # maps (T2/T1 relaxation, ...) and generated DTI tensor
+                            # images -- are BIDS derivatives, not raw data. Auto-
+                            # classifying them as a raw datatype produced invalid
+                            # output (a single-frame "MESE" with no echo-/EchoTime;
+                            # a "dwi" whose bval/bvec length did not match the
+                            # volumes). Leave them 'etc' so they are not converted.
+                            groups = [name for name, _ in dset.get_frame_groups(scan_id, reco_id)]
+                            if any(g in ('isa', 'dti') for g in groups):
+                                datatype = 'etc'
+                                warnings.warn(f'ScanID:[{scan_id}] RecoID:[{reco_id}] is a derived '
+                                              'reconstruction (parametric/tensor map); '
+                                              'marked as "etc" (BIDS derivative). Set '
+                                              'DataType/modality to convert it.')
 
-                                    # Derived/computed reconstructions -- ISA parametric
-                                    # maps (T2/T1 relaxation, ...) and generated DTI tensor
-                                    # images -- are BIDS derivatives, not raw data. Auto-
-                                    # classifying them as a raw datatype produced invalid
-                                    # output (a single-frame "MESE" with no echo-/EchoTime;
-                                    # a "dwi" whose bval/bvec length did not match the
-                                    # volumes). Leave them 'etc' so they are not converted.
-                                    group_id = dset._get_frame_group_info(visu_pars)['group_id']
-                                    if any(g in ('FG_ISA', 'FG_DTI') for g in group_id):
-                                        datatype = 'etc'
-                                        warnings.warn('ScanID:[{}] RecoID:[{}] is a derived '
-                                                      'reconstruction (parametric/tensor map); '
-                                                      'marked as "etc" (BIDS derivative). Set '
-                                                      'DataType/modality to convert it.'
-                                                      ''.format(scan_id, reco_id))
+                            # ASL / perfusion (FAIR, (p)CASL, PASL, ...) is
+                            # neither BOLD nor anatomical; it belongs in BIDS
+                            # perf/asl, which is not emitted here. Leave it
+                            # unclassified rather than mislabel it.
+                            elif re.search(r'FAIR|ASL|perfusion', method, re.IGNORECASE):
+                                datatype = 'etc'
+                                warnings.warn(f'ScanID:[{scan_id}] looks like ASL/perfusion ({method}); BIDS '
+                                              'perf/asl is not supported, marked as "etc". Set '
+                                              'DataType/modality in the datasheet to convert it.')
 
-                                    # ASL / perfusion (FAIR, (p)CASL, PASL, ...) is
-                                    # neither BOLD nor anatomical; it belongs in BIDS
-                                    # perf/asl, which is not emitted here. Leave it
-                                    # unclassified rather than mislabel it.
-                                    elif re.search(r'FAIR|ASL|perfusion', method, re.IGNORECASE):
-                                        datatype = 'etc'
-                                        warnings.warn('ScanID:[{}] looks like ASL/perfusion ({}); BIDS '
-                                                      'perf/asl is not supported, marked as "etc". Set '
-                                                      'DataType/modality in the datasheet to convert it.'
-                                                      ''.format(scan_id, method))
+                            # A BOLD time-series needs >1 volume; a single-
+                            # repetition EPI is not bold (BIDS BOLD_NOT_4D).
+                            # Leave it unclassified so the user can decide.
+                            elif datatype == 'func' and numRepetitions(dset, scan_id) <= 1:
+                                datatype = 'etc'
+                                warnings.warn(f'ScanID:[{scan_id}] is a single-volume EPI '
+                                              '(PVM_NRepetitions<=1), not a BOLD time-series. '
+                                              'Marked as "etc"; set DataType/modality in the '
+                                              'datasheet to convert it.')
 
-                                    # A BOLD time-series needs >1 volume; a single-
-                                    # repetition EPI is not bold (BIDS BOLD_NOT_4D).
-                                    # Leave it unclassified so the user can decide.
-                                    elif datatype == 'func' and numRepetitions(dset, scan_id) <= 1:
-                                        datatype = 'etc'
-                                        warnings.warn('ScanID:[{}] is a single-volume EPI '
-                                                      '(PVM_NRepetitions<=1), not a BOLD time-series. '
-                                                      'Marked as "etc"; set DataType/modality in the '
-                                                      'datasheet to convert it.'.format(scan_id))
+                            item = dict(zip(Headers, [rawdata, subj_id, sess_id, scan_id, reco_id, datatype]))
 
-                                    item = dict(zip(Headers, [rawdata, subj_id, sess_id, scan_id, reco_id, datatype]))
+                            # BIDS requires a task- entity and TaskName for func;
+                            # prefill from the Bruker protocol name (user-editable)
+                            # so func output validates by default.
+                            if datatype == 'func':
+                                item['task'] = bidsTaskLabel(visu_pars)
 
-                                    # BIDS requires a task- entity and TaskName for func;
-                                    # prefill from the Bruker protocol name (user-editable)
-                                    # so func output validates by default.
-                                    if datatype == 'func':
-                                        item['task'] = bidsTaskLabel(visu_pars)
-
-                                    if datatype == 'fmap':
-                                        for m, s, e in [['fieldmap', 0, 1], ['magnitude', 1, 2]]:
-                                            item['modality'] = m
-                                            item['Start'] = s
-                                            item['End'] = e
-                                            df = pd.concat([df, pd.DataFrame([item])], ignore_index=True)
-                                    elif datatype == 'dwi':
-                                        item['modality'] = 'dwi'
-                                        df = pd.concat([df, pd.DataFrame([item])], ignore_index=True)
-                                    elif datatype == 'anat' and re.search('MSME', method, re.IGNORECASE):
-                                        # MSME is multi-slice multi-echo, but only a
-                                        # genuinely multi-echo reconstruction is a BIDS
-                                        # MESE (which requires an echo- entity). A
-                                        # single-echo MSME is just a T2-weighted image.
-                                        item['modality'] = ('MESE'
-                                                            if dset.is_multi_echo(scan_id, reco_id)
-                                                            else 'T2w')
-                                        df = pd.concat([df, pd.DataFrame([item])], ignore_index=True)
-                                    else:
-                                        df = pd.concat([df, pd.DataFrame([item])], ignore_index=True)
+                            if datatype == 'fmap':
+                                for m, s, e in [['fieldmap', 0, 1], ['magnitude', 1, 2]]:
+                                    item['modality'] = m
+                                    item['Start'] = s
+                                    item['End'] = e
+                                    df = pd.concat([df, pd.DataFrame([item])], ignore_index=True)
+                            elif datatype == 'dwi':
+                                item['modality'] = 'dwi'
+                                df = pd.concat([df, pd.DataFrame([item])], ignore_index=True)
+                            elif datatype == 'anat' and re.search('MSME', method, re.IGNORECASE):
+                                # MSME is multi-slice multi-echo, but only a
+                                # genuinely multi-echo reconstruction is a BIDS
+                                # MESE (which requires an echo- entity). A
+                                # single-echo MSME is just a T2-weighted image.
+                                item['modality'] = ('MESE'
+                                                    if dset.is_multi_echo(scan_id, reco_id)
+                                                    else 'T2w')
+                                df = pd.concat([df, pd.DataFrame([item])], ignore_index=True)
+                            else:
+                                df = pd.concat([df, pd.DataFrame([item])], ignore_index=True)
         if 'csv' in ds_format:
             df.to_csv(output, index=None, sep=',')
         elif 'tsv' in ds_format:
             df.to_csv(output, index=None, sep='\t')
         else:
-            print('[{}] is not supported.'.format(ds_format))
+            print(f'[{ds_format}] is not supported.')
             raise InvalidApproach('Invalid input for datasheet!')
 
         if make_json:
-            json_fname = '{}.json'.format(ds_fname)
+            json_fname = f'{ds_fname}.json'
             print('Creating JSON syntax template for parsing the BIDS required metadata '
-                  '(BIDS v{}): {}'.format(_supporting_bids_ver, json_fname))
+                  f'(BIDS v{_supporting_bids_ver}): {json_fname}')
             with open(json_fname, 'w') as f:
                 import json
-                from ..lib.reference import COMMON_META_REF, FMRI_META_REF, FIELDMAP_META_REF
-                ref_dict = dict(common=COMMON_META_REF,
-                                func=FMRI_META_REF,
-                                fmap=FIELDMAP_META_REF)
+
+                from ..lib.reference import (
+                    COMMON_META_REF,
+                    FIELDMAP_META_REF,
+                    FMRI_META_REF,
+                )
+                ref_dict = {'common': COMMON_META_REF,
+                                'func': FMRI_META_REF,
+                                'fmap': FIELDMAP_META_REF}
                 json.dump(ref_dict, f, indent=4)
 
         print('[Important notice] The function helps to minimize the BIDS organization but does not guarantee that '
@@ -410,7 +404,8 @@ def main():
 
     elif args.function == 'bids_convert':
         import pandas as pd
-        from ..lib.utils import build_bids_json, bids_validation
+
+        from ..lib.utils import bids_validation, build_bids_json
         
         pd.options.mode.chained_assignment = None
         path = args.input
@@ -428,7 +423,7 @@ def main():
             raise InvalidApproach('Invalid input for datasheet!')
             
         json_fname = args.json
-        slope, offset = set_rescale(args)
+        scale_mode = set_rescale(args)
 
         # check if the project is session included
         if all(pd.isnull(df['SessID'])):
@@ -462,8 +457,7 @@ def main():
                 dset = BrukerLoader(dpath)
                 dset = override_header(dset, args.subjecttype, args.position)
                 if dset.is_pvdataset:
-                    pvobj = dset.pvobj
-                    rawdata = pvobj.path
+                    rawdata = dset.path
                     filtered_dset = df[df['RawData'].isin([rawdata])].reset_index()
 
                     # add Filename and Dir columns (object dtype to hold path strings)
@@ -473,25 +467,24 @@ def main():
                                                      index=filtered_dset.index, dtype=object)
 
                     if len(filtered_dset):
-                        subj_id = list(set(filtered_dset['SubjID']))[0]
-                        subj_code = 'sub-{}'.format(subj_id)
+                        subj_id = next(iter(set(filtered_dset['SubjID'])))
+                        subj_code = f'sub-{subj_id}'
 
                         filtered_dset = completeFieldsCreateFolders(df, filtered_dset, dset, include_session, root_path, subj_code)
 
                         list_tested_fn = []
                         # Converting data according to the updated sheet
-                        print('Converting {}...'.format(dname))
+                        print(f'Converting {dname}...')
 
                         for i, row in filtered_dset.iterrows():
                             if pd.isnull(row.FileName) or pd.isnull(row.modality):
                                 # Unclassified scan (no valid BIDS suffix): skip it so
                                 # the validated tree never gets an invalid datatype/suffix.
-                                warnings.warn('ScanID:[{}] could not be mapped to a valid BIDS '
+                                warnings.warn(f'ScanID:[{row.ScanID}] could not be mapped to a valid BIDS '
                                               'datatype/suffix and was skipped. Set DataType and '
-                                              'modality in the datasheet to convert it.'
-                                              ''.format(row.ScanID))
+                                              'modality in the datasheet to convert it.')
                                 continue
-                            temp_fname = '{}_{}'.format(row.FileName, row.modality)
+                            temp_fname = f'{row.FileName}_{row.modality}'
                             if temp_fname not in list_tested_fn:
                                 try:
                                     # filter the DataFrame that has same filename (updated without run)
@@ -506,21 +499,20 @@ def main():
                                         conflict_tested = []
                                         for j, sub_row in md_df.iterrows():
                                             if pd.isnull(sub_row.run):
-                                                fname = '{}_run-{}'.format(sub_row.FileName, str(j+1).zfill(2))
+                                                fname = f'{sub_row.FileName}_run-{str(j+1).zfill(2)}'
                                             else:
                                                 _ = bids_validation(df, i, 'run', sub_row.run, 3, dtype=int)
-                                                fname = '{}_run-{}'.format(sub_row.FileName, str(sub_row.run).zfill(2)) # [20210822] format error
+                                                fname = f'{sub_row.FileName}_run-{str(sub_row.run).zfill(2)}' # [20210822] format error
                                             if fname in conflict_tested:
-                                                raise ValueConflictInField('ScanID:[{}] Conflict error. '
+                                                raise ValueConflictInField(f'ScanID:[{sub_row.ScanID}] Conflict error. '
                                                                            'The [run] index value must be unique '
-                                                                           'among the scans with the same modality.'
-                                                                           ''.format(sub_row.ScanID))
+                                                                           'among the scans with the same modality.')
                                             else:
                                                 conflict_tested.append(fname)
-                                            build_bids_json(dset, sub_row, fname, json_fname, slope=slope, offset=offset)
+                                            build_bids_json(dset, sub_row, fname, json_fname, scale_mode=scale_mode)
                                     else:
-                                        fname = '{}'.format(row.FileName)
-                                        build_bids_json(dset, row, fname, json_fname, slope=slope, offset=offset)
+                                        fname = f'{row.FileName}'
+                                        build_bids_json(dset, row, fname, json_fname, scale_mode=scale_mode)
                                     list_tested_fn.append(temp_fname)
                                 except Exception as e:
                                     # One scan failing to convert must not abort the whole
@@ -544,9 +536,9 @@ def main():
 def report_conversion_error(scan_id, reco_id, error):
     """Print a skip notice for non-image data, or a failure notice otherwise."""
     if 'non-image data' in str(error):
-        print('Skipped (non-image data): ScanID:{}, RecoID:{}'.format(scan_id, reco_id))
+        print(f'Skipped (non-image data): ScanID:{scan_id}, RecoID:{reco_id}')
     else:
-        print('Conversion failed: ScanID:{}, RecoID:{} ({})'.format(scan_id, reco_id, error))
+        print(f'Conversion failed: ScanID:{scan_id}, RecoID:{reco_id} ({error})')
 
 
 def cleanSubjectID(subj_id):
@@ -626,16 +618,28 @@ def bidsTaskLabel(visu_pars):
     func data must carry a ``task-`` entity; deriving it from the acquisition
     protocol gives an accurate, user-overridable default.
     """
-    pars = visu_pars.parameters
-    proto = pars.get('VisuAcquisitionProtocol') or pars.get('VisuAcqSequenceName') or 'task'
+    proto = (get_value(visu_pars, 'VisuAcquisitionProtocol')
+             or get_value(visu_pars, 'VisuAcqSequenceName') or 'task')
     label = re.sub(r'[^0-9a-zA-Z]', '', str(proto))
     return label or 'task'
+
+
+def scanMethod(dset, scan_id):
+    """The Bruker method name of a scan, or None when it has no method file.
+
+    A scan can carry reconstruction data without a method file (an adjustment
+    or reference scan); it cannot be classified and is skipped. A method file
+    that is present but unreadable is a different problem and is not hidden
+    here.
+    """
+    name = get_value(dset.get_method(scan_id), 'Method')
+    return None if name is None else str(name)
 
 
 def numRepetitions(dset, scan_id):
     """Number of temporal repetitions (volumes) for a scan; 1 when unknown."""
     try:
-        nr = dset.get_method(scan_id).parameters.get('PVM_NRepetitions', 1)
+        nr = get_value(dset.get_method(scan_id), 'PVM_NRepetitions', 1)
         return int(nr) if nr is not None else 1
     except Exception:
         return 1
@@ -644,7 +648,7 @@ def numRepetitions(dset, scan_id):
 def assignDataType (method):
     """To assign the dataType based on method.
     Args:
-        method (str): the method from BrukerLoader.get_method.parameters['Method'].
+        method (str): the Bruker method name (see scanMethod).
     Returns:
         str: the datatype.
     """
@@ -689,9 +693,10 @@ def generateModalityAgnosticFiles(root_path, json_fname):
     Returns:
         nothing: just generate files.
     """
-    import json
     import datetime
+    import json
     from copy import deepcopy
+
     from ..lib.reference import DATASET_DESC_REF
 
     data_des = os.path.join(root_path, 'dataset_description.json')
@@ -702,22 +707,22 @@ def generateModalityAgnosticFiles(root_path, json_fname):
     if not os.path.exists(data_des):
         desc = deepcopy(DATASET_DESC_REF)
         # Record BrkRaw-legacy as the generator (BIDS recommended provenance).
-        desc['GeneratedBy'] = [dict(Name='BrkRaw-legacy',
-                                    Version=__version__,
-                                    CodeURL='https://github.com/gdevenyi/brkraw-legacy')]
+        desc['GeneratedBy'] = [{'Name': 'BrkRaw-legacy',
+                                    'Version': __version__,
+                                    'CodeURL': 'https://github.com/gdevenyi/brkraw-legacy'}]
         # Drop empty placeholders so the sidecar only ships meaningful values.
         desc = {k: v for k, v in desc.items() if v not in ('', [], {})}
         with open(data_des, 'w') as f:
             json.dump(desc, f, indent=4)
     if not os.path.exists(readme):
         with open(readme, 'w') as f:
-            f.write('This dataset was converted using BrkRaw (v{}) on {}.\n'
-                    ''.format(__version__, datetime.datetime.now().isoformat()))
+            f.write(f'This dataset was converted using BrkRaw (v{__version__}) on '
+                    f'{datetime.datetime.now().astimezone().isoformat()}.\n')
             f.write('\n## How to cite?\n - https://doi.org/10.5281/zenodo.3818615\n')
     if not os.path.exists(changes):
         with open(changes, 'w') as f:
-            f.write('1.0.0 {}\n - Dataset created with BrkRaw v{}.\n'
-                    ''.format(datetime.date.today().isoformat(), __version__))
+            f.write(f'1.0.0 {datetime.datetime.now().astimezone().date().isoformat()}\n'
+                    f' - Dataset created with BrkRaw v{__version__}.\n')
     if not os.path.exists(bidsignore):
         with open(bidsignore, 'w') as f:
             # Unclassified Bruker scans (if any are placed here manually) are excluded
@@ -768,8 +773,9 @@ def completeFieldsCreateFolders (df, filtered_dset, dset, multi_session, root_pa
     Returns:
         dataframe: the completed filtered_dset.
     """
-    import pandas as pd
     import numpy as np
+    import pandas as pd
+
     from ..lib import bids
     from ..lib.utils import bids_validation
 
@@ -780,7 +786,7 @@ def completeFieldsCreateFolders (df, filtered_dset, dset, multi_session, root_pa
     for i, row in filtered_dset.iterrows():
         # Resolve the BIDS suffix (datasheet 'modality'); auto-infer when blank.
         if pd.isnull(row.modality):
-            method = dset.get_method(row.ScanID).parameters['Method']
+            method = scanMethod(dset, row.ScanID) or ''
             suffix = bids.default_suffix(row.DataType, method)
             if suffix is None:
                 # Unknown method: cannot emit a valid BIDS suffix. Leave modality
@@ -794,7 +800,7 @@ def completeFieldsCreateFolders (df, filtered_dset, dset, multi_session, root_pa
         bids.validate_suffix(row.DataType, suffix)
 
         # Collect entity labels from the datasheet (run/echo handled downstream).
-        entities = dict(subject=subj_id)
+        entities = {'subject': subj_id}
         if multi_session:
             entities['session'] = row.SessID
         for col, ent in (('task', 'task'), ('acq', 'acquisition'), ('ce', 'ceagent'),
@@ -813,16 +819,13 @@ def completeFieldsCreateFolders (df, filtered_dset, dset, multi_session, root_pa
     return filtered_dset
 
 
-def is_localizer(pvobj, scan_id, reco_id):
-    visu_pars = pvobj.get_visu_pars(scan_id, reco_id)
-    if 'VisuAcquisitionProtocol' in visu_pars.parameters:
-        ac_proc = visu_pars.parameters['VisuAcquisitionProtocol']
-        if re.search('tripilot', ac_proc, re.IGNORECASE) or re.search('localizer', ac_proc, re.IGNORECASE):
-            return True
-        else:
-            return False
-    else:
+def is_localizer(dset, scan_id, reco_id):
+    ac_proc = get_value(dset.get_visu_pars(scan_id, reco_id), 'VisuAcquisitionProtocol')
+    if ac_proc is None:
         return False
+    ac_proc = str(ac_proc)
+    return bool(re.search('tripilot', ac_proc, re.IGNORECASE)
+                or re.search('localizer', ac_proc, re.IGNORECASE))
 
 
 def override_header(pvobj, subjtype, position):
@@ -831,7 +834,7 @@ def override_header(pvobj, subjtype, position):
         try:
             pvobj.override_position(position)
         except Exception:
-            msg = "Unknown position string [{}]. Please check your input option.".format(position) + \
+            msg = f"Unknown position string [{position}]. Please check your input option." + \
                   "The position variable can be defiend as <BodyPart>_<Side>," + \
                   "available BodyParts are (Head, Foot, Tail) and sides are (Supine, Prone, Left, Right). (e.g. Head_Supine)"
             raise InvalidApproach(msg)
@@ -839,7 +842,7 @@ def override_header(pvobj, subjtype, position):
         try:
             pvobj.override_subjtype(subjtype)
         except Exception:
-            msg = "Unknown subject type [{}]. Please check your input option.".format(subjtype) + \
+            msg = f"Unknown subject type [{subjtype}]. Please check your input option." + \
                   "available options are (Biped, Quadruped, Phantom, Other, OtherAnimal)"
             raise InvalidApproach(msg)
     return pvobj

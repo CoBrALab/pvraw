@@ -2,8 +2,8 @@ import os
 
 
 def print_internal_error(io_handler=None):
-    import traceback
     import sys
+    import traceback
     if io_handler is None:
         io_handler = sys.stderr
     traceback.print_exception(*sys.exc_info(),
@@ -30,12 +30,9 @@ class FileNotValidError(Error):
                 object_type = 'file'
             if data_type is not None:
                 self.data_type = data_type
-                self.message = "The {} '{}' is not valid {}".format(object_type,
-                                                                    self.file_name,
-                                                                    self.data_type)
+                self.message = f"The {object_type} '{self.file_name}' is not valid {self.data_type}"
             else:
-                self.message = "The {} '{}' is not valid".format(object_type,
-                                                                 self.file_name)
+                self.message = f"The {object_type} '{self.file_name}' is not valid"
         else:
             self.message = "The file is not valid"
 
@@ -47,8 +44,7 @@ class ArchiveFailedError(Error):
     def __init__(self, file_name=None):
         if file_name is not None:
             self.file_name = os.path.basename(file_name)
-            self.message = "The data '{}' is not archived".format(
-                self.file_name)
+            self.message = f"The data '{self.file_name}' is not archived"
         else:
             self.message = "Archive failed to execute"
 
@@ -60,8 +56,7 @@ class RemoveFailedError(Error):
     def __init__(self, file_name=None):
         if file_name is not None:
             self.file_name = os.path.basename(file_name)
-            self.message = "The file '{}' is not removed".format(
-                self.file_name)
+            self.message = f"The file '{self.file_name}' is not removed"
         else:
             self.message = "Remove failed to execute"
 
@@ -77,8 +72,7 @@ class RenameFailedError(Error):
         if file2_name is not None:
             self.file2_name = os.path.basename(file2_name)
         if (self.file1_name is not None) and (self.file2_name is not None):
-            self.message = "Rename failed to execute from:'{}' to:'{}'".format(self.file1_name,
-                                                                               self.file2_name)
+            self.message = f"Rename failed to execute from:'{self.file1_name}' to:'{self.file2_name}'"
         else:
             self.message = "Rename failed to execute"
 

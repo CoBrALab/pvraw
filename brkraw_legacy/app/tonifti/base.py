@@ -1,31 +1,38 @@
 from __future__ import annotations
+
 import warnings
-import numpy as np
-from brkraw_legacy import config
-from nibabel.nifti1 import Nifti1Image
-from .header import Header
-from brkraw_legacy.lib.errors import UnexpectedError
-from brkraw_legacy.api.pvobj.base import BaseBufferHandler
-from brkraw_legacy.api.data import Scan
-from xnippet.snippet import PlugInSnippet
 from typing import TYPE_CHECKING
+
+import numpy as np
+from nibabel.nifti1 import Nifti1Image
+from xnippet.snippet import PlugInSnippet
+
+from brkraw_legacy import config
+from brkraw_legacy.api.data import Scan
+from brkraw_legacy.api.helper import axis_labels
+from brkraw_legacy.api.helper.base import collapse_scale, normalized_axes
+from brkraw_legacy.lib.errors import UnexpectedError
+from brkraw_legacy.lib.utils import get_value
+
+from .header import Header
+
 if TYPE_CHECKING:
-    from typing import Optional, Union, Literal
-    from typing import List
+    from typing import Literal
+
     from numpy.typing import NDArray
     from xnippet.types import XnippetManagerType
 
 
-class BaseMethods(BaseBufferHandler):
+class BaseMethods:
     config: XnippetManagerType = config
-    
+
     def set_scale_mode(self, 
-                       scale_mode: Optional[Literal['header', 'apply']] = None):
+                       scale_mode: Literal['header', 'apply'] | None = None):
         self.scale_mode = scale_mode or 'header'
     
     @staticmethod
-    def get_dataobj(scanobj:'Scan',
-                    reco_id:Optional[int] = None,
+    def get_dataobj(scanobj:Scan,
+                    reco_id:int | None = None,
                     scale_correction:bool = False):
         data_dict = BaseMethods.get_data_dict(scanobj, reco_id)
         dataobj = data_dict['data_array']
@@ -69,79 +76,76 @@ class BaseMethods(BaseBufferHandler):
             return dataobj
     
     @staticmethod
-    def get_affine(scanobj:'Scan', reco_id: Optional[int] = None, 
-                   subj_type: Optional[str]=None, 
-                   subj_position: Optional[str]=None):
+    def get_affine(scanobj:Scan, reco_id: int | None = None, 
+                   subj_type: str | None=None, 
+                   subj_position: str | None=None):
         return BaseMethods.get_affine_dict(scanobj, reco_id, 
                                            subj_type, subj_position)['affine']
     
     @staticmethod
-    def _ensure_image_data(pvobj, reco_id: Optional[int] = None):
+    def _ensure_image_data(scanobj: Scan, reco_id: int | None = None):
         """Reject non-image (spectroscopic/temporal) scans before the image pipeline.
 
         A frame is a conventional image only when every VisuCoreDimDesc entry is
         'spatial'. Spectroscopy (PRESS/STEAM/ISIS/NSPECT/CSI/...) and temporal
         data cannot become a NIfTI, and forcing them through the pipeline crashes
-        with opaque errors. VisuCoreDimDesc is read straight from the raw
-        visu_pars because the full analysis itself fails on these scans; raising a
-        clear, catchable error matches the BrukerLoader path.
-
-        ``pvobj`` is any object exposing ``get_visu_pars`` (a raw PvScan, or a
-        scanobj's ``retrieve_pvobj()``).
+        with opaque errors. VisuCoreDimDesc is read straight from visu_pars
+        because the full analysis itself fails on these scans; raising a clear,
+        catchable error matches the BrukerLoader path.
         """
-        dim_desc = pvobj.get_visu_pars(reco_id).get('VisuCoreDimDesc')
-        if isinstance(dim_desc, str):
-            dim_desc = [dim_desc]
-        non_spatial = [d for d in (dim_desc or []) if d != 'spatial']
+        dim_desc = get_value(scanobj.get_visu_pars(reco_id), 'VisuCoreDimDesc')
+        non_spatial = [str(d) for d in np.atleast_1d(dim_desc) if str(d) != 'spatial']
         if non_spatial:
             raise UnexpectedError(
                 'non-image data (contains {}); skipped for NIfTI conversion'
                 ''.format(', '.join(sorted(set(non_spatial)))))
 
     @staticmethod
-    def get_data_dict(scanobj: 'Scan',
-                      reco_id: Optional[int] = None):
-        BaseMethods._ensure_image_data(scanobj.retrieve_pvobj(), reco_id)
-        datarray_analyzer = scanobj.get_datarray_analyzer(reco_id)
-        axis_labels = datarray_analyzer.shape_desc
-        dataarray = datarray_analyzer.get_dataarray()
-        dataarray = BaseMethods._normalize_slice_axis(dataarray, axis_labels)
+    def get_data_dict(scanobj: Scan,
+                      reco_id: int | None = None):
+        """The image array of one reconstruction, with one named axis per Frame Group.
+
+        `brukerapi` returns the array already assembled -- frames folded into
+        their Frame Groups, in the word type the scanner wrote, in the order its
+        affine describes -- and names every axis (ADR 0002). All that is left is
+        to put the slice axis where the affine expects it.
+        """
+        BaseMethods._ensure_image_data(scanobj, reco_id)
+        dataset = scanobj.get_dataset(reco_id, with_data=True)
+        labels = axis_labels(dataset)
+        dataarray = dataset.data
+        if dataarray.ndim > len(labels):
+            # the trailing size-1 placeholder axis of a frame-group-less reco
+            dataarray = dataarray.reshape(dataarray.shape[:len(labels)])
+        dataarray = BaseMethods._normalize_slice_axis(dataarray, labels)
         return {
             'data_array': dataarray,
-            'data_slope': datarray_analyzer.slope,
-            'data_offset': datarray_analyzer.offset,
-            'axis_labels': axis_labels
+            'data_slope': collapse_scale(dataset.slope),
+            'data_offset': collapse_scale(dataset.offset),
+            'axis_labels': labels
         }
 
     @staticmethod
     def _normalize_slice_axis(dataarray: NDArray, axis_labels: list):
-        """Place the slice axis at position k (2) -- the axis the affine's third
-        column addresses -- inserting a size-1 slice axis when the acquisition
-        stores none.
-
-        A 2D acquisition has no FG_SLICE frame group when it is a single slice,
-        so Bruker leaves the slice axis out of the 2dseq entirely. The affine is
-        always 3D, so the data must carry an explicit slice axis: a single slice
-        becomes a conventional 3D volume (X, Y, 1) rather than a 2D image (NIfTI
-        reserves dims 1-3 for x/y/z), and a 2D acquisition whose extra axes are
-        frame groups (echo/movie/IR/...) gets the implicit slice inserted so
-        those frames are not mistaken for slices. Mutates ``axis_labels`` in
-        place and returns the (possibly reshaped) array.
-        """
-        if 'slice' in axis_labels:
-            slice_axis = axis_labels.index('slice')
-            if slice_axis != 2:
-                dataarray = np.swapaxes(dataarray, slice_axis, 2)
-                axis_labels[slice_axis], axis_labels[2] = axis_labels[2], axis_labels[slice_axis]
-        elif axis_labels[:2] == ['spatial', 'spatial'] and axis_labels[2:3] != ['spatial']:
+        """Move the array onto the axis order ``normalized_axes`` describes:
+        the slice axis at position k (2), inserted when the acquisition stores
+        none. Mutates ``axis_labels`` in place and returns the array."""
+        normalized, _ = normalized_axes(axis_labels, dataarray.shape)
+        if len(normalized) > len(axis_labels):
             dataarray = np.expand_dims(dataarray, 2)
-            axis_labels.insert(2, 'slice')
+        elif normalized != axis_labels:
+            dataarray = np.swapaxes(dataarray, axis_labels.index('slice'), 2)
+        axis_labels[:] = normalized
         return dataarray
-    
+
     @staticmethod
-    def get_affine_dict(scanobj: 'Scan', reco_id: Optional[int] = None,
-                        subj_type: Optional[str] = None, 
-                        subj_position: Optional[str] = None):
+    def get_affine_dict(scanobj: Scan, reco_id: int | None = None,
+                        subj_type: str | None = None, 
+                        subj_position: str | None = None):
+        # Geometry is only meaningful for image data; rejecting here (rather
+        # than when the scan is first addressed) keeps parameter reads working
+        # for a spectroscopic scan, which a study listing still has to describe.
+        BaseMethods._ensure_image_data(scanobj, reco_id)
         affine_analyzer = scanobj.get_affine_analyzer(reco_id)
         subj_type = subj_type or affine_analyzer.subj_type
         subj_position = subj_position or affine_analyzer.subj_position
@@ -154,23 +158,23 @@ class BaseMethods(BaseBufferHandler):
         }
         
     @staticmethod
-    def update_nifti1header(scanobj: 'Scan', 
-                            nifti1image: 'Nifti1Image', 
-                            reco_id: Optional[int] = None, 
-                            scale_mode: Optional[Literal['header', 'apply']] = None):
+    def update_nifti1header(scanobj: Scan, 
+                            nifti1image: Nifti1Image, 
+                            reco_id: int | None = None, 
+                            scale_mode: Literal['header', 'apply'] | None = None):
         if reco_id:
             scanobj.set_scaninfo(reco_id)
         scale_mode = scale_mode or 'header'
         return Header(scaninfo=scanobj.info, nifti1image=nifti1image, scale_mode=scale_mode).get()
 
     @staticmethod
-    def get_nifti1image(scanobj: 'Scan', 
-                        reco_id: Optional[int] = None, 
-                        scale_mode: Optional[Literal['header', 'apply']] = None,
-                        subj_type: Optional[str] = None, 
-                        subj_position: Optional[str] = None,
-                        plugin: Optional[Union['PlugInSnippet', str]] = None, 
-                        plugin_kws: Optional[dict] = None) -> Optional[Union['Nifti1Image', List['Nifti1Image']]]:
+    def get_nifti1image(scanobj: Scan, 
+                        reco_id: int | None = None, 
+                        scale_mode: Literal['header', 'apply'] | None = None,
+                        subj_type: str | None = None, 
+                        subj_position: str | None = None,
+                        plugin: PlugInSnippet | str | None = None, 
+                        plugin_kws: dict | None = None) -> Nifti1Image | list[Nifti1Image] | None:
         if plugin:
             if nifti1image := BaseMethods._bypass_method_via_plugin(scanobj=scanobj,
                                                                     subj_type=subj_type, subj_position=subj_position,
@@ -187,11 +191,11 @@ class BaseMethods(BaseBufferHandler):
             dataobj = data_dict['data_array']
             slope, offset = data_dict['data_slope'], data_dict['data_offset']
             # Bake scaling into the data when asked ('apply') or when the factors
-            # are per-frame arrays a scalar NIfTI header cannot hold; the header
-            # then stays at default, matching the BrukerLoader path. Scalar
-            # 'header' scaling is left for update_nifti1header to write.
+            # are per-frame arrays a scalar NIfTI header cannot hold; scalar
+            # 'header' scaling is left for update_nifti1header to write. 'none'
+            # writes the stored values with no scaling at all.
             header_scale_mode = scale_mode
-            if scale_mode == 'apply' or np.ndim(slope) or np.ndim(offset):
+            if scale_mode != 'none' and (scale_mode == 'apply' or np.ndim(slope) or np.ndim(offset)):
                 dataobj = BaseMethods._apply_scale(dataobj, slope, offset)
                 header_scale_mode = 'apply'
             affine = BaseMethods.get_affine(scanobj=scanobj,
@@ -202,11 +206,11 @@ class BaseMethods(BaseBufferHandler):
                                                      axis_labels=data_dict['axis_labels'])
         
     @staticmethod
-    def _bypass_method_via_plugin(scanobj: 'Scan', 
-                                  subj_type: Optional[str] = None, 
-                                  subj_position: Optional[str] = None,
-                                  plugin: Optional[Union['PlugInSnippet', str]] = None, 
-                                  plugin_kws: Optional[dict] = None) -> Optional[Nifti1Image]:
+    def _bypass_method_via_plugin(scanobj: Scan, 
+                                  subj_type: str | None = None, 
+                                  subj_position: str | None = None,
+                                  plugin: PlugInSnippet | str | None = None, 
+                                  plugin_kws: dict | None = None) -> Nifti1Image | None:
         if isinstance(plugin, str):
             plugin = BaseMethods._get_plugin_snippets_by_name(plugin)
         if isinstance(plugin, PlugInSnippet) and 'brkraw' in plugin._manifest['package']:  # TODO: need to have better tool to check version compatibility as well.
@@ -259,11 +263,11 @@ class BaseMethods(BaseBufferHandler):
                 "column in the datasheet for part-labelled outputs.", UserWarning)
 
     @staticmethod
-    def _assemble_nifti1image(scanobj: 'Scan',
+    def _assemble_nifti1image(scanobj: Scan,
                               dataobj: NDArray,
                               affine: NDArray,
-                              scale_mode: Optional[Literal['header', 'apply']] = None,
-                              axis_labels: Optional[list] = None):
+                              scale_mode: Literal['header', 'apply'] | None = None,
+                              axis_labels: list | None = None):
         BaseMethods._warn_if_complex(axis_labels)
         echo_axis = axis_labels.index('echo') if (axis_labels and 'echo' in axis_labels) else None
         if not isinstance(dataobj, list) and echo_axis is not None and dataobj.shape[echo_axis] > 1:

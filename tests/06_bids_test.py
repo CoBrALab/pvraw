@@ -13,7 +13,7 @@ import pytest
 
 from brkraw_legacy.lib import bids
 from brkraw_legacy.lib.errors import InvalidApproach
-
+from brkraw_legacy.scripts.brkraw_legacy import scanMethod
 
 # --------------------------------------------------------------------------- #
 # Unit tests: schema-driven path builder
@@ -21,39 +21,39 @@ from brkraw_legacy.lib.errors import InvalidApproach
 
 def test_entity_order_rec_before_dir():
     """Regression: the old code emitted dir- before rec-, violating the spec."""
-    ents = dict(subject='01', task='t', acquisition='hi', ceagent='gd',
-                reconstruction='x', direction='AP')
+    ents = {'subject': '01', 'task': 't', 'acquisition': 'hi', 'ceagent': 'gd',
+                'reconstruction': 'x', 'direction': 'AP'}
     _, stem = bids.build_path(ents, 'func', 'bold')
     assert stem == 'sub-01_task-t_acq-hi_ce-gd_rec-x_dir-AP_bold'
     assert stem.index('_rec-') < stem.index('_dir-')
 
 
 def test_func_suffix_is_lowercase_bold():
-    rel_dir, stem = bids.build_path(dict(subject='01', task='rest'), 'func', 'bold')
+    rel_dir, stem = bids.build_path({'subject': '01', 'task': 'rest'}, 'func', 'bold')
     assert rel_dir == 'sub-01/func'
     assert stem.endswith('_bold')
 
 
 def test_session_in_path_and_name():
-    rel_dir, stem = bids.build_path(dict(subject='01', session='pre', task='rest'),
+    rel_dir, stem = bids.build_path({'subject': '01', 'session': 'pre', 'task': 'rest'},
                                     'func', 'bold')
     assert rel_dir == 'sub-01/ses-pre/func'
     assert stem.startswith('sub-01_ses-pre_')
 
 
 def test_anat_and_dwi_and_fmap_paths():
-    assert bids.build_path(dict(subject='01'), 'anat', 'T2w') == ('sub-01/anat', 'sub-01_T2w')
-    assert bids.build_path(dict(subject='01'), 'dwi', 'dwi') == ('sub-01/dwi', 'sub-01_dwi')
+    assert bids.build_path({'subject': '01'}, 'anat', 'T2w') == ('sub-01/anat', 'sub-01_T2w')
+    assert bids.build_path({'subject': '01'}, 'dwi', 'dwi') == ('sub-01/dwi', 'sub-01_dwi')
     # bare `magnitude` is valid in the schema (pybids' bundled patterns wrongly reject it)
-    assert bids.build_path(dict(subject='01'), 'fmap', 'magnitude') == ('sub-01/fmap', 'sub-01_magnitude')
-    assert bids.build_path(dict(subject='01'), 'fmap', 'fieldmap') == ('sub-01/fmap', 'sub-01_fieldmap')
+    assert bids.build_path({'subject': '01'}, 'fmap', 'magnitude') == ('sub-01/fmap', 'sub-01_magnitude')
+    assert bids.build_path({'subject': '01'}, 'fmap', 'fieldmap') == ('sub-01/fmap', 'sub-01_fieldmap')
 
 
 def test_invalid_suffix_rejected():
     with pytest.raises(InvalidApproach):
-        bids.build_path(dict(subject='01'), 'func', 'EPI')        # method-derived junk
+        bids.build_path({'subject': '01'}, 'func', 'EPI')        # method-derived junk
     with pytest.raises(InvalidApproach):
-        bids.build_path(dict(subject='01'), 'etc', 'whatever')    # not a BIDS datatype
+        bids.build_path({'subject': '01'}, 'etc', 'whatever')    # not a BIDS datatype
 
 
 def test_default_suffix_mapping():
@@ -67,8 +67,8 @@ def test_default_suffix_mapping():
 
 def test_build_prefix_excludes_run_echo_and_suffix():
     """FileName carries the prefix; run/echo/suffix are appended downstream."""
-    rel_dir, prefix = bids.build_prefix(dict(subject='01', task='rest', run='02', echo='1'),
-                                        'func')
+    _rel_dir, prefix = bids.build_prefix({'subject': '01', 'task': 'rest', 'run': '02', 'echo': '1'},
+                                         'func')
     assert prefix == 'sub-01_task-rest'
     assert 'run-' not in prefix and 'echo-' not in prefix
 
@@ -115,13 +115,14 @@ def _prepare_anat_dataset(pvdir, tmp_path):
     helper converts just it.
     """
     import pandas as pd
+
     from brkraw_legacy import BrukerLoader
 
     # Pick scans that convert to a single 3D image, so each yields one clean
     # anat file rather than a per-slicepack _T2starw-01/-02/... split.
     loader = BrukerLoader(str(pvdir))
     simple = []
-    for sid in loader.pvobj.avail_scan_id:
+    for sid in loader.avail_scan_id:
         try:
             obj = loader.get_niftiobj(sid, 1)
         except Exception:
@@ -150,7 +151,7 @@ def _prepare_anat_dataset(pvdir, tmp_path):
     df['SessID'] = ''
     df['DataType'] = 'anat'
     df['modality'] = 'T2starw'
-    df['acq'] = ['scan{}'.format(i) for i in range(len(df))]
+    df['acq'] = [f'scan{i}' for i in range(len(df))]
     df.to_csv(str(sheet) + '.csv', index=False)
 
     subprocess.check_call(['brkraw-legacy', 'bids_convert', str(sample_parent),
@@ -202,7 +203,7 @@ def test_phase_encoding_direction_is_bids_axis(h2_study, tmp_path):
     for js in out.rglob('*.json'):
         pe = json.loads(js.read_text()).get('PhaseEncodingDirection')
         if pe is not None:
-            assert pe in valid, '{}: {!r}'.format(js.name, pe)
+            assert pe in valid, f'{js.name}: {pe!r}'
             seen += 1
     if not seen:
         pytest.skip('no PhaseEncodingDirection emitted in this sample')
@@ -213,7 +214,7 @@ def test_end_to_end_passes_validator(lego_study, tmp_path):
     out = _prepare_anat_dataset(lego_study, tmp_path)
 
     proc = subprocess.run([_validator_bin(), str(out), '--json'],
-                          capture_output=True, text=True)
+                          capture_output=True, text=True, check=False)
     report = json.loads(proc.stdout or '{}')
     issues = report.get('issues', {})
     items = issues.get('issues', issues) if isinstance(issues, dict) else issues
@@ -222,69 +223,83 @@ def test_end_to_end_passes_validator(lego_study, tmp_path):
         [(e.get('code'), e.get('subCode')) for e in errors])
 
 
+def _two_small_3d_scans(study):
+    """The two smallest scans of `study` that convert to a plain 3-D volume.
+
+    Smallest first, so the sample study built from them stays a few megabytes
+    and the search stops after a couple of conversions.
+    """
+    from brkraw_legacy import BrukerLoader
+
+    by_size = sorted(
+        (sum(f.stat().st_size for f in scan.rglob('*') if f.is_file()), scan.name)
+        for scan in study.iterdir() if (scan / 'pdata').is_dir()
+    )
+    loader = BrukerLoader(str(study))
+    found = []
+    for _, name in by_size:
+        try:
+            obj = loader.get_niftiobj(int(name), 1)
+        except Exception:
+            continue
+        if not isinstance(obj, list) and getattr(obj, 'ndim', 0) == 3:
+            found.append(name)
+            if len(found) == 2:
+                return found
+    pytest.skip('need two small 3-D scans to build the sample study')
+
+
 def test_bids_convert_isolates_failing_scan(h2_study, tmp_path):
     """A scan that raises during conversion must be reported and skipped, not
     abort the whole study's BIDS conversion (mirrors tonii_all's per-scan guard).
-    We classify a genuinely-crashing reconstruction as anat alongside a
-    convertible 3D scan; the good scan must still be written and bids_convert
-    must exit cleanly. Skips when no crashing reconstruction exists.
+
+    The failure is injected rather than looked for. This test used to hunt the
+    sample study for a reconstruction that already crashed, and skipped itself
+    when it found none -- which is what happened once the reading layer was
+    delegated and the crashes were fixed, leaving the guard uncovered. Emptying
+    a ``2dseq`` reproduces the condition on demand: it raises `InvalidDataset`,
+    which is a genuine failure rather than the clean 'non-image data' skip that
+    ``save_as`` handles by design.
     """
     import pandas as pd
 
-    from brkraw_legacy import BrukerLoader
-
-    d = BrukerLoader(str(h2_study))
-    # A reco that crashes (not a clean 'non-image data' skip, which save_as handles).
-    crash = None
-    for sid, recos in d.pvobj.avail_reco_id.items():
-        for rid in recos:
-            try:
-                d.get_niftiobj(sid, rid)
-            except Exception as e:                      # noqa: BLE001
-                if 'non-image data' not in str(e):
-                    crash = (int(sid), int(rid))
-                    break
-        if crash:
-            break
-    if crash is None:
-        pytest.skip('no genuinely-crashing reconstruction to isolate')
-
-    good = None
-    for sid in d.pvobj.avail_scan_id:
-        if sid == crash[0]:
-            continue
-        try:
-            obj = d.get_niftiobj(sid, 1)
-        except Exception:                               # noqa: BLE001
-            continue
-        if not isinstance(obj, list) and getattr(obj, 'ndim', 0) == 3:
-            good = int(sid)
-            break
-    if good is None:
-        pytest.skip('no convertible 3D scan available')
-
+    scans = _two_small_3d_scans(h2_study)
     sample = tmp_path / 'sample'
-    sample.mkdir()
-    (sample / h2_study.name).symlink_to(h2_study.resolve())
+    study = sample / h2_study.name
+    study.mkdir(parents=True)
+    shutil.copy(h2_study / 'subject', study)
+    for name in scans:
+        shutil.copytree(h2_study / name, study / name)
+
     sheet = tmp_path / 'map'
     out = tmp_path / 'raw'
     subprocess.check_call(['brkraw-legacy', 'bids_helper', str(sample), str(sheet), '-j'])
+
     df = pd.read_csv(str(sheet) + '.csv')
-    keep = df[((df['ScanID'] == crash[0]) & (df['RecoID'] == crash[1]))
-              | ((df['ScanID'] == good) & (df['RecoID'] == 1))].copy()
-    keep['SubjID'] = '001'
-    keep['SessID'] = ''
-    keep['DataType'] = 'anat'
-    keep['modality'] = 'T2starw'
-    keep['acq'] = ['scan{}'.format(i) for i in range(len(keep))]
-    keep.to_csv(str(sheet) + '.csv', index=False)
+    df = df[df['RecoID'] == 1].copy()
+    df['SubjID'] = '001'
+    df['SessID'] = ''
+    df['DataType'] = 'anat'
+    df['modality'] = 'T2starw'
+    df['acq'] = [f'scan{scan}' for scan in df['ScanID']]
+    df.to_csv(str(sheet) + '.csv', index=False)
+
+    doomed, spared = int(df['ScanID'].iloc[0]), int(df['ScanID'].iloc[1])
+    (study / str(doomed) / 'pdata' / '1' / '2dseq').write_bytes(b'')
 
     # Must not raise: the crashing scan is reported and skipped, not fatal.
-    subprocess.check_call(['brkraw-legacy', 'bids_convert', str(sample),
-                           str(sheet) + '.csv', '-j', str(sheet) + '.json',
-                           '--output', str(out)])
-    assert list(out.rglob('sub-001/anat/*_T2starw.nii.gz')), \
-        'the convertible scan should still produce output'
+    result = subprocess.run(['brkraw-legacy', 'bids_convert', str(sample),
+                             str(sheet) + '.csv', '-j', str(sheet) + '.json',
+                             '--output', str(out)],
+                            check=True, capture_output=True, text=True)
+
+    assert f'ScanID:{doomed}' in result.stdout, \
+        f'the failing scan must be reported, not silently dropped:\n{result.stdout}'
+    written = [p.name for p in out.rglob('sub-001/anat/*_T2starw.nii.gz')]
+    assert f'sub-001_acq-scan{spared}_T2starw.nii.gz' in written, \
+        f'the convertible scan should still produce output, got {written}'
+    assert not any(f'scan{doomed}_' in name for name in written), \
+        f'the failing scan must not produce output, got {written}'
 
 
 def test_method_less_scan_does_not_crash(h2_study, tmp_path):
@@ -314,7 +329,7 @@ def test_method_less_scan_does_not_crash(h2_study, tmp_path):
         except Exception:
             return False
 
-    scans = sorted((s for s in d.pvobj.avail_scan_id if _listable(s)), key=_scan_size)
+    scans = sorted((s for s in d.avail_scan_id if _listable(s)), key=_scan_size)
     if len(scans) < 2:
         pytest.skip('need two classifiable image scans with method files')
     full, methodless = scans[0], scans[1]
@@ -328,8 +343,8 @@ def test_method_less_scan_does_not_crash(h2_study, tmp_path):
 
     # sanity: the scan is registered (has reco data) but has no method entry
     d2 = BrukerLoader(str(study))
-    assert methodless in d2.pvobj.avail_scan_id
-    assert methodless not in d2.pvobj._method
+    assert methodless in d2.avail_scan_id
+    assert scanMethod(d2, methodless) is None
 
     parent = tmp_path / 'parent'
     parent.mkdir()
@@ -357,7 +372,7 @@ def test_software_versions_sidecar_is_string(lego_study, tmp_path):
     from brkraw_legacy import BrukerLoader
 
     d = BrukerLoader(str(lego_study))
-    for sid in d.pvobj.avail_scan_id:
+    for sid in d.avail_scan_id:
         d.save_json(sid, 1, 'sc', dir=str(tmp_path),
                     metadata={'SoftwareVersions': 'VisuAcqRepetitionTime'})
         obj = json.loads((tmp_path / 'sc.json').read_text())
@@ -387,13 +402,13 @@ def test_asl_scans_not_auto_classified(lego_study, tmp_path):
     loader = BrukerLoader(str(lego_study))
     asl = [s for s in df['ScanID'].unique()
            if re.search(r'FAIR|ASL|perfusion',
-                        str(loader.get_method(int(s)).parameters.get('Method', '')),
+                        str(scanMethod(loader, int(s)) or ''),
                         re.IGNORECASE)]
     assert asl, 'expected FAIR/CASL scans in the lego phantom'
     for s in asl:
         assigned = set(df[df['ScanID'] == s]['DataType'])
         assert assigned == {'etc'}, \
-            'ASL scan {} classified as {}, expected etc'.format(s, assigned)
+            f'ASL scan {s} classified as {assigned}, expected etc'
 
 
 def test_multiecho_gets_echo_entity(lego_study, tmp_path):
@@ -409,7 +424,7 @@ def test_multiecho_gets_echo_entity(lego_study, tmp_path):
     from brkraw_legacy.lib.utils import build_bids_json
 
     d = BrukerLoader(str(lego_study))
-    scan = next((s for s in d.pvobj.avail_scan_id if d.is_multi_echo(s, 1)), None)
+    scan = next((s for s in d.avail_scan_id if d.is_multi_echo(s, 1)), None)
     if scan is None:
         pytest.skip('no multi-echo scan in sample')
     n_echo = d.is_multi_echo(scan, 1)
@@ -418,7 +433,7 @@ def test_multiecho_gets_echo_entity(lego_study, tmp_path):
                                 Dir=str(tmp_path), FileName='sub-001', run=None)
     build_bids_json(d, row, 'sub-001', None)
     niis = sorted(p.name for p in tmp_path.glob('*.nii.gz'))
-    assert niis == ['sub-001_echo-{}_T2starw.nii.gz'.format(i + 1) for i in range(n_echo)]
+    assert niis == [f'sub-001_echo-{i + 1}_T2starw.nii.gz' for i in range(n_echo)]
 
 
 def test_derived_reconstructions_not_auto_classified(h2_study, tmp_path):
@@ -440,12 +455,11 @@ def test_derived_reconstructions_not_auto_classified(h2_study, tmp_path):
     d = BrukerLoader(str(h2_study))
     n_derived = 0
     for _, row in df.iterrows():
-        gid = d._get_frame_group_info(
-            d._get_visu_pars(int(row.ScanID), int(row.RecoID)))['group_id']
-        if any(g in ('FG_ISA', 'FG_DTI') for g in gid):
+        groups = [name for name, _ in d.get_frame_groups(int(row.ScanID), int(row.RecoID))]
+        if any(g in ('isa', 'dti') for g in groups):
             n_derived += 1
             assert row.DataType == 'etc', \
-                'derived reco {}/{} classified as {}'.format(row.ScanID, row.RecoID, row.DataType)
+                f'derived reco {row.ScanID}/{row.RecoID} classified as {row.DataType}'
     assert n_derived, 'expected at least one derived (FG_ISA/FG_DTI) reconstruction'
 
 
@@ -466,13 +480,13 @@ def test_multislicepack_uses_chunk_entity(h2_study, tmp_path):
                            '--output', str(out)])
     niis = list(out.rglob('*.nii.gz'))
     bad = [p.name for p in niis if re.search(r'-\d{2}\.nii\.gz$', p.name)]
-    assert not bad, 'invalid -NN split filenames: {}'.format(bad)
+    assert not bad, f'invalid -NN split filenames: {bad}'
     chunked = [p for p in niis if '_chunk-' in p.name]
     assert chunked, 'expected chunk- split outputs (0.2H2 fieldmap)'
     for p in chunked:
         if '_magnitude' not in p.name:   # magnitude needs no sidecar
             assert p.with_name(p.name.replace('.nii.gz', '.json')).exists(), \
-                'orphaned/missing sidecar for {}'.format(p.name)
+                f'orphaned/missing sidecar for {p.name}'
 
 
 def test_single_echo_msme_is_t2w_not_mese(h2_study, tmp_path):
@@ -489,7 +503,7 @@ def test_single_echo_msme_is_t2w_not_mese(h2_study, tmp_path):
     from brkraw_legacy.scripts.brkraw_legacy import is_localizer
 
     d = BrukerLoader(str(h2_study))
-    scan = next((s for s in d.pvobj.avail_scan_id
+    scan = next((s for s in d.avail_scan_id
                  if (h2_study / str(s) / 'method').is_file()
                  and not d.is_multi_echo(s, 1)
                  and d._get_dim_info(d._get_visu_pars(s, 1))[1] == 'spatial_only'
@@ -526,12 +540,12 @@ def test_dwi_bval_tiled_to_volume_count(h2_study, tmp_path):
     from brkraw_legacy import BrukerLoader
 
     d = BrukerLoader(str(h2_study))
-    scan = next((s for s in d.pvobj.avail_scan_id
-                 if s in d._pvobj._method
-                 and 'PVM_DwEffBval' in d.get_method(s).parameters), None)
+    scan = next((s for s in d.avail_scan_id
+                 if d.get_method(s) is not None
+                 and 'PVM_DwEffBval' in d.get_method(s)), None)
     if scan is None:
         pytest.skip('no diffusion scan in sample')
-    bvals0, _ = d._get_bdata(d._method[scan])
+    bvals0, _ = d._get_bdata(d.get_method(scan))
     n = len(np.atleast_1d(bvals0))
     d.save_bdata(scan, 'sc', dir=str(tmp_path), reco_id=1, num_volumes=3 * n)
     bval = tmp_path.joinpath('sc.bval').read_text().split()

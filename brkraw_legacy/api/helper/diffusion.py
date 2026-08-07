@@ -1,40 +1,42 @@
 from __future__ import annotations
-import numpy as np
+
 from typing import TYPE_CHECKING
+
+import numpy as np
+
+from brkraw_legacy.lib.utils import get_value
+
 from .base import BaseHelper
+
 if TYPE_CHECKING:
     from ..analyzer import ScanInfoAnalyzer
 
 
 class Diffusion(BaseHelper):
-    """requires method to parse parameter related to the Diffusion Imaging 
+    """Diffusion b-values and gradient directions, read from the scan's ``method``.
 
     Dependencies:
-        acqp
-        visu_pars
-
-    Args:
-        BaseHelper (_type_): _description_
+        method
     """
-    def __init__(self, analobj: 'ScanInfoAnalyzer'):
+    def __init__(self, analobj: ScanInfoAnalyzer):
         super().__init__()
         method = analobj.method
-        
+
         self.bvals = None
         self.bvecs = None
         if method:
             self._set_params(method)
         else:
             self._warn("Failed to fetch 'bvals' and 'bvecs' information because the 'method' file is missing from 'analobj'.")
-    
+
     def _set_params(self, method):
-        bvals = method.get('PVM_DwEffBval')
-        bvecs = method.get('PVM_DwGradVec')
+        bvals = get_value(method, 'PVM_DwEffBval')
+        bvecs = get_value(method, 'PVM_DwGradVec')
         if bvals is not None:
             self.bvals = np.array([bvals]) if np.size(bvals) < 2 else np.array(bvals)
         if bvecs is not None:
-            self.bvecs = self._L2_norm(bvecs.T)
-    
+            self.bvecs = self._L2_norm(np.asarray(bvecs).T)
+
     @staticmethod
     def _L2_norm(bvecs):
         # Normalize bvecs

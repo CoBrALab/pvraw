@@ -1,121 +1,74 @@
 from __future__ import annotations
-import contextlib
+
 from typing import TYPE_CHECKING
-from .base import BaseHelper, is_all_element_same
-from .frame_group import FrameGroup
-from .image import Image
+
+from brkraw_legacy.lib.utils import get_value
+
+from .base import BaseHelper
+
 if TYPE_CHECKING:
     from ..analyzer import ScanInfoAnalyzer
 
+
 class SlicePack(BaseHelper):
-    """
+    """How a reconstruction's slices are grouped, and how far apart they are.
+
+    Slice packages are geometry: more than one means the reconstruction holds
+    several distinct orientations and cannot be a single NIfTI, and each pack's
+    slice count and distance set the third column of its affine.
+
     Dependencies:
-        FrameGroup
-        Image
+        dataset
         method
         visu_pars
-
-    Args:
-        BaseHelper (_type_): _description_
     """
-    def __init__(self, analobj: 'ScanInfoAnalyzer'):
+    def __init__(self, analobj: ScanInfoAnalyzer):
         super().__init__()
         method = analobj.method
         visu_pars = analobj.visu_pars
-        
-        fg_info = analobj.get("info_frame_group") or FrameGroup(analobj).get_info()
-        img_info = analobj.get("info_image") or Image(analobj).get_info()
-        if fg_info['type'] is None:
-            num_slice_packs = 1
-            num_slices_each_pack = [visu_pars.get("VisuCoreFrameCount")]
-            slice_distances_each_pack = [visu_pars.get("VisuCoreFrameThickness")] \
-                if img_info['dim'] > 1 else []
-        else:
-            if visu_pars["VisuVersion"] == 1:
-                parser = self._parse_legacy
-            else:
-                parser = self._parse_6to360
-            
-            num_slice_packs, num_slices_each_pack, slice_distances_each_pack = parser(visu_pars, fg_info)
-            if len(slice_distances_each_pack):
-                for i, d in enumerate(slice_distances_each_pack):
-                    if d == 0:
-                        slice_distances_each_pack[i] = visu_pars["VisuCoreFrameThickness"]
-            if not len(num_slices_each_pack):
-                num_slices_each_pack = [1]
-    
-        self.num_slice_packs = num_slice_packs
-        self.num_slices_each_pack = num_slices_each_pack
-        # One distance per pack, as a scalar: a derived reconstruction whose
-        # frames are a non-spatial group (e.g. an ISA parametric map such as an
-        # MGE T2* map) can store VisuCoreFrameThickness per frame, which would
-        # otherwise leave a ragged (x, y, z) resolution and crash affine
-        # composition. Collapse any per-frame list to the single slice thickness.
-        self.slice_distances_each_pack = [
-            d[0] if isinstance(d, (list, tuple)) else d
-            for d in slice_distances_each_pack
-        ]
-        self.slice_order_scheme = method.get("PVM_ObjOrderScheme")
-        
-        disk_slice_order = visu_pars.get("VisuCoreDiskSliceOrder") or 'normal'
-        self.is_reverse = 'reverse' in disk_slice_order
-        if visu_pars["VisuVersion"] not in (1, 3, 4, 5):
-            self._warn(f'Parameters with current Visu Version has not been tested: v{visu_pars["VisuVersion"]}')
-                    
-    def _parse_legacy(self, visu_pars, fg_info):
-        """
-        Parses slice description for legacy cases, PV version < 6.
-        This function calculates the number of slice packs, the number of slices in each pack,
-        and the slice distances for legacy cases.
-        """
-        num_slice_packs = 1
-        with contextlib.suppress(AttributeError):
-            phase_enc_dir = visu_pars["VisuAcqImagePhaseEncDir"]
-            phase_enc_dir = [phase_enc_dir[0]] if is_all_element_same(phase_enc_dir) else phase_enc_dir
-            num_slice_packs = len(phase_enc_dir)
 
-        shape = fg_info['shape']
-        num_slices_each_pack = []
-        with contextlib.suppress(ValueError):
-            slice_fid = fg_info['id'].index('FG_SLICE')
-            if num_slice_packs > 1:
-                num_slices_each_pack = [int(shape[slice_fid]/num_slice_packs) for _ in range(num_slice_packs)]
-            else:
-                num_slices_each_pack = [shape[slice_fid]]
-        slice_distances_each_pack = [visu_pars["VisuCoreFrameThickness"] for _ in range(num_slice_packs)]
-        return num_slice_packs, num_slices_each_pack, slice_distances_each_pack
-    
-    def _parse_6to360(self, visu_pars, fg_info):
+        # How the frames divide into packages is `brukerapi`'s to say (ADR 0002,
+        # amended): it reads VisuCoreSlicePacksSlices where ParaVision writes it
+        # and derives the division where it does not -- PV5.1 never writes it,
+        # and deriving it from the per-slice phase-encoding directions instead
+        # split a 3x5 tripilot into fifteen single-slice packages.
+        packages = analobj.dataset.slice_packages_index() or [(0, None)]
+        self.num_slice_packs = len(packages)
+        self.num_slices_each_pack = [
+            count if count is not None else get_value(visu_pars, "VisuCoreFrameCount")
+            for _, count in packages
+        ]
+
+        # One distance per pack, from `brukerapi` (ADR 0002): the step its
+        # affine places the voxels with. VisuCoreFrameThickness is not that --
+        # for a 3D acquisition it is the *slab* thickness, which reported 12 mm
+        # for a 0.125 mm isotropic volume. That is what this used to read, and
+        # 214 of the 1739 reconstructions in resources/testdata disagreed with
+        # their own affine because of it; upstream exposes the number since
+        # 0.4.3 (isi-nmr/brukerapi-python#177).
+        self.slice_distances_each_pack = self._pack_distances(analobj.dataset, visu_pars)
+
+        self.slice_order_scheme = get_value(method, "PVM_ObjOrderScheme") if method else None
+        disk_slice_order = get_value(visu_pars, "VisuCoreDiskSliceOrder") or 'normal'
+        self.is_reverse = 'reverse' in str(disk_slice_order)
+
+    def _pack_distances(self, dataset, visu_pars):
+        """Centre-to-centre slice step of each pack, in mm.
+
+        A reconstruction whose frames are not spatial has no affine, and
+        ``slice_distance`` says so rather than inventing one. There the
+        parameters are all there is -- collapsing any per-frame
+        VisuCoreFrameThickness (an ISA parametric map such as an MGE T2* map
+        stores one per frame) to a scalar so the resolution is not ragged.
         """
-        Parses slice description for cases with PV version 6 to 360 slices.
-        This function calculates the number of slice packs, the number of slices in each pack,
-        and the slice distances for cases with 6 to 360 slices.
-        """
-        slice_packs_def = visu_pars.get("VisuCoreSlicePacksDef")
-        num_slice_packs = slice_packs_def[0][1] if slice_packs_def else 1
-        slices_desc_in_pack = visu_pars.get("VisuCoreSlicePacksSlices")
-        slice_distance = visu_pars.get("VisuCoreSlicePacksSliceDist")
-        slice_fg = [fg for fg in fg_info['id'] if 'slice' in fg.lower()]
-        
-        slice_distances_each_pack = []
-        if len(slice_fg):
-            if slices_desc_in_pack:
-                # VisuCoreSlicePacksSlices holds [first_slice_index, count] per
-                # pack; read each pack's own count so unequal packs (e.g. a
-                # [5, 3, 5] scout) are not flattened to the first pack's count.
-                num_slices_each_pack = [slices_desc_in_pack[p][1] for p in range(num_slice_packs)]
-            else:
-                num_slices_each_pack = [1]
-            if isinstance(slice_distance, list):
-                slice_distances_each_pack.extend([slice_distance[0] for _ in range(num_slice_packs)])
-            elif isinstance(slice_distance, (int, float)):
-                slice_distances_each_pack.extend([slice_distance for _ in range(num_slice_packs)])
-            else:
-                self._warn("Not supported data type for Slice Distance")
-        else:
-            num_slices_each_pack = [1]
-            slice_distances_each_pack = [visu_pars["VisuCoreFrameThickness"]]
-        return num_slice_packs, num_slices_each_pack, slice_distances_each_pack
+        try:
+            return [float(distance) for distance in dataset.slice_distance]
+        except Exception:
+            distance = get_value(visu_pars, "VisuCoreSlicePacksSliceDist")
+            if distance is None:
+                distance = get_value(visu_pars, "VisuCoreFrameThickness")
+            distance = distance[0] if hasattr(distance, '__len__') and len(distance) else distance
+            return [distance] * self.num_slice_packs
 
     def get_info(self):
         return {
@@ -126,4 +79,4 @@ class SlicePack(BaseHelper):
             'slice_order_scheme': self.slice_order_scheme,
             'reverse_slice_order': self.is_reverse,
             'warns': self.warns
-        }       
+        }

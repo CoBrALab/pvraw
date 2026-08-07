@@ -1,79 +1,79 @@
 """Docstring for public module D100, D200."""
 from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
 from brkraw_legacy.api.data import Study
+
 from .base import BaseMethods
 from .scan import ScanToNifti
-from typing import TYPE_CHECKING
+
 if TYPE_CHECKING:
-    from typing import Optional, Literal, Union
     from pathlib import Path
-    from brkraw_legacy.api import PlugInSnippet
+    from typing import Literal
+
     from nibabel.nifti1 import Nifti1Header
+
+    from brkraw_legacy.api import PlugInSnippet
 
 
 class StudyToNifti(Study, BaseMethods):
     """public class docstring."""
-    def __init__(self, path:'Path',
-                 scale_mode: Optional[Literal['header', 'apply']] = None):
+    def __init__(self, path:Path,
+                 scale_mode: Literal['header', 'apply'] | None = None):
         super().__init__(path)
         self.set_scale_mode(scale_mode)
         self._cache = {}
     
     def get_scan(self, scan_id: int,
-                 reco_id: Optional[int] = None):
-        if scan_id not in self._cache.keys():
-            # PvStudy.get_scan gives the raw pvscan without triggering the full
-            # analysis (which itself crashes on spectroscopic scans). Reject
-            # non-image data here, before that analysis runs.
-            pvscan = super(Study, self).get_scan(scan_id)
-            BaseMethods._ensure_image_data(pvscan, reco_id)
-            self._cache[scan_id] = ScanToNifti(pvobj=pvscan,
-                                               reco_id=reco_id,
-                                               study_address=id(self))
+                 reco_id: int | None = None):
+        if scan_id not in self._cache:
+            self._cache[scan_id] = ScanToNifti(pvobj=self.get_pvscan(scan_id),
+                                               reco_id=reco_id)
         return self._cache[scan_id]
-    
-    def get_scan_pvobj(self, scan_id: int, 
-                       reco_id: Optional[int] = None):
-        return super().get_scan(scan_id=scan_id, 
-                                reco_id=reco_id).retrieve_pvobj()
-    
+
+    def get_scan_pvobj(self, scan_id: int):
+        """The `brukerapi` Experiment behind one scan."""
+        return self.get_pvscan(scan_id)
+
+
     def get_scan_analyzer(self, 
                           scan_id: int, 
-                          reco_id: Optional[int] = None):
+                          reco_id: int | None = None):
         return self.get_scan(scan_id).get_scaninfo(reco_id=reco_id, 
                                                    get_analyzer=True)
     
     def get_affine(self, 
                    scan_id: int, 
-                   reco_id: Optional[int] = None, 
-                   subj_type: Optional[str] = None, 
-                   subj_position: Optional[str] = None):
+                   reco_id: int | None = None, 
+                   subj_type: str | None = None, 
+                   subj_position: str | None = None):
         scanobj = self.get_scan(scan_id, reco_id)
         return super().get_affine(scanobj=scanobj, 
                                   reco_id=reco_id, 
                                   subj_type=subj_type, 
                                   subj_position=subj_position)
     
-    def get_dataobj(self, scan_id: int, reco_id: Optional[int] = None, 
-                    scale_mode: Optional[Literal['header', 'apply']] = None):
+    def get_dataobj(self, scan_id: int, reco_id: int | None = None, 
+                    scale_mode: Literal['header', 'apply'] | None = None):
         scale_mode = scale_mode or self.scale_mode
-        scale_correction = False if not scale_mode or scale_mode == 'header' else True
+        scale_correction = not (not scale_mode or scale_mode == 'header')
         scanobj = self.get_scan(scan_id, reco_id)
         return super().get_dataobj(scanobj=scanobj, 
                                    reco_id=reco_id, 
                                    scale_correction=scale_correction)
     
     def get_data_dict(self, scan_id: int, 
-                      reco_id: Optional[int] = None):
+                      reco_id: int | None = None):
         scanobj = self.get_scan(scan_id, reco_id)
         return super().get_data_dict(scanobj=scanobj,
                                      reco_id=reco_id)
 
     def get_affine_dict(self, 
                         scan_id: int, 
-                        reco_id: Optional[int] = None, 
-                        subj_type: Optional[str] = None, 
-                        subj_position: Optional[str] = None):
+                        reco_id: int | None = None, 
+                        subj_type: str | None = None, 
+                        subj_position: str | None = None):
         scanobj = self.get_scan(scan_id=scan_id, 
                                 reco_id=reco_id)
         return super().get_affine_dict(scanobj=scanobj,
@@ -82,10 +82,10 @@ class StudyToNifti(Study, BaseMethods):
                                        subj_position=subj_position)
 
     def update_nifti1header(self,
-                            nifti1image: 'Nifti1Header',
+                            nifti1image: Nifti1Header,
                             scan_id: int, 
-                            reco_id: Optional[int] = None, 
-                            scale_mode: Optional[Literal['header', 'apply']] = None):
+                            reco_id: int | None = None, 
+                            scale_mode: Literal['header', 'apply'] | None = None):
         scale_mode = scale_mode or self.scale_mode
         scanobj = self.get_scan(scan_id=scan_id, 
                                 reco_id=reco_id)
@@ -95,12 +95,12 @@ class StudyToNifti(Study, BaseMethods):
 
     def get_nifti1image(self, 
                         scan_id: int, 
-                        reco_id: Optional[int] = None, 
-                        scale_mode: Optional[Literal['header', 'apply']] = None,
-                        subj_type: Optional[str] = None, 
-                        subj_position: Optional[str] = None,
-                        plugin: Optional[Union['PlugInSnippet', str]] = None, 
-                        plugin_kws: dict = None):
+                        reco_id: int | None = None, 
+                        scale_mode: Literal['header', 'apply'] | None = None,
+                        subj_type: str | None = None, 
+                        subj_position: str | None = None,
+                        plugin: PlugInSnippet | str | None = None, 
+                        plugin_kws: dict | None = None):
         scale_mode = scale_mode or self.scale_mode
         scanobj = self.get_scan(scan_id=scan_id,
                                 reco_id=reco_id)
@@ -129,5 +129,5 @@ class StudyToNifti(Study, BaseMethods):
         
         for scan_id, value in scans.items():
             print(f"[{str(scan_id).zfill(max_size)}]\t{value['method']}::{value['protocol']}")
-            if 'recos' in value and value['recos']:
+            if value.get('recos'):
                 print('\tRECO:', list(value['recos'].keys()))

@@ -11,12 +11,16 @@ import numpy as np
 import pytest
 
 from brkraw_legacy.lib.reference import COMMON_META_REF, FMRI_META_REF
-from brkraw_legacy.lib.utils import meta_get_value, meta_check_express, func_volume_tr
+from brkraw_legacy.lib.utils import func_volume_tr, meta_check_express, meta_get_value
 
 
-def _p(**params):
-    """A stub acqp/method/visu_pars carrying a .parameters dict."""
-    return SimpleNamespace(parameters=dict(params))
+class _p(dict):
+    """A stub acqp/method/visu_pars: a JCAMPDX's read accessors over a dict."""
+    def __init__(self, **params):
+        super().__init__(params)
+
+    def get_parameter(self, key):
+        return SimpleNamespace(value=self[key], nested=[self[key]], val_str='')
 
 
 def _resolve(field, acqp=None, method=None, visu=None):
@@ -202,7 +206,7 @@ def test_func_volume_tr_is_scantime_over_volumes():
     """func RepetitionTime is the volume-to-volume wall-clock time (ScanTime/nvol),
     which exceeds the sequence VisuAcqRepetitionTime for multi-shot/averaged EPI."""
     def _dset(scan_time):
-        vp = SimpleNamespace(parameters={'VisuAcqScanTime': scan_time})
+        vp = _p(VisuAcqScanTime=scan_time)
         return SimpleNamespace(get_visu_pars=lambda s, r: vp)
 
     func = SimpleNamespace(DataType='func', ScanID=1, RecoID=1)

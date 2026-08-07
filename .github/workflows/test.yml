@@ -35,8 +35,15 @@ jobs:
     - name: Install uv
       uses: astral-sh/setup-uv@v5
 
+    # Install the built wheel the way a user would -- this job exists to check
+    # that the package installs and puts a working entry point on PATH -- but
+    # with every dependency pinned to uv.lock, so an unrelated upstream release
+    # cannot break it. `--locked` fails if uv.lock is stale for pyproject.toml.
     - name: Install package
-      run: uv pip install . --system
+      run: |
+        uv export --locked --no-dev --no-emit-project -o "${{ runner.temp }}/requirements.txt"
+        uv pip install --system -r "${{ runner.temp }}/requirements.txt"
+        uv pip install --system --no-deps .
 
     - name: Version and help
       run: |
@@ -68,10 +75,10 @@ jobs:
       uses: astral-sh/setup-uv@v5
 
     - name: Install dependencies
-      run: uv pip install .[dev] --system
+      run: uv sync --locked --extra dev --python ${{ matrix.python-version }}
 
     - name: Run unit tests (no network data)
-      run: pytest -m "not data"
+      run: uv run --no-sync pytest -m "not data"
 
 
   test_data:
@@ -93,7 +100,7 @@ jobs:
       uses: astral-sh/setup-uv@v5
 
     - name: Install dependencies
-      run: uv pip install .[dev] --system
+      run: uv sync --locked --extra dev --python 3.13
 
     - name: Cache sample datasets
       uses: actions/cache@v4
@@ -104,4 +111,4 @@ jobs:
     - name: Run data-dependent tests
       env:
         BRKRAW_TEST_DATA_DIR: ${{ runner.temp }}/brkraw_test_data
-      run: pytest -m data
+      run: uv run --no-sync pytest -m data

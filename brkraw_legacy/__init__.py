@@ -1,8 +1,8 @@
-from .lib import BrukerLoader
-from xnippet import XnippetManager
-from xnippet import setup_logging
+from xnippet import XnippetManager, setup_logging
 
-__version__ = '0.4.0'
+from .lib import BrukerLoader
+
+__version__ = '0.5.0'
 config = XnippetManager(package_name=__package__, 
                         package_version=__version__,
                         package__file__=__file__,

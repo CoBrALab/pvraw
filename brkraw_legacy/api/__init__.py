@@ -1,6 +1,7 @@
-from xnippet.snippet.plugin import PlugIn as PlugInSnippet
 from xnippet.formatter import PathFormatter
-from .data import Study as StudyData
-from .data import Scan as ScanData
+from xnippet.snippet.plugin import PlugIn as PlugInSnippet
 
-__all__ = ['PlugInSnippet', 'PathFormatter', 'StudyData', 'ScanData']
+from .data import Scan as ScanData
+from .data import Study as StudyData
+
+__all__ = ['PathFormatter', 'PlugInSnippet', 'ScanData', 'StudyData']

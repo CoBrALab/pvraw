@@ -26,7 +26,7 @@ from urllib.request import urlopen
 import pytest
 
 from brkraw_legacy import setup_logging
-from brkraw_legacy.api.pvobj import PvStudy
+from brkraw_legacy.api.data import Study
 
 
 def pytest_configure(config):
@@ -56,7 +56,7 @@ def _data_dir():
 
 
 def _find_study_root(top):
-    """The directory holding a Bruker ``subject`` file (a PvStudy root)."""
+    """The directory holding a Bruker ``subject`` file (a study root)."""
     if (top / 'subject').is_file():
         return top
     for sub in sorted(top.rglob('subject')):
@@ -66,13 +66,13 @@ def _find_study_root(top):
 
 
 def _fetch_zenodo_study(record_id, filename):
-    """Download+extract a Zenodo zip once; return the PvStudy root, or None."""
-    dest = _data_dir() / 'zenodo-{}'.format(record_id)
+    """Download+extract a Zenodo zip once; return the study root, or None."""
+    dest = _data_dir() / f'zenodo-{record_id}'
     if dest.exists():
         return _find_study_root(dest)
     tmp_zip = _data_dir() / filename
-    tmp_dir = _data_dir() / 'zenodo-{}.partial'.format(record_id)
-    url = 'https://zenodo.org/records/{}/files/{}?download=1'.format(record_id, filename)
+    tmp_dir = _data_dir() / f'zenodo-{record_id}.partial'
+    url = f'https://zenodo.org/records/{record_id}/files/{filename}?download=1'
     try:
         with urlopen(url, timeout=60) as resp, open(tmp_zip, 'wb') as fh:
             shutil.copyfileobj(resp, fh)
@@ -161,4 +161,4 @@ def pv360_root():
 def dataset(h2_study, lego_study, pv7_study):
     """Proper multi-scan studies keyed by index (0.2H2 PV5.1, lego_phantom PV6.0.1,
     LEGO_PHANTOM_API_TEST PV7.0.0)."""
-    return {0: PvStudy(h2_study), 1: PvStudy(lego_study), 2: PvStudy(pv7_study)}
+    return {0: Study(h2_study), 1: Study(lego_study), 2: Study(pv7_study)}

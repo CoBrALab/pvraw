@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Schema-driven BIDS path and suffix construction.
 
 This module replaces the hand-rolled filename/entity-ordering logic that used to
@@ -27,19 +26,19 @@ ENTITY_ORDER = list(_SCHEMA.rules.entities)
 ENTITY_KEY = {name: ent.name for name, ent in _SCHEMA.objects.entities.items()}
 
 #: Datasheet column name -> BIDS long entity name.
-COLUMN_TO_ENTITY = dict(
-    task='task',
-    acq='acquisition',
-    ce='ceagent',
-    rec='reconstruction',
-    dir='direction',
-    run='run',
-    inv='inversion',
-    flip='flip',
-    mt='mtransfer',
-    part='part',
-    echo='echo',
-)
+COLUMN_TO_ENTITY = {
+    'task': 'task',
+    'acq': 'acquisition',
+    'ce': 'ceagent',
+    'rec': 'reconstruction',
+    'dir': 'direction',
+    'run': 'run',
+    'inv': 'inversion',
+    'flip': 'flip',
+    'mt': 'mtransfer',
+    'part': 'part',
+    'echo': 'echo',
+}
 
 #: Datatypes BrkRaw-legacy emits into the validated BIDS tree.
 DATATYPES = ('anat', 'func', 'dwi', 'fmap')
@@ -81,12 +80,12 @@ def validate_suffix(datatype, suffix):
     """Raise ``InvalidApproach`` unless ``suffix`` is valid for ``datatype``."""
     if datatype not in DATATYPES:
         raise InvalidApproach(
-            "'{}' is not a BIDS datatype handled by BrkRaw-legacy {}.".format(datatype, DATATYPES))
+            f"'{datatype}' is not a BIDS datatype handled by BrkRaw-legacy {DATATYPES}.")
     valid = suffixes_for(datatype)
     if suffix not in valid:
         raise InvalidApproach(
-            "'{}' is not a valid BIDS suffix for datatype '{}'. "
-            "Valid suffixes: {}.".format(suffix, datatype, sorted(valid)))
+            f"'{suffix}' is not a valid BIDS suffix for datatype '{datatype}'. "
+            f"Valid suffixes: {sorted(valid)}.")
     return True
 
 
@@ -102,7 +101,7 @@ def build_stem(entities, suffix):
         val = entities.get(name)
         if val is None or val == '':
             continue
-        parts.append('{}-{}'.format(ENTITY_KEY[name], val))
+        parts.append(f'{ENTITY_KEY[name]}-{val}')
     parts.append(suffix)
     return '_'.join(parts)
 
@@ -128,11 +127,11 @@ def build_prefix(entities, datatype):
         val = trimmed.get(name)
         if val is None or val == '':
             continue
-        parts.append('{}-{}'.format(ENTITY_KEY[name], val))
+        parts.append(f'{ENTITY_KEY[name]}-{val}')
 
-    rel_parts = ['sub-{}'.format(subject)]
+    rel_parts = [f'sub-{subject}']
     if session:
-        rel_parts.append('ses-{}'.format(session))
+        rel_parts.append(f'ses-{session}')
     rel_parts.append(datatype)
     return '/'.join(rel_parts), '_'.join(parts)
 
@@ -150,9 +149,9 @@ def build_path(entities, datatype, suffix, validate=True):
     if not subject:
         raise InvalidApproach('A subject label is required to build a BIDS path.')
 
-    rel_parts = ['sub-{}'.format(subject)]
+    rel_parts = [f'sub-{subject}']
     if session:
-        rel_parts.append('ses-{}'.format(session))
+        rel_parts.append(f'ses-{session}')
     rel_parts.append(datatype)
     rel_dir = '/'.join(rel_parts)
     return rel_dir, build_stem(entities, suffix)

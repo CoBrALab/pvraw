@@ -1,129 +1,134 @@
-"""This module provides classes and functions for handling and analyzing photovoltaic objects from MRI scans.
+"""Scan-level container: one acquisition and its reconstructions.
 
-It is designed to interface with the ParaVision data structures (`PvScan`, `PvReco`, `PvFiles`)
-and perform various analytical tasks to assist in the study of MRI scans.
-
-Classes:
-    ScanInfo: Handles basic scan information and warning accumulation.
-    Scan: Main interface class for working with Pv objects and handling detailed scan analysis,
-          including retrieval of objects from memory and performing affine and data array analysis.
-
-This module is part of the `brkraw_legacy` package which aims to provide tools for MRI data manipulation and analysis.
+A Scan wraps a `brukerapi` ``Experiment``; a Reco is one of its ``Processing``
+folders (see ``CONTEXT.md``). Every read of a reconstruction -- parameters,
+shape, dtype, scaling factors, the image itself -- goes through a `brukerapi`
+``Dataset`` built here (ADR 0002).
 """
 
 from __future__ import annotations
-import ctypes
-from brkraw_legacy.api.pvobj import PvScan, PvReco, PvFiles
-from brkraw_legacy.api.pvobj.base import BaseBufferHandler
-from brkraw_legacy.api.analyzer import ScanInfoAnalyzer, AffineAnalyzer, DataArrayAnalyzer, BaseAnalyzer
+
 from typing import TYPE_CHECKING
+
+from brukerapi.dataset import LOAD_STAGES, Dataset
+
+from brkraw_legacy.api.analyzer import AffineAnalyzer, BaseAnalyzer, ScanInfoAnalyzer
+
 if TYPE_CHECKING:
-    from typing import Optional, Union
-    from .study import Study
+
+    from brukerapi.folders import Processing
 
 
 class ScanInfo(BaseAnalyzer):
-    """Handles the accumulation of warnings and basic information about MRI scans.
-    
-    This class is designed to store general scan information and accumulate any warnings that might arise 
-    during the scan processing. It serves as a foundational class for more detailed analysis classes 
-    that may require access to accumulated warnings and basic scan metrics.
-
-    Attributes:
-        warns (list): A list that accumulates warning messages related to the scan analysis.
-    """
+    """Analysed scan properties, plus the warnings raised while deriving them."""
     def __init__(self) -> None:
-        """Initializes a new instance of ScanInfo with an empty list for warnings."""
         self.warns: list[str] = []
 
     @property
     def num_warns(self) -> int:
-        """Counts the number of warnings accumulated during the scan processing.
-
-        Returns:
-            int: The total number of warnings accumulated.
-        """
         return len(self.warns)
-    
 
-class Scan(BaseBufferHandler):
-    """Interface class for working with various Pv objects and handling scan information.
+
+class Scan(BaseAnalyzer):
+    """One scan of a study, addressed by ``reco_id`` for its reconstructions.
 
     Attributes:
-        pvobj (Union['PvScan', 'PvReco', 'PvFiles']): The photovoltaic object associated with this scan.
-        reco_id (Optional[int]): The reconstruction ID for the scan, defaults to None.
-        study_address (Optional[int]): Memory address of the study object, defaults to None.
-        debug (bool): Flag to enable debug mode, defaults to False.
+        pvobj: The `brukerapi` Experiment this scan reads through.
+        reco_id (Optional[int]): The reconstruction bound by default.
     """
-    def __init__(self, pvobj: Union['PvScan', 'PvReco', 'PvFiles'],
-                 reco_id: Optional[int] = None,
-                 study_address: Optional[int] = None,
+    def __init__(self, pvobj, reco_id: int | None = None,
                  debug: bool = False) -> None:
-        """Initializes the Scan object with necessary identifiers and addresses.
-
-        Args:
-            pvobj: The ParaVision data object to be used throughout the scan analysis.
-            reco_id: Optional reconstruction identifier.
-            study_address: Optional memory address of the associated study object.
-            debug: Flag indicating whether to run in debug mode.
-        """
-        self.reco_id = reco_id
-        self._study_address = study_address
-        self._pvobj_address = id(pvobj)
+        self.pvobj = pvobj
         self.is_debug = debug
-        self.set_scaninfo()
-        
-    def retrieve_pvobj(self) -> Union['PvScan', 'PvReco', 'PvFiles', None]:
-        """Retrieves the pvobj from memory using its stored address.
+        self.reco_id = reco_id or (self.avail[0] if self.avail else None)
+        #: Parameter-only datasets are cached; data-carrying ones never are, so
+        #: sweeping a study does not accumulate whole image arrays.
+        self._properties: dict = {}
+        self._info = None
 
-        Returns:
-            The pvobj if available; otherwise, None.
+    @property
+    def avail(self) -> list[int]:
+        """Available ``reco_id``s, ascending.
+
+        A reconstruction is addressable when its folder holds both the
+        visualisation parameters (which make it a ``Processing``) and a
+        ``2dseq``; PROCNO folders are numbered.
         """
-        if self._pvobj_address:
-            return ctypes.cast(self._pvobj_address,
-                               ctypes.py_object).value
-        return None
-    
-    def retrieve_study(self) -> Optional['Study']:
-        """Retrieves the study object from memory using its stored address.
+        return sorted(int(proc.path.name)
+                      for proc in self._recos()
+                      if proc.path.name.isdigit() and (proc.path / '2dseq').exists())
 
-        Returns:
-            The study object if available; otherwise, None.
-        """
-        if self._study_address:
-            return ctypes.cast(self._study_address,
-                               ctypes.py_object).value
-        return None
-    
-    def set_scaninfo(self, reco_id: Optional[int] = None) -> None:
-        """Sets the scan information based on the reconstruction ID.
+    def _recos(self) -> list:
+        # Normally the PROCNOs sit under the scan's `pdata`. The list includes
+        # the scan folder itself when that is a bare reconstruction directory --
+        # or when a scan carries a stray `visu_pars` at its root -- and `avail`
+        # keeps only the folders that actually hold a 2dseq.
+        return self.pvobj.get_processing_list()
 
-        Args:
-            reco_id: Optional reconstruction ID to specify which scan information to retrieve and set.
+    def get_dataset(self, reco_id: int | None = None, *, with_data: bool = False):
+        """The `brukerapi` Dataset for one reconstruction.
+
+        Without `with_data` the 2dseq binary is not read: shape, dtype, scaling
+        factors and named axes are all derived properties, so the affine, the
+        NIfTI header and the BIDS metadata never touch the image data.
+
+        Scaling is left off. The intensity slope and offset stay available as
+        ``dataset.slope``/``dataset.offset`` and are applied where the NIfTI is
+        assembled, which can put a scalar pair in ``scl_slope``/``scl_inter``
+        instead of widening every image to float.
         """
         reco_id = reco_id or self.reco_id
-        self.info = self.get_scaninfo(reco_id)
-                
-    def get_scaninfo(self,
-                     reco_id: Optional[int] = None,
-                     get_analyzer: bool = False) -> Union['ScanInfoAnalyzer', 'ScanInfo']:
-        """Gets the scan information, optionally using an analyzer to enrich the data.
+        if not with_data and reco_id in self._properties:
+            return self._properties[reco_id]
+        proc = self._get_reco(reco_id)
+        dataset = Dataset(proc.path / '2dseq',
+                          scale=False,
+                          combine_complex=False,
+                          parameter_files=['method', 'acqp'],
+                          load=LOAD_STAGES['all'] if with_data else LOAD_STAGES['properties'])
+        if not with_data:
+            self._properties[reco_id] = dataset
+        return dataset
 
-        Args:
-            reco_id: Optional reconstruction ID to specify which scan information to retrieve.
-            get_analyzer: Flag indicating whether to use the ScanInfoAnalyzer for detailed analysis.
+    def _get_reco(self, reco_id: int | None) -> Processing:
+        for proc in self._recos():
+            if proc.path.name.isdigit() and int(proc.path.name) == reco_id:
+                return proc
+        raise KeyError(f'RecoID:[{reco_id}] not found in ScanID:[{self.pvobj.path.name}]')
 
-        Returns:
-            An instance of ScanInfo or ScanInfoAnalyzer with the relevant scan details.
+    def get_visu_pars(self, reco_id: int | None = None):
+        """The ``visu_pars`` of one reconstruction, as a `brukerapi` JCAMPDX."""
+        return self.get_dataset(reco_id).parameters['visu_pars']
+
+    @property
+    def info(self) -> ScanInfo:
+        """Analysed properties of the bound reconstruction.
+
+        Derived on first use rather than in the constructor, so a scan that
+        cannot be analysed -- spectroscopy, an empty reconstruction -- can
+        still be constructed and rejected with a clear message.
         """
-        infoobj = ScanInfo()
-        pvobj = self.retrieve_pvobj()
-        analysed = ScanInfoAnalyzer(pvobj=pvobj,  # type: ignore
-                                    reco_id=reco_id, 
+        if self._info is None:
+            self._info = self.get_scaninfo(self.reco_id)
+        return self._info
+
+    def set_scaninfo(self, reco_id: int | None = None) -> None:
+        """Rebind ``info`` to `reco_id`, leaving the scan's default unchanged."""
+        self._info = self.get_scaninfo(reco_id or self.reco_id)
+
+    def get_scaninfo(self, reco_id: int | None = None,
+                     get_analyzer: bool = False):
+        """Analysed properties of one reconstruction.
+
+        With `get_analyzer` the analyzer itself is returned, carrying the raw
+        parameter files alongside the derived values.
+        """
+        analysed = ScanInfoAnalyzer(self.get_dataset(reco_id),
+                                    primary_visu_pars=self._primary_visu_pars(reco_id),
                                     debug=self.is_debug)
-        
         if get_analyzer:
             return analysed
+        infoobj = ScanInfo()
         for attr_name in dir(analysed):
             if 'info_' in attr_name:
                 attr_vals = getattr(analysed, attr_name)
@@ -131,89 +136,28 @@ class Scan(BaseBufferHandler):
                     infoobj.warns.extend(warns)
                 setattr(infoobj, attr_name.replace('info_', ''), attr_vals)
         return infoobj
-    
-    def get_affine_analyzer(self,
-                            reco_id: Optional[int] = None) -> 'AffineAnalyzer':
-        """Retrieves the affine analysis object for the specified reconstruction ID.
 
-        Args:
-            reco_id: Optional reconstruction ID to specify which affine analysis to retrieve.
+    def _primary_visu_pars(self, reco_id: int | None = None):
+        """The first reconstruction's ``visu_pars``, or None if `reco_id` is it.
 
-        Returns:
-            An AffineAnalyzer object initialized with the scan information.
+        A derived reconstruction omits the acquisition-level parameters that
+        describe the shared acquisition; the first reconstruction always has
+        them (see ScanInfoAnalyzer._inherit_acq_params).
         """
-        if reco_id:
-            info = self.get_scaninfo(reco_id, get_analyzer=False)
-        else:
-            info = self.info if hasattr(self, 'info') else self.get_scaninfo(self.reco_id)
-        return AffineAnalyzer(info)  # type: ignore
-    
-    def get_datarray_analyzer(self,
-                              reco_id: Optional[int] = None) -> 'DataArrayAnalyzer':
-        """Retrieves the data array analyzer for the specified reconstruction ID.
+        recos = self.avail
+        reco_id = reco_id or self.reco_id
+        if not recos or reco_id == recos[0]:
+            return None
+        return self.get_dataset(recos[0]).parameters.get('visu_pars')
 
-        Args:
-            reco_id: Optional reconstruction ID to specify which data array analysis to perform.
+    def get_affine_analyzer(self, reco_id: int | None = None) -> AffineAnalyzer:
+        info = self.get_scaninfo(reco_id) if reco_id else self.info
+        return AffineAnalyzer(info, self.get_dataset(reco_id))
 
-        Returns:
-            A DataArrayAnalyzer object initialized with the scan and file information.
-        """
-        pvobj = self.retrieve_pvobj()
-        if reco_id:
-            # A specific reconstruction was requested: its parameters (word
-            # type, matrix size, frame count) must be read from that reco's own
-            # info, not the scan's default reco. Mirrors get_affine_analyzer;
-            # without this a derived reco is decoded with the default reco's
-            # dtype and shape and fails to reshape.
-            info = self.get_scaninfo(reco_id)
-        else:
-            reco_id = self.reco_id
-            info = self.info if hasattr(self, 'info') else self.get_scaninfo(reco_id)
-        fileobj = pvobj.get_2dseq(reco_id=reco_id)  # type: ignore
-        self._buffers.append
-        return DataArrayAnalyzer(info, fileobj)  # type: ignore
-    
-    @property
-    def avail(self) -> list[int]:
-        """List of available reconstruction IDs for the current pvobj.
-
-        Returns:
-            A list of integers representing the available reconstruction IDs.
-        """
-        return self.pvobj.avail
-    
-    @property
-    def pvobj(self) -> Union['PvScan', 'PvReco', 'PvFiles']:
-        """Retrieves the pvobj from memory.
-
-        Returns:
-            The current bound pvobj.
-        """
-        return self.retrieve_pvobj()  # type: ignore
-    
     @property
     def about_scan(self) -> dict:
-        """Provides a dictionary with analyzed results for the scan.
-
-        Returns:
-            A dictionary containing analyzed scan results.
-        """
         return self.info.to_dict()
-    
+
     @property
     def about_affine(self) -> dict:
-        """Provides a dictionary with analyzed results for affine transformations.
-
-        Returns:
-            A dictionary containing analyzed affine results.
-        """
         return self.get_affine_analyzer().to_dict()
-    
-    @property
-    def about_dataarray(self) -> dict:
-        """Provides a dictionary with analyzed results for the data array.
-
-        Returns:
-            A dictionary containing analyzed data array results.
-        """
-        return self.get_datarray_analyzer().to_dict()

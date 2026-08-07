@@ -1,70 +1,57 @@
 """Scan information analysis module.
 
-This module defines the ScanInfoAnalyzer, which is essential for parsing and interpreting
-metadata from multiple parameter files, making it more human-readable and accessible
-for further processing and analysis tasks.
+Turns the parameter files of one reconstruction into the derived values the
+geometry, NIfTI-header and BIDS layers consume. The parameter files themselves
+come from a `brukerapi` ``Dataset`` (ADR 0002); what is computed here is
+brkraw-legacy's own.
 """
 
 from __future__ import annotations
-from collections import OrderedDict
+
+from typing import TYPE_CHECKING
+
 from brkraw_legacy.api import helper
+
 from .base import BaseAnalyzer
-from typing import TYPE_CHECKING, Optional, Union
+
 if TYPE_CHECKING:
-    from ..pvobj import PvScan, PvReco, PvFiles
+    from brukerapi.dataset import Dataset
 
 
 class ScanInfoAnalyzer(BaseAnalyzer):
-    """Helps parse metadata from multiple parameter files to make it more human-readable.
-
-    This analyzer is crucial for reconstructing and interpreting various scan parameters
-    from raw dataset files, supporting enhanced data insights and accessibility.
+    """Parses one reconstruction's parameters into human-readable information.
 
     Args:
-        pvobj (Union[PvScan, PvReco, PvFiles]): The PvObject containing various acquisition
-            and method parameters.
-        reco_id (int, optional): Specifies the reconstruction ID for targeted analysis.
-            Defaults to None.
-        debug (bool): Flag to enable debugging outputs for detailed tracing.
+        dataset: The `brukerapi` Dataset for the reconstruction, carrying its
+            ``visu_pars`` plus the scan's ``acqp`` and ``method``.
+        primary_visu_pars: The scan's first reconstruction's ``visu_pars``,
+            which a derived reconstruction inherits acquisition parameters from.
+            None when this *is* the first reconstruction.
+        debug (bool): Stop after the parameter files are bound, before the
+            derived values are computed.
 
     Attributes:
-        info_protocol (dict): Stores protocol-related information.
-        info_fid (dict): Contains information extracted from FID files.
-        visu_pars (OrderedDict): Visualization parameters extracted for analysis.
+        acqp, method, visu_pars: The parameter files, as `brukerapi` JCAMPDX
+            objects (``get_value(key, default)`` reads them).
+        dataset: The Dataset the values were derived from.
     """
-    def __init__(self, 
-                 pvobj: Union['PvScan', 'PvReco', 'PvFiles'], 
-                 reco_id:Optional[int] = None, 
-                 debug:bool = False):
-        """Initialize the ScanInfoAnalyzer with specified parameters and optionally in debug mode.
-        """
-        self._set_pars(pvobj, reco_id)
+    def __init__(self, dataset: Dataset, primary_visu_pars=None, debug: bool = False):
+        self._primary_visu_pars = primary_visu_pars
+        self._set_pars(dataset)
         if not debug:
             self.info_protocol = helper.Protocol(self).get_info()
-            self.info_fid = helper.FID(self).get_info()
             if self.visu_pars:
                 self._parse_info()
-    
-    def _set_pars(self, pvobj: Union['PvScan', 'PvReco', 'PvFiles'], reco_id: Optional[int]):
-        """Set parameters from the PvObject for internal use."""
-        for p in ['acqp', 'method']:
-            try:
-                vals = getattr(pvobj, p)
-            except AttributeError:
-                vals = OrderedDict()
-            setattr(self, p, vals)
-        # The fid (raw k-space) is not read for scan info -- FID.get_info derives
-        # the fid dtype from acqp -- so it is not opened here; opening it only
-        # leaked the handle.
-        try:
-            visu_pars = pvobj.get_visu_pars(reco_id)
-        except (FileNotFoundError, AttributeError):
-            visu_pars = OrderedDict()
-        self._inherit_acq_params(pvobj, reco_id, visu_pars)
-        setattr(self, 'visu_pars', visu_pars)
 
-    @staticmethod
-    def _inherit_acq_params(pvobj, reco_id, visu_pars):
+    def _set_pars(self, dataset: Dataset):
+        """Bind the parameter files of `dataset` for the helpers to read."""
+        self.dataset = dataset
+        parameters = dataset.parameters if dataset is not None else {}
+        for name in ('acqp', 'method', 'visu_pars'):
+            setattr(self, name, parameters.get(name))
+        self._inherit_acq_params()
+
+    def _inherit_acq_params(self):
         """Complete a derived reconstruction's parameters with acquisition-level
         Visu parameters it omits.
 
@@ -76,40 +63,27 @@ class ScanInfoAnalyzer(BaseAnalyzer):
         where they always live; reconstruction-specific parameters (``VisuCore*``,
         ``VisuFG*``, ...) are left to the reco itself so its own geometry is used.
         """
-        try:
-            recos = pvobj.avail
-        except AttributeError:
+        primary = self._primary_visu_pars
+        if self.visu_pars is None or primary is None or primary is self.visu_pars:
             return
-        if not recos or reco_id in (None, recos[0]):
-            return
-        try:
-            primary = pvobj.get_visu_pars(recos[0])
-        except (FileNotFoundError, AttributeError):
-            return
-        target = visu_pars.parameters if hasattr(visu_pars, 'parameters') else visu_pars
-        have = set(visu_pars.keys())
-        for key in primary.keys():
-            if key.startswith('VisuAcq') and key not in have:
-                target[key] = primary[key]
-           
+        for key in primary:
+            if key.startswith('VisuAcq') and key not in self.visu_pars:
+                self.visu_pars.set_parameter(key, primary.get_parameter(key))
+
     def _parse_info(self):
-        """Parse and process detailed information from the visualization parameters and other sources.
-        """
+        """Derive the values the geometry, header and BIDS layers consume."""
         self.info_dataarray = helper.DataArray(self).get_info()
-        self.info_frame_group = helper.FrameGroup(self).get_info()
         self.info_image = helper.Image(self).get_info()
         self.info_slicepack = helper.SlicePack(self).get_info()
         self.info_cycle = helper.Cycle(self).get_info()
         self.info_diffusion = helper.Diffusion(self).get_info()
         if self.info_image['dim'] > 1:
             self.info_orientation = helper.Orientation(self).get_info()
-    
+
     def __dir__(self):
-        """List dynamic attributes of the instance related to informational properties.
-        """
-        return [attr for attr in self.__dict__.keys() if 'info_' in attr]
-    
+        """The informational properties this analyzer derived."""
+        return [attr for attr in self.__dict__ if 'info_' in attr]
+
     def get(self, key):
-        """Retrieve information properties based on a specified key.
-        """
+        """One informational property by name, or None if it was not derived."""
         return getattr(self, key) if key in self.__dir__() else None
