@@ -4,7 +4,7 @@ import re
 import warnings
 
 from .. import BrukerLoader, __version__
-from ..lib import derived
+from ..lib import asl, derived
 from ..lib.errors import FileNotValidError, InvalidApproach, ValueConflictInField
 from ..lib.utils import get_value, mkdir, save_meta_files, set_rescale
 
@@ -337,11 +337,12 @@ def main():
                             # neither BOLD nor anatomical; it belongs in BIDS
                             # perf/asl, which is not emitted here. Leave it
                             # unclassified rather than mislabel it.
-                            elif re.search(r'FAIR|ASL|perfusion', method, re.IGNORECASE):
-                                datatype = 'etc'
-                                warnings.warn(f'ScanID:[{scan_id}] looks like ASL/perfusion ({method}); BIDS '
-                                              'perf/asl is not supported, marked as "etc". Set '
-                                              'DataType/modality in the datasheet to convert it.')
+                            # ASL is neither BOLD nor anatomical. Keyed off the
+                            # method name only, and checked before the epi->func
+                            # branch, because FAIR_EPI and CASL_EPI both contain
+                            # 'epi' and FAIR_RARE reads as 'rare'.
+                            elif asl.labeling_type(method):
+                                datatype = 'perf'
 
                             # A BOLD time-series needs >1 volume; a single-
                             # repetition EPI is not bold (BIDS BOLD_NOT_4D).
@@ -367,6 +368,9 @@ def main():
                                     item['Start'] = s
                                     item['End'] = e
                                     df = pd.concat([df, pd.DataFrame([item])], ignore_index=True)
+                            elif datatype == 'perf':
+                                item['modality'] = 'asl'
+                                df = pd.concat([df, pd.DataFrame([item])], ignore_index=True)
                             elif datatype == 'dwi':
                                 item['modality'] = 'dwi'
                                 df = pd.concat([df, pd.DataFrame([item])], ignore_index=True)

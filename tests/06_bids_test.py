@@ -636,32 +636,55 @@ def test_software_versions_sidecar_is_string(lego_study, tmp_path):
     pytest.skip('no scan with a numeric VisuAcqRepetitionTime to coerce')
 
 
-def test_asl_scans_not_auto_classified(lego_study, tmp_path):
-    """FAIR/CASL/perfusion scans must not be auto-classified as bold or anat (BIDS
-    perf/asl is unsupported here); the helper leaves them as 'etc' for the user."""
-    import re
+def test_asl_scans_become_perf(lego_study, tmp_path):
+    """FAIR/CASL scans are perf/asl, and each one gets a context file.
 
+    They used to be forced to 'etc' because perf was unsupported. What must still
+    never happen is classification by the acquisition readout: FAIR_EPI and CASL_EPI
+    both contain 'epi' and would read as bold, FAIR_RARE reads as anat.
+
+    aslcontext.tsv must have one row per volume. The validator compares it against
+    the NIfTI's 4th dimension and that check IS an error -- while a *missing*
+    context file silently disables eleven ASL checks, so its absence would be
+    unmeasurable rather than reported.
+    """
+    import csv
+
+    import nibabel as nib
     import pandas as pd
 
     from brkraw_legacy import BrukerLoader
+    from brkraw_legacy.lib import asl as asl_lib
 
     sample_parent = tmp_path / 'sample'
     sample_parent.mkdir()
     (sample_parent / lego_study.name).symlink_to(lego_study.resolve())
     sheet = tmp_path / 'map'
-    subprocess.check_call(['brkraw-legacy', 'bids_helper', str(sample_parent), str(sheet)])
+    out = tmp_path / 'out'
+    subprocess.check_call(['brkraw-legacy', 'bids_helper', str(sample_parent), str(sheet), '-j'])
     df = pd.read_csv(str(sheet) + '.csv')
 
     loader = BrukerLoader(str(lego_study))
-    asl = [s for s in df['ScanID'].unique()
-           if re.search(r'FAIR|ASL|perfusion',
-                        str(scanMethod(loader, int(s)) or ''),
-                        re.IGNORECASE)]
-    assert asl, 'expected FAIR/CASL scans in the lego phantom'
-    for s in asl:
+    scans = [s for s in df['ScanID'].unique()
+             if asl_lib.labeling_type(str(scanMethod(loader, int(s)) or ''))]
+    assert scans, 'expected FAIR/CASL scans in the lego phantom'
+    for s in scans:
         assigned = set(df[df['ScanID'] == s]['DataType'])
-        assert assigned == {'etc'}, \
-            f'ASL scan {s} classified as {assigned}, expected etc'
+        assert assigned == {'perf'}, f'ASL scan {s} classified as {assigned}, expected perf'
+
+    subprocess.check_call(['brkraw-legacy', 'bids_convert', str(sample_parent),
+                           str(sheet) + '.csv', '-j', str(sheet) + '.json',
+                           '--output', str(out)])
+    contexts = list(out.rglob('*_aslcontext.tsv'))
+    assert contexts, 'expected an aslcontext.tsv beside every converted ASL image'
+    for context in contexts:
+        rows = list(csv.DictReader(context.open(), delimiter='\t'))
+        assert [r['volume_type'] for r in rows], 'context file has no rows'
+        assert {r['volume_type'] for r in rows} <= {'control', 'label', 'm0scan'}
+        image = context.with_name(context.name.replace('_aslcontext.tsv', '_asl.nii.gz'))
+        volumes = nib.load(str(image)).shape[3]
+        assert len(rows) == volumes, \
+            f'{context.name}: {len(rows)} rows for {volumes} volumes'
 
 
 def test_multiecho_gets_echo_entity(lego_study, tmp_path):

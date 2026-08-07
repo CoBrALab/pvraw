@@ -533,8 +533,15 @@ class BrukerLoader:
         return json_obj
 
     def save_json(self, scan_id, reco_id, filename, dir='./', metadata=None, condition=None,
-                  task_name=None, intended_for=None, num_slices=None, repetition_time=None):
+                  task_name=None, intended_for=None, num_slices=None, repetition_time=None,
+                  extra=None):
         json_obj = self._parse_json(scan_id, reco_id, metadata)
+
+        # Fields the caller computed because a per-parameter mapping cannot see what
+        # they need -- the method name, the frame-group layout, the written volume
+        # count. The ASL block is the whole reason this exists.
+        if extra:
+            json_obj.update(extra)
 
         # For func, RepetitionTime is the wall-clock time between volumes, which the
         # converter computes as ScanTime/num_volumes (matching the NIfTI pixdim[4]).

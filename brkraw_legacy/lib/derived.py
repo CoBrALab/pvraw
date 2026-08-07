@@ -61,9 +61,33 @@ def isa_map(visu_pars):
     Found by label rather than by position on purpose -- the position happens to be
     stable across the corpus, but the label is what actually states the meaning.
     """
+    if not _map_is_a_single_volume(visu_pars):
+        return None
     for index, comment in enumerate(element_comments(visu_pars)):
         entry = ISA_MAPS.get(comment.strip().lower())
         if entry:
             suffix, scale = entry
             return index, suffix, scale
     return None
+
+
+def _map_is_a_single_volume(visu_pars):
+    """True when the ISA axis is the only thing making volumes.
+
+    A fit can be repeated along another axis -- PV5.1 scan 31 is FG_ISA x FG_ECHO,
+    five maps over five echoes -- and then there is no single T1map to extract.
+    BIDS has no echo- entity for a parametric map (`echo not in rule
+    rules.files.raw.anat.parametric`), and picking one echo silently would discard
+    the rest, so the whole stack goes to derivatives instead.
+
+    A slice axis does not count: the converter moves it to k, so it makes voxels
+    rather than volumes.
+    """
+    from .utils import get_value
+
+    desc = get_value(visu_pars, 'VisuFGOrderDesc')
+    if desc is None:
+        return True
+    rows = desc if isinstance(desc[0], (list, tuple)) else [desc]
+    extra = [str(r[1]) for r in rows if str(r[1]) not in ('FG_ISA', 'FG_SLICE')]
+    return not extra

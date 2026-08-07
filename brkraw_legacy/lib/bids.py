@@ -48,7 +48,7 @@ COLUMN_TO_ENTITY = {
 }
 
 #: Datatypes BrkRaw-legacy emits into the validated BIDS tree.
-DATATYPES = ('anat', 'func', 'dwi', 'fmap')
+DATATYPES = ('anat', 'func', 'dwi', 'fmap', 'perf')
 
 _LABEL_RE = re.compile(r'^[0-9a-zA-Z]+$')
 
@@ -73,6 +73,8 @@ def default_suffix(datatype, method):
         return 'bold'
     if datatype == 'dwi':
         return 'dwi'
+    if datatype == 'perf':
+        return 'asl'
     if datatype == 'anat':
         if re.search('flash', method, re.IGNORECASE):
             return 'FLASH'
