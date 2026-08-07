@@ -87,8 +87,10 @@ Three claims in the file are wrong and get corrected:
 `reco` is added as a fourth parameter source, which unlocks `CoilCombinationMethod`.
 `CONFIG_SCAN_gradient_system` lives in `configscan`, which `brukerapi` does not load,
 so `GradientSetType` stays unmapped with a corrected comment — reading that file here
-would reintroduce exactly what ADR 0002 removed. **Still open:** an upstream
-`brukerapi` issue asking it to expose `configscan` has not been filed yet.
+would reintroduce exactly what ADR 0002 removed. Filed upstream as
+[isi-nmr/brukerapi-python#189](https://github.com/isi-nmr/brukerapi-python/issues/189),
+asking for `configscan` to be loaded as an optional parameter file alongside `reco`
+and `d3proc`. `GradientSetType` becomes mappable if that lands.
 
 `RepetitionTime` needs the guard `InversionTime` already has: variable-TR sequences
 (RAREVTR) return an array, and `{'TR': 'VisuAcqRepetitionTime', 'Equation': 'TR/1000'}`
