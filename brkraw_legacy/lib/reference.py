@@ -66,6 +66,22 @@ COMMON_META_REF = {
     # PPI (parallel-imaging) acceleration; ACQ_phase_factor was the RARE/EPI
     # echo-train (segmentation) factor -- not the acceleration.
     'ParallelReductionFactorInPlane': ['PVM_EncPpiAccel1', {'key': 'PVM_EncPpi', 'idx': 1}],
+    # PVM_EncPpi is per logical axis: 2 elements in 2D (read, phase), 3 in 3D
+    # (read, phase, slice), verified across 1413 corpus method files. The
+    # out-of-plane factor therefore exists only for 3D.
+    'ParallelReductionFactorOutOfPlane': {
+        'P': 'PVM_EncPpi',
+        'Equation': 'float(np.atleast_1d(P)[2]) if np.size(P) > 2 else None',
+    },
+    # Bruker's only parallel-imaging implementation is GRAPPA (k-space, auto-
+    # calibrated -- PVM_EpiGrappaThresh/Coefficients). There is no image-domain
+    # PPI, so this is never SENSE. Emitted only where the scan is accelerated.
+    'ParallelAcquisitionTechnique': {
+        'P': 'PVM_EncPpi',
+        'Equation': "'GRAPPA' if np.max(np.atleast_1d(P)) > 1 else None",
+    },
+    # PV7/PV360 only; absent from the PV5.1 and PV6 headers entirely.
+    'MultibandAccelerationFactor': 'PVM_MbEncAccelFactor',
     # Phase-axis partial-Fourier fraction = 1/accel: Bruker PVM_EncPft[1] /
     # PVM_EncPftAccel1 is an acceleration factor (>= 1), emitted only when the
     # phase axis is actually under-sampled (accel > 1).
@@ -140,6 +156,24 @@ COMMON_META_REF = {
     # ParaVision version and is identical where both exist. Deprecated by BIDS for
     # func -- dropped in the func merge, see lib/utils.get_bids_ref_obj.
     'AcquisitionDuration': {'T': 'VisuAcqScanTime', 'Equation': 'T/1000'},
+    # Time between successive excitations. For most methods that is the sequence
+    # TR, but MDEFT prepares a whole segment per inversion: there PVM_RepetitionTime
+    # IS SegmRepTime (verified equal on PV5.1, PV6 and PV7 MDEFT scans) and the
+    # excitation TR is EchoRepTime, so that is tried first.
+    'RepetitionTimeExcitation': [
+        {'T': 'EchoRepTime', 'Equation': 'T/1000'},
+        {'T': 'PVM_RepetitionTime', 'Equation': 'T/1000 if np.ndim(T) == 0 else None'},
+    ],
+    # Time from one preparation (inversion) pulse to the next -- the segment TR of
+    # a magnetization-prepared sequence. Only such methods declare it.
+    'RepetitionTimePreparation': {'T': 'SegmRepTime', 'Equation': 'T/1000'},
+    # Inter-volume delay of a (segmented) EPI, in seconds. ParaVision floors this
+    # parameter at 0.001 ms, so that value means "no delay" rather than 1 ns.
+    'DelayTime': {'D': 'PackDel', 'Equation': 'D/1000.0 if D > 0.001 else None'},
+    # Only meaningful when the trigger module is actually enabled; PVM_TriggerDelay
+    # keeps its last value otherwise (1 ms throughout the corpus, with the module Off).
+    'DelayAfterTrigger': {'M': 'PVM_TriggerModule', 'D': 'PVM_TriggerDelay',
+                          'Equation': "D/1000.0 if M == 'On' else None"},
     # One acquisition time per reconstructed slice (seconds). ACQ_obj_order is
     # the slice acquisition order; argsort inverts it to each slice's time.
     # Emit only when the order length equals the multi-slice count (NSLICES);
@@ -164,6 +198,47 @@ COMMON_META_REF = {
     # RF_AND_CONTRAST, SLICE_ACCELERATION
     # BIDS requires FlipAngle > 0; drop non-positive values.
     'FlipAngle': {'FA': 'VisuAcqFlipAngle', 'Equation': 'FA if np.all(np.asarray(FA) > 0) else None'},
+    # MAGNETIZATION TRANSFER
+    # Whether an MT module was played. PV360 renames the parameter. The MT *pulse*
+    # parameters are present even when the module is off, so they describe a pulse
+    # that was never played -- they stay unmapped, see UNMAPPED_WITH_SOURCE.
+    'MTState': [
+        {'MT': 'PVM_MagTransOnOff', 'Equation': "MT == 'On'"},
+        {'MT': 'PVM_SatTransOnOff', 'Equation': "MT == 'On'"},
+    ],
+    # SPOILING
+    # VisuAcqSpoiling (PV6+) states the spoiling regime directly and its enum maps
+    # one-to-one onto the BIDS one. NotSpoiled yields SpoilingState False and no
+    # SpoilingType, which is what BIDS wants -- an unspoiled sequence has no type.
+    'SpoilingState': {'S': 'VisuAcqSpoiling', 'Equation': "S != 'NotSpoiled'"},
+    'SpoilingType': {
+        'S': 'VisuAcqSpoiling',
+        'Equation': "{'RFSpoiled': 'RF', 'GradientSpoiled': 'GRADIENT', "
+                    "'RFAndGradientSpoiled': 'COMBINED'}.get(S)",
+    },
+    # Bruker's RF-spoiling phase list is generated with a fixed 117 degree
+    # increment -- MRT_RFSpoilPhaseList(117, ...) in
+    # resources/PV6.0.1/prog/parx/src/FLASH/backbone.c:660. The value is not stored
+    # in any parameter, so it is emitted only where the sequence declares RF
+    # spoiling on (a FLASH-family parameter; PV5.1 spells it RFSpoilerOnOff).
+    'SpoilingRFPhaseIncrement': [
+        {'R': 'RFSpoiling', 'Equation': "117.0 if R == 'Yes' else None"},
+        {'R': 'RFSpoilerOnOff', 'Equation': "117.0 if R == 'On' else None"},
+    ],
+    # WATER SUPPRESSION
+    # The flag and the mode disagree in real data -- On/NO_SUPPRESSION appears 14
+    # times and Off/VAPOR twice across the corpus -- so neither alone is a safe
+    # answer. Water is suppressed only when the module is on AND a technique is set.
+    'WaterSuppression': {'ON': 'PVM_WsOnOff', 'MODE': 'PVM_WsMode',
+                         'Equation': "ON == 'On' and MODE != 'NO_SUPPRESSION'"},
+    'WaterSuppressionTechnique': {
+        'ON': 'PVM_WsOnOff', 'MODE': 'PVM_WsMode',
+        'Equation': "MODE if (ON == 'On' and MODE != 'NO_SUPPRESSION') else None",
+    },
+    # SHIMMING
+    # BIDS wants free text. PVM_ReqShimEnum is the technique itself: Current_Shim
+    # (reuse the standing shim) or Map_Shim (shim computed from a field map).
+    'B0ShimmingTechnique': 'PVM_ReqShimEnum',
     # INSTITUTION_INFORMATION
     'InstitutionName': 'VisuInstitution',
 }
@@ -192,7 +267,18 @@ FMRI_META_REF = {  # RepetitionTime now lives in COMMON_META_REF (emitted for ev
 #: the converter instead (save_json's `intended_for` argument). It used to sit here
 #: as `''`, which survived the None-strip and wrote an empty string into every
 #: fieldmap sidecar.
-FIELDMAP_META_REF = {}
+FIELDMAP_META_REF = {
+    # The two echo times a phase-difference fieldmap was built from, in seconds.
+    # EffectiveTE (ms) holds them in order. Deliberately NOT PVM_EchoTime, which is
+    # the echo *spacing* in FieldMap/RARE/MSME and only the first TE in MGE/FLASH --
+    # the same name meaning two different things. Lives here rather than in
+    # COMMON_META_REF so it reaches fieldmap sidecars only: on a multi-echo anat the
+    # first two echoes of a train are not what these fields mean.
+    'EchoTime1': {'TE': 'EffectiveTE',
+                  'Equation': 'float(np.atleast_1d(TE)[0])/1000.0 if np.size(TE) > 1 else None'},
+    'EchoTime2': {'TE': 'EffectiveTE',
+                  'Equation': 'float(np.atleast_1d(TE)[1])/1000.0 if np.size(TE) > 1 else None'},
+}
 
 #: BIDS fields this converter fills in code rather than from a mapping table,
 #: because they need something the resolver above cannot see -- the datasheet, the
@@ -203,42 +289,46 @@ COMPUTED_AT_WRITE = {
     'Units': "save_json's fieldmap branch, via _bids_fieldmap_units(VisuCoreDataUnits)",
 }
 
-#: Fields with a real Bruker source that is not wired up yet, and the parameter that
-#: would supply it. This is the gap list: emptying it is how "extract everything
-#: Bruker records" gets done, and the guard test below keeps it honest.
+#: Fields with a real Bruker source that is deliberately still not wired up, and why.
+#: Every remaining entry is here because the mapping cannot be *verified* against the
+#: corpus -- either the parameter never takes a meaningful value in it, or the
+#: conversion to the BIDS field is a guess. Emitting an unverified value is worse than
+#: emitting nothing: it is wrong data wearing the right key. Each entry says what
+#: would settle it.
 UNMAPPED_WITH_SOURCE = {
-    'MTState': 'PVM_MagTransOnOff (OnOff); PV360 PVM_SatTransOnOff',
-    'MTOffsetFrequency': 'PVM_MagTransOffset (Hz)',
-    'MTPulseBandwidth': 'PVM_MagTransPulse1[1] (.Bandwidth, Hz)',
-    'MTNumberOfPulses': 'PVM_MagTransPulsNumb',
-    'MTPulseDuration': 'PVM_MagTransPulse1[0] (.Length, ms -> s)',
-    'MTPulseShape': 'PVM_MagTransPulse1Enum; only bp/gauss/sinc reach a BIDS enum value',
-    'SpoilingState': 'VisuAcqSpoiling == NotSpoiled (PV6+)',
-    'SpoilingType': 'VisuAcqSpoiling; enum maps 1:1 onto RF/GRADIENT/COMBINED (PV6+)',
-    'SpoilingGradientDuration': 'PVM_SPOILER_TYPE .dur (ms -> s); PV5.1 *SpoilerDuration',
-    'SpoilingGradientMoment': 'derived: (ampl/100) * Gmax * dur, Gmax from PVM_GradCalConst',
-    'SpoilingRFPhaseIncrement': 'constant 117 deg, gated on RFSpoiling/RFSpoilerOnOff',
-    'EchoTime1': 'EffectiveTE[0] (ms -> s); NOT PVM_EchoTime, which is echo spacing here',
-    'EchoTime2': 'EffectiveTE[1] (ms -> s)',
-    'RepetitionTimeExcitation': 'PVM_RepetitionTime (ms -> s); EchoRepTime for MDEFT',
-    'RepetitionTimePreparation': 'SegmRepTime (ms -> s); PV6 ZTE PVM_SegmentationDur',
-    'ParallelReductionFactorOutOfPlane': 'PVM_EncPpi[2]; PV5.1 PVM_EncPpiAccel2',
-    'ParallelAcquisitionTechnique': "'GRAPPA' when max(PVM_EncPpi) > 1 -- Bruker has no "
-                                    'image-domain PPI, so never SENSE',
-    'MultibandAccelerationFactor': 'PVM_MbEncAccelFactor -- PV7/PV360 only, absent from '
-                                   'PV5.1 and PV6 headers',
-    'ScanOptions': 'PV6+ only, composed from VisuAcqSaturation / VisuAcqPartialFourier / '
+    # PVM_MagTransOnOff is 'Off' in all 1642 corpus method files that declare it, so
+    # the pulse parameters below always describe a module that was never played, and
+    # the struct indexing cannot be checked against a scan that used it. They are read
+    # from PVM_MagTransPulse1, which is a struct ROW (a list of lists), not the flat
+    # array the field order suggests -- exactly the kind of detail that needs a real
+    # MT-on scan to confirm. Needs: one acquisition with MT enabled.
+    'MTOffsetFrequency': 'PVM_MagTransOffset (Hz); no corpus scan has MT on',
+    'MTPulseBandwidth': 'PVM_MagTransPulse1[0][1] (.Bandwidth, Hz); no corpus scan has MT on',
+    'MTNumberOfPulses': 'PVM_MagTransPulsNumb; no corpus scan has MT on',
+    'MTPulseDuration': 'PVM_MagTransPulse1[0][0] (.Length, ms -> s); no corpus scan has MT on',
+    'MTPulseShape': 'PVM_MagTransPulse1Enum; no corpus scan has MT on, and only bp/gauss/'
+                    'sinc reach a BIDS enum value -- FERMI/GAUSSHANN/SINCHANN/SINCGAUSS '
+                    'have no Bruker equivalent',
+    # Bruker has three independent spoilers (ReadSpoiler, SliceSpoiler,
+    # RepetitionSpoiler) with different durations on the same scan -- e.g. 0.900 ms
+    # and 0.225 ms on PV6 lego scan 3. BIDS has one field, so choosing among them is
+    # a guess. Needs: a decision on which lobe the BIDS field means.
+    'SpoilingGradientDuration': 'ReadSpoiler/SliceSpoiler/RepetitionSpoiler .dur (ms -> s); '
+                                'they differ on the same scan and BIDS has only one field',
+    'SpoilingGradientMoment': 'derivable as (ampl/100) * Gmax * dur with Gmax from '
+                              'PVM_GradCalConst, but nothing records the moment itself, so '
+                              'the derivation cannot be checked against ground truth',
+    'ScanOptions': 'PV6+ composition of VisuAcqSaturation / VisuAcqPartialFourier / '
                    'VisuAcqSpectralSuppression / VisuAcqFlowCompensation / '
-                   'VisuCardiacSynchUsed / VisuRespSynchUsed',
-    'WaterSuppression': 'PVM_WsOnOff (OnOff)',
-    'WaterSuppressionTechnique': 'PVM_WsMode (NO_SUPPRESSION/CHESS/VAPOR)',
-    'B0ShimmingTechnique': 'compose PVM_ReqShimEnum + PVM_MapShimUseShims',
-    'B1ShimmingTechnique': 'PVM_TxCoilScMode1 + PVM_TxCoilAmpScaling1 -- pTx systems only',
-    'ContrastBolusIngredient': 'VisuContrastIngredients -- PV360 only; the PV6 header '
-                               'defines the enum but no parameter binds it',
-    'DelayTime': 'PackDel (ms -> s), the EPI inter-volume delay; its floor of 0.001 ms '
-                 'means "none"',
-    'DelayAfterTrigger': 'PVM_TriggerDelay (ms -> s), gated on PVM_TriggerModule == On',
+                   'VisuCardiacSynchUsed / VisuRespSynchUsed into DICOM (0018,0022) codes. '
+                   'ParaVision itself leaves that DICOM tag empty on PV5.1/PV6, so the '
+                   'code composition would be ours to invent',
+    'B1ShimmingTechnique': 'PVM_TxCoilScMode1 is AutoAdj in all 342 corpus files -- a '
+                           'transmit-coil scaling adjustment, not B1 shimming, which needs '
+                           'a pTx system the corpus has no example of',
+    'ContrastBolusIngredient': 'VisuContrastIngredients -- PV360 only, and absent from every '
+                               'file in the corpus, so the enum transform (strip '
+                               '_INGREDIENT, _ -> space) cannot be checked',
 }
 
 #: Fields with no Bruker source, and why. Searched across the PV5.1 and PV6.0.1

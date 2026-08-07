@@ -155,10 +155,14 @@ def meta_check_express(value, *sources):
     for k, v in value.items():
         if k == 'Equation':
             continue
-        val = meta_get_value(v, *sources)
-        if isinstance(val, str):
-            val = None
-        namespace[k] = val
+        # String values reach the equation intact. They used to be replaced with
+        # None, which made every Bruker enum unusable in an equation -- and Bruker
+        # states most of its yes/no and mode parameters as enums (PVM_MagTransOnOff,
+        # VisuAcqSpoiling, PVM_WsMode). Nothing relied on the old behaviour: every
+        # equation predating this took numeric input, and one whose input is
+        # unexpectedly a string still yields None, now by raising inside eval and
+        # being caught below rather than by being blanked beforehand.
+        namespace[k] = meta_get_value(v, *sources)
     equation = value['Equation']
     if any(v is None and re.search(rf'\b{re.escape(k)}\b', equation)
            for k, v in namespace.items()):

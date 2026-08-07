@@ -243,6 +243,116 @@ def test_phase_encoding_resolves_axis_index_only(grad_encoding, axis_index):
     assert _resolve('PhaseEncodingAxis', visu=_p(VisuAcqGradEncoding=grad_encoding)) == axis_index
 
 
+# --- gap fields: mappings the corpus does not exercise end to end ------------
+
+def test_string_parameters_reach_equations():
+    """Bruker states most yes/no and mode parameters as enums, so an equation must
+    be able to read a string. They used to be replaced with None before eval."""
+    assert meta_check_express({'S': 'X', 'Equation': "S == 'On'"}, _p(), _p(X='On'), _p()) is True
+
+
+@pytest.mark.parametrize(('params', 'expected'), [
+    ({'PVM_MagTransOnOff': 'On'}, True),
+    ({'PVM_MagTransOnOff': 'Off'}, False),
+    ({'PVM_SatTransOnOff': 'On'}, True),        # PV360 spelling
+    ({}, None),
+])
+def test_mt_state(params, expected):
+    assert _resolve('MTState', method=_p(**params)) is expected
+
+
+@pytest.mark.parametrize(('spoiling', 'state', 'type_'), [
+    ('NotSpoiled', False, None),
+    ('RFSpoiled', True, 'RF'),
+    ('GradientSpoiled', True, 'GRADIENT'),
+    ('RFAndGradientSpoiled', True, 'COMBINED'),
+])
+def test_spoiling_enum_maps_onto_the_bids_enum(spoiling, state, type_):
+    """An unspoiled sequence has no spoiling *type* -- only a False state."""
+    assert _resolve('SpoilingState', visu=_p(VisuAcqSpoiling=spoiling)) is state
+    assert _resolve('SpoilingType', visu=_p(VisuAcqSpoiling=spoiling)) == type_
+
+
+@pytest.mark.parametrize(('params', 'expected'), [
+    ({'RFSpoiling': 'Yes'}, 117.0),
+    ({'RFSpoiling': 'No'}, None),
+    ({'RFSpoilerOnOff': 'On'}, 117.0),          # PV5.1 spelling
+    ({}, None),
+])
+def test_rf_spoiling_phase_increment(params, expected):
+    """117 degrees is fixed in Bruker's own sequence source, not in any parameter,
+    so it may only be emitted where the sequence declares RF spoiling on."""
+    assert _resolve('SpoilingRFPhaseIncrement', method=_p(**params)) == expected
+
+
+@pytest.mark.parametrize(('on', 'mode', 'suppressed', 'technique'), [
+    ('On', 'VAPOR', True, 'VAPOR'),
+    ('On', 'CHESS', True, 'CHESS'),
+    ('On', 'NO_SUPPRESSION', False, None),   # 14 real files look like this
+    ('Off', 'VAPOR', False, None),           # and 2 look like this
+    ('Off', 'NO_SUPPRESSION', False, None),
+])
+def test_water_suppression_needs_both_the_flag_and_the_mode(on, mode, suppressed, technique):
+    """The flag and the mode disagree in real data, so neither alone is safe."""
+    params = {'PVM_WsOnOff': on, 'PVM_WsMode': mode}
+    assert _resolve('WaterSuppression', method=_p(**params)) is suppressed
+    assert _resolve('WaterSuppressionTechnique', method=_p(**params)) == technique
+
+
+@pytest.mark.parametrize(('pack_del', 'expected'), [
+    (5.0, 0.005), (0.001, None), (0, None),   # ParaVision floors the parameter at 0.001 ms
+])
+def test_delay_time_treats_the_parameter_floor_as_no_delay(pack_del, expected):
+    assert _resolve('DelayTime', method=_p(PackDel=pack_del)) == expected
+
+
+@pytest.mark.parametrize(('module', 'expected'), [('On', 0.002), ('Off', None)])
+def test_delay_after_trigger_is_gated_on_the_trigger_module(module, expected):
+    """PVM_TriggerDelay keeps its last value when the module is off."""
+    assert _resolve('DelayAfterTrigger',
+                    method=_p(PVM_TriggerModule=module, PVM_TriggerDelay=2)) == expected
+
+
+@pytest.mark.parametrize(('ppi', 'out_of_plane', 'technique'), [
+    ([1, 1], None, None),           # 2D, unaccelerated: no slice axis at all
+    ([1, 2], None, 'GRAPPA'),       # 2D, accelerated in plane
+    ([1, 1, 1], 1.0, None),         # 3D, unaccelerated
+    ([1, 1, 2], 2.0, 'GRAPPA'),     # 3D, accelerated through plane
+])
+def test_parallel_imaging_from_encppi(ppi, out_of_plane, technique):
+    """PVM_EncPpi has one element per logical axis: 2 in 2D, 3 in 3D."""
+    assert _resolve('ParallelReductionFactorOutOfPlane',
+                    method=_p(PVM_EncPpi=np.array(ppi))) == out_of_plane
+    assert _resolve('ParallelAcquisitionTechnique',
+                    method=_p(PVM_EncPpi=np.array(ppi))) == technique
+
+
+@pytest.mark.parametrize(('params', 'excitation', 'preparation'), [
+    ({'PVM_RepetitionTime': 100}, 0.1, None),
+    # MDEFT: PVM_RepetitionTime IS the segment TR, so the excitation TR is EchoRepTime
+    ({'PVM_RepetitionTime': 4000, 'SegmRepTime': 4000, 'EchoRepTime': 15}, 0.015, 4.0),
+])
+def test_repetition_times_of_a_prepared_sequence(params, excitation, preparation):
+    assert _resolve('RepetitionTimeExcitation', method=_p(**params)) == excitation
+    assert _resolve('RepetitionTimePreparation', method=_p(**params)) == preparation
+
+
+@pytest.mark.parametrize(('te', 'te1', 'te2'), [
+    ([1.537, 5.537], 0.001537, 0.005537),   # real PV5.1 FieldMap values
+    ([4.0], None, None),                    # single echo is not a phase-difference map
+])
+def test_fieldmap_echo_times(te, te1, te2):
+    """EffectiveTE, not PVM_EchoTime -- the latter is echo *spacing* for FieldMap."""
+    from brkraw_legacy.lib.reference import FIELDMAP_META_REF
+
+    def resolve(field):
+        return meta_get_value(FIELDMAP_META_REF[field], _p(),
+                              _p(EffectiveTE=np.array(te)), _p())
+
+    assert resolve('EchoTime1') == te1
+    assert resolve('EchoTime2') == te2
+
+
 # --- dummy scans, across ParaVision versions ---------------------------------
 
 @pytest.mark.parametrize(('params', 'expected'), [
