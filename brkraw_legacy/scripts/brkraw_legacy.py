@@ -801,11 +801,22 @@ def recordParticipant(participant_rows, session_rows, dset, subj_code, filtered_
 
     subject = dset.subject
     participant_rows.append(tabular.participant_row(subject, subj_code))
-    if tabular.is_non_human(subject):
-        warnings.warn(
-            f'{subj_code}: ParaVision reports a non-human subject, but records no '
-            'species name. BIDS reads an absent species as "homo sapiens", so set '
-            'the species column in participants.tsv before sharing this dataset.')
+    # The taxon comes from the subject frame the scan was acquired in, read per
+    # scan -- never from the study `subject` file, which says Human on every PV5.1
+    # study regardless of specimen.
+    converted = filtered_dset.dropna(subset=['FileName'])
+    if len(converted):
+        first = converted.iloc[0]
+        try:
+            visu_pars = dset.get_visu_pars(first.ScanID, first.RecoID)
+        except Exception:
+            visu_pars = None
+        if tabular.is_non_human(visu_pars):
+            warnings.warn(
+                f'{subj_code}: acquired in the rodent (quadruped) subject frame, so '
+                'the subject is not human -- but ParaVision records no species name. '
+                'BIDS reads an absent species as "homo sapiens", so set the species '
+                'column in participants.tsv before sharing this dataset.')
     if include_session:
         acquired = tabular.session_date(subject)
         for sess_id in filtered_dset['SessID'].dropna().unique():

@@ -11,6 +11,7 @@ ragged across subjects.
 import datetime as dt
 import re
 
+from .subject_orient import uses_quadruped_frame
 from .utils import get_value
 
 #: participants.tsv columns, in order.
@@ -147,18 +148,29 @@ def age_years(subject):
     return round(days / 365.25, 3) if days >= 0 else None
 
 
-def is_non_human(subject):
-    """True when ParaVision says the subject is not human.
+def is_non_human(visu_pars):
+    """True when the subject is not in the primate frame, i.e. cannot be human.
 
     Worth knowing because BIDS assumes ``homo sapiens`` when `species` is absent,
-    which is the wrong default for almost everything this converter is pointed at.
+    which is the wrong default for nearly everything this converter is pointed at.
+
+    The subject frame is where that information lives -- ParaVision's coordinate
+    system is chosen per specimen (PV6.0.1 manual S1.3.6: Rodent for quadrupeds,
+    Primate for bipeds, Material for phantoms) -- so the taxon falls out of the
+    orientation the scan was acquired in.
+
+    Read per scan from ``VisuSubjectType`` and resolved by ``uses_quadruped_frame``,
+    the same rule the affine uses, rather than from the study ``subject`` file.
+    That distinction is not pedantic: PV5.1 cannot express a subject type and
+    writes ``SUBJECT_type=Human`` for every study regardless of specimen, so
+    trusting it would report human for the rodent data that makes up most of PV5.1.
+    ``uses_quadruped_frame`` already treats an absent type as rodent, a rule
+    validated against paired PV5.1/PV6 acquisitions of one phantom.
+
+    A True answer is definite -- a quadruped is not homo sapiens. A False answer
+    only narrows it to a primate, so it still yields no binomial name.
     """
-    subject_type = get_value(subject, 'SUBJECT_type')
-    if subject_type is None:
-        return False
-    # PV5.1: Human/Animal/Phantom/Other. PV6+: Biped/Quadruped/Phantom/Other/
-    # OtherAnimal -- the enum identity changed between versions, so match by name.
-    return str(subject_type).strip().lower() not in ('human', 'biped')
+    return uses_quadruped_frame(get_value(visu_pars, 'VisuSubjectType'))
 
 
 def participant_row(subject, participant_id):

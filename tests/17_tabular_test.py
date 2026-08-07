@@ -101,12 +101,29 @@ def test_age_absent_when_either_half_is_missing(params, expected):
 
 
 @pytest.mark.parametrize(('subject_type', 'expected'), [
-    ('Human', False), ('Biped', False),                     # PV5.1 / PV6+ human
-    ('Quadruped', True), ('Animal', True), ('OtherAnimal', True), ('Phantom', True),
+    ('Biped', False),                                            # primate frame
+    ('Quadruped', True), ('OtherAnimal', True), ('Other', True), ('Phantom', True),
+    (None, True),                                                # PV5.1: no type at all
 ])
-def test_non_human_detected_across_both_enum_generations(subject_type, expected):
-    """SUBJECT_TYPE_TYPE changed identity between PV5.1 and PV6, so match by name."""
-    assert tabular.is_non_human(_p(SUBJECT_type=subject_type)) is expected
+def test_non_human_read_from_the_subject_frame(subject_type, expected):
+    """The taxon comes from the frame the scan was acquired in, per scan.
+
+    An absent type means rodent, matching the affine's own rule -- which is why
+    PV5.1, where VisuSubjectType does not exist, resolves to non-human.
+    """
+    visu = _p() if subject_type is None else _p(VisuSubjectType=subject_type)
+    assert tabular.is_non_human(visu) is expected
+
+
+def test_non_human_ignores_the_pv51_subject_file():
+    """PV5.1 writes SUBJECT_type=Human for every study regardless of specimen.
+
+    Reading it would report human for the rodent data that is most of PV5.1 --
+    the same trap test_pv5_subject_type_not_taken_from_subject_file guards for
+    geometry. A PV5.1 scan has no VisuSubjectType, so it must resolve to non-human
+    even when the study subject file shouts Human.
+    """
+    assert tabular.is_non_human(_p(SUBJECT_type='Human')) is True
 
 
 def test_species_is_written_as_na_rather_than_omitted():
