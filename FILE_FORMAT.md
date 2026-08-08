@@ -16,15 +16,21 @@ file-format manual and the on-disk parameter file disagree on spelling (e.g. the
 The core format (directory layout, JCAMP-DX parameter files, `fid`/`2dseq` binary layouts)
 follows the Bruker manuals and headers. The ParaVision 360 specifics follow that version's own
 Programming & Administration manual — chapter "Data Formats" (§4.12 in the 3.6/3.7 manuals) and
-"ParaVision Parameters" (§4.13) — cross-checked against the Bruker-released ParaVision 360
-standard datasets for 360.3.5, 360.3.6 and 360.3.7.
+"ParaVision Parameters" (§4.13) — cross-checked against real ParaVision 360 data: the public
+PV360 3.6 standard-protocol set
+([github.com/cecilyen/PV360_StdData](https://github.com/cecilyen/PV360_StdData)), the PV360 3.4
+scan in the MRIReco.jl test data
+([media.tuhh.de/ibi/mrireco/MRIRecoTestData.tar.gz](http://media.tuhh.de/ibi/mrireco/MRIRecoTestData.tar.gz)),
+and — where marked — Bruker's PV360 standard datasets for 360.3.5 and 360.3.7 (PCI community
+download; Bruker login required).
 
 Two classes of statement here are **not** manual-derived, and are marked as such where they
 appear: the sequence-specific auxiliary files that no Bruker manual covers (`traj`, `b0`,
-`fid.spiral`, `fid.navFid`, `trace.*` and `*.flt` — see
+`fid.navFid`, `trace.*` and `*.flt` — see
 [Section 3.5](#35-method-specific-auxiliary-files); note `rawdata.Navigator` and
-`rawdata.DriftCompensation` *are* documented, for PV360), and the size formulas, which are derived
-from the documented layouts rather than quoted.
+`rawdata.DriftCompensation` *are* documented for PV360, and `fid.spiral`'s content and
+acquisition order are documented in the PV5.1 Method Descriptions manual), and the size formulas,
+which are derived from the documented layouts rather than quoted.
 
 ## Table of Contents
 
@@ -55,6 +61,8 @@ from the documented layouts rather than quoted.
   - [5.4 Geometry and Orientation](#54-geometry-and-orientation)
   - [5.5 Phase Encoding](#55-phase-encoding)
   - [5.6 Patient Position](#56-patient-position)
+  - [5.7 Identification and Timing (ACQ_INFO)](#57-identification-and-timing-acq_info)
+  - [5.8 ATS Parameters (PV360)](#58-ats-parameters-pv360)
 - [6. RECO Parameters (Reconstruction)](#6-reco-parameters-reconstruction)
   - [6.1 Processing Mode](#61-processing-mode)
   - [6.2 Input Reordering](#62-input-reordering)
@@ -78,6 +86,7 @@ from the documented layouts rather than quoted.
   - [7.8 Equipment Parameters (VisuEquipment)](#78-equipment-parameters-visuequipment)
   - [7.9 Acquisition Parameters (VisuAcquisition)](#79-acquisition-parameters-visuacquisition)
   - [7.10 Slice Packages](#710-slice-packages)
+  - [7.11 Coil Parameters (VisuCoilTransmit/VisuCoilReceive)](#711-coil-parameters-visucoiltransmitvisucoilreceive)
 - [8. D3/d3proc Parameters (Legacy Image Display)](#8-d3d3proc-parameters-legacy-image-display)
 - [9. Subject File](#9-subject-file)
 - [10. Image Reconstruction Pipeline](#10-image-reconstruction-pipeline)
@@ -111,22 +120,45 @@ The three levels are the **Study** (`<name>/`, one per session), the **experimen
 image series each). The full path to a reconstruction is
 `<DataPath>/<name>/<expno>/pdata/<procno>`.
 
+Not everything about a study is on disk: from PV6 on, part of the study description lives only in
+the ParaVision database — the PV360 manual states that some information "cannot be accessed from
+outside the ParaVision graphical user interface" (§4.12). `ScanProgram.scanProgram` is the piece
+of that database record which is exported to a file.
+
 ### 1.1 Study Level
 
 ```
 <StudyDir>/
     subject                    # Subject/patient and study parameters (SUBJECT group)
     AdjStatePerStudy           # Info about the last per-study adjustments (AdjStatePerStudy group)
-    AdjResult/                 # One subdir per adjustment result, each holding result.jcamp [PV6+; absent from PV5.1 D12 Table 12.2]
+    AdjResult/                 # One subdir per adjustment result, each holding result.jcamp [documented from PV6 — not in PV5.1 D12 Table 12.2, but observed written by PV5.1 itself, see below]
     ResultState                # References to adjustment results (AdjResult group) [PV6+]
     ScanProgram.scanProgram    # Scan-program info from the database (XML) [PV6+; valid only once the study is complete]
     study.MR                   # MRI study hardware context (MR Extended STUDY_MODALITY) [PV360]
     study.PT                   # PET study hardware context (PET Extended STUDY_MODALITY) [PV360]
-    AdjProtocols/              # Protocol parameter files for performed adjustments [PV360]
+    AdjProtocols/              # Protocol parameter files for performed adjustments [PV360; on-disk spelling — manual Table 4.4 spells it AdjProtocol]
+    Mapshim/<n>/               # [observed, PV7] MapShim work directory: Smat/Cmat shim matrices (.bin + .asc), ShimStatistics.txt, shimstat-report.parfile, LSSU-Regularization.txt (Zenodo 20429962)
     1/                         # First experiment (EXPNO=1)
     2/                         # Second experiment (EXPNO=2)
     ...
 ```
+
+> **`AdjResult/` predates its documentation.** The PV5.1 File Formats manual's study table (D12
+> Table 12.2) lists only `subject` and `AdjStatePerStudy`, but the public PV5.1 study
+> ([Zenodo 4048286](https://zenodo.org/records/4048286)) carries
+> `AdjResult/<OID>/result.jcamp` files whose own `$$` source-path comments show them written
+> under `/opt/PV5.1/` — so a reader should accept `AdjResult/` in PV5.1 data. `ResultState` and
+> `ScanProgram.scanProgram` are absent from that study, consistent with those being genuinely
+> PV6+.
+
+On PV360, `study.MR` holds `MR_study_coil_configuration` (a coil-configuration identifier, max
+64 chars), `MR_study_gradient_system` and
+`MR_study_shim_system` (BIS hardware-description strings; PV360 manual §4.13.2.3.1), and
+`study.PT` holds `PT_study_isotope`, `PT_study_compound` and `PT_study_assay_time` (§4.13.2.3.2).
+The adjustment *definitions* live in `configscan`'s ADJUSTMENT_GROUP (`AdjConfigurationMode`,
+`AdjListPerScan`/`AdjListOnDemand` — `AdjContext` structs whose `onDemandResultType` places each
+result at global/user/study/scan scope, which is what the `AdjResult/` subdirectories and
+`ResultState` references realise; PV360 manual §4.13.4.1.1).
 
 The study directory name is created by ParaVision. Its maximum length is **64 characters in PV6
 and PV360** (`<DataPath>/<name>/<expno>/pdata/<procno>`, default `<DataPath>` =
@@ -150,8 +182,8 @@ Each experiment directory (numbered starting from 1) contains the acquisition da
     fid                    # Raw acquisition data (binary) - non-job-based acquisition
     rawdata.job0           # Job-based raw data (binary) [PV6+]
     rawdata.job1           # Additional raw data jobs [PV6+]
-    pulseprogram           # Pulse program source code (created when acquisition completes)
-    spnamN                 # Shape pulse definitions used during acquisition (N = 0,1,2,...)
+    pulseprogram           # Pulse program source code (created when acquisition completes) [PV5.1–PV7 on disk; PV360 writes pulseprogram.precomp instead, see Section 13.1]
+    spnamN                 # Shape pulse definitions used during acquisition (N = 0,1,2,...) — JCAMP-DX 5.00 Shape Data, not a 4.24 parameter list (see the note in Section 2.1)
     configscan             # Scan-specific configuration, e.g. coil and operation mode (CONFIG_SCAN) [PV6+]
     AdjStatePerScan        # Info about the last per-scan adjustments (AdjStatePerScan group)
     AdjRefgProfiles.dat    # [observed] Adjustment reference profiles (binary, when reference scans run)
@@ -160,6 +192,8 @@ Each experiment directory (numbered starting from 1) contains the acquisition da
     specpar                # [observed] Spectrometer parameters
     visu_pars              # (Experiment-level) Visu parameters - documented for PV360; used when the image is not reconstructed
     traj                   # [observed] k-space trajectory (binary, float64) - non-Cartesian methods (UTE/ZTE/Spiral)
+    PowAdjustment/<n>/Results     # [observed, PV7] per-adjustment JCAMP results written by power adjustments (ActChan, SESumProfile, STESumProfile, ...) — Zenodo 20429962
+    SetupPulsePower/<n>/Profiles  # [observed, PV7] pulse-power adjustment profiles (same study)
     pdata/                 # Processing data directory
         1/                 # First reconstruction (PROCNO=1)
         2/                 # Second reconstruction (optional)
@@ -198,13 +232,15 @@ Each reconstruction directory contains the processed image data:
     visu_pars              # Visualization parameters (Visu group)
     reco                   # Reconstruction input/output parameters (RECO group)
     methreco               # Method-specific reconstruction input (MethodRecoGroup) [PV6, some reconstructions only]
-    id                     # Unique dataset identification (DATASET_ID)
+    id                     # Unique dataset identification (DATASET_ID group: DATASET_KEY; PV360 adds DATASET_Modality and DATASET_ExperimentValid)
     procs                  # Extra processing parameters (PROC group, for TopSpin)
+    pvmeta                 # Small native JCAMP file (group PV_META, e.g. RefCopyId) [PV6+, optional; see Section 13.2]
     d3proc                 # Legacy image display parameters (D3 group) [PV5: every PROCNO; PV6: legacy/derived PROCNOs only]
     meta                   # ParaVision/TopSpin marker via MAGIC NUMBER [PV5, legacy]
     roi                    # Region-of-interest definitions (ROI group)
     isa                    # Image Sequence Analysis tool status (ISA group)
-    fun/                   # Functional imaging tool files (directory)
+    fun/                   # Functional imaging tool files (directory) — observed contents: default.frm, default.slc, default.stm (Zenodo 4048286)
+    dicom/                 # DICOM export directory (written on export, not at reconstruction) — see below
 ```
 
 > **PV5 vs PV6:** In ParaVision 5.x every PROCNO carries a `d3proc` (and a `meta`), as the D3
@@ -220,6 +256,35 @@ Each reconstruction directory contains the processed image data:
 > reading image data is therefore `2dseq` + `visu_pars`; expect `reco` for primary
 > reconstructions only.
 
+**Auxiliary PROCNO parameter files.** The smaller files above hold:
+
+- **`procs`** — the TopSpin PROC status parameters: spectrometer frequency `SF`, `OFFSET`, and
+  the processed min/max `YMIN_p`/`YMAX_p` (the pair the parameter manuals document under the D3
+  Image Scaling section, see
+  [Section 8](#8-d3d3proc-parameters-legacy-image-display) — on disk it appears in `procs`, not
+  in `d3proc`). After a TopSpin export, `BYTORDP`
+  (processed-data byte order) and `XDIM` (submatrix size) in `procs`/`proc2s` govern the
+  TopSpin-side processed files (XWIN-NMR `fileform` §15). ParaVision itself does not read them,
+  and PV360 no longer writes the file.
+- **`roi`** — geometry definitions of drawn ROIs. The `ROI_*` members the parameter manuals
+  document (`ROI_identifier`, `ROI_area`, `ROI_mean_source_value`, …) are statistics of the
+  Image Display & Processing viewport, valued only while the ROI tool is open (PV5.1 D13
+  §13.4.11.4 / PV6 D02 §2.4.10.4) — do not expect them in the file.
+- **`isa`** — the ISA group records which frames were analysed (`ISA_first_image`,
+  `ISA_num_images`, `ISA_image_incr`), the fit function (`ISA_func_name`, `ISA_func_descr`,
+  `ISA_x_axis`) and fit controls (`ISA_tolerance`, `ISA_max_iter`, `ISA_scaling`) — PV5.1 D12
+  Table 12.4 + D09 (PV6: D05). The resulting maps are labelled via `FG_ISA` /
+  `VisuFGElemComment` (see [Section 7.4](#74-frame-groups-visuframeorderdesc)).
+- **`dicom/`** — DICOM images written on *export*, not at reconstruction. PV5.1 names frames
+  `MRIm<N>` (ExportType `MRExport`) or `PvMRIm<N>` (`PvMRExport`) — PV5.1 O12 Data Manager
+  §12.9. PV6/PV7 write `EnIm<N>.dcm` for multi-frame and `MRIm<N>.dcm` for single-frame objects
+  — the multi-frame name matches the PV360 manual's export naming (`<Type>` = `EnIm`), while the
+  single-frame name keeps the PV5.1 `MRIm` prefix (PV360's single-frame `<Type>` is plain `Im`,
+  i.e. `Im<N>.dcm`). Observed publicly across PV6.0.1 and PV7 datasets
+  ([Zenodo 4522220](https://zenodo.org/records/4522220),
+  [gitlab.com/naveau/bruker2nifti_qa](https://gitlab.com/naveau/bruker2nifti_qa),
+  [Zenodo 3823441](https://zenodo.org/records/3823441)).
+
 ---
 
 ## 2. Parameter File Format (JCAMP-DX)
@@ -230,19 +295,22 @@ All parameter files (`acqp`, `method`, `reco`, `visu_pars`, `d3proc`, `subject`,
 
 Each file begins with a header and ends with a terminator:
 
+This example is the (elided) header of a real public PV360 3.6 `acqp`
+([github.com/cecilyen/PV360_StdData](https://github.com/cecilyen/PV360_StdData), `T1_FLASH`):
+
 ```
-##TITLE=Parameter List, ParaVision 360 V3.7
+##TITLE=Parameter List, ParaVision 360 V3.6
 ##JCAMPDX=4.24
 ##DATATYPE=Parameter Values
 ##ORIGIN=Bruker BioSpin GmbH & Co. KG
 ##OWNER=nmrsu
 $$ Write Options: Symbolic Enums, RLE encoded arrays, symbol visibility
-$$ 2025-08-14 10:32:15.223 +0200  nmrsu@czc1517bc3
-$$ /opt/nmrdata/PV-360.3.7/data/nmrsu/20250814_100419_.../23/acqp
-$$ process /opt/.../prog/bin/parxserver
+$$ 2024-07-25 09:18:04.415 +0200  nmrsu@host
+$$ /opt/nmrdata/PV-360.3.6/data/nmrsu/20240725_090212_..._1_1/4/acqp
+$$ process /opt/PV-360.3.6/prog/bin/parxserver
 ...parameter definitions, interleaved with $$ comments...
 ##END=
-$$ File finished by PARX at 2025-08-14 10:32:15.226 +0200
+$$ File finished by PARX at 2024-07-25 09:18:04.417 +0200
 ```
 
 Three details of this envelope matter to a parser:
@@ -257,8 +325,13 @@ Three details of this envelope matter to a parser:
   TopSpin-written files in any version. Do not treat `##END=` as EOF, and do not reject a file
   that has content after it.
 - **`##ORIGIN` is not a stable identifier.** PV5.1 through PV360 3.5 write
-  `Bruker BioSpin MRI GmbH`; PV360 3.6 and later write `Bruker BioSpin GmbH & Co. KG`. `##OWNER`
-  is the writing account name, unquoted. Match on neither.
+  `Bruker BioSpin MRI GmbH`; PV360 3.6 and later write `Bruker BioSpin GmbH & Co. KG`. The old
+  form is verified in public PV5.1 ([Zenodo 4048286](https://zenodo.org/records/4048286)),
+  PV6.0.1 ([Zenodo 4048253](https://zenodo.org/records/4048253)) and PV360 3.4 (MRIReco.jl test
+  data) files, the new form in the public PV360 3.6 set
+  ([github.com/cecilyen/PV360_StdData](https://github.com/cecilyen/PV360_StdData)); that 3.5 is
+  the last old-form version is observed in Bruker's login-gated 360.3.5 standard dataset.
+  `##OWNER` is the writing account name, unquoted. Match on neither.
 
 Individual parameters are encoded as Labelled Data Records (LDR):
 
@@ -273,6 +346,15 @@ The `##$` prefix indicates a private (application-specific) parameter. Standard 
 > `##TITLE=Parameter List`. The `##$` parameter syntax is otherwise identical, so
 > do not rely on `##TITLE` to detect the version — use `VisuCreatorVersion` /
 > `ACQ_sw_version` instead.
+
+> **Not every JCAMP file in a dataset is a 4.24 parameter list.** The `spnamN` shape-pulse files
+> are **JCAMP-DX 5.00 "Shape Data"** (XWIN-NMR `fileform` §15.7): a header of standard labels
+> (`##JCAMP-DX= 5.00`, `##DATA TYPE= Shape Data`, `##MINX`/`##MAXX`/`##MINY`/`##MAXY`), the
+> shape descriptors `##$SHAPE_EXMODE` / `_TOTROT` / `_BWFAC` / `_INTEGFAC` / `_REPHFAC` /
+> `_TYPE` / `_MODE`, then `##NPOINTS` and an `##XYPOINTS= (XY..XY)` record of one
+> comma-separated amplitude/phase pair per line (observed in the public PV6.0.1 study,
+> [Zenodo 4048253](https://zenodo.org/records/4048253), `12/spnam1`). A parser assuming the
+> `##$`-only parameter-list structure above fails on them.
 
 ### 2.2 Data Types
 
@@ -298,9 +380,11 @@ type — an integer-looking value may be a `double`. Take the type from the para
 not from the text.
 
 **Encoding.** Although JCAMP-DX is nominally an ASCII standard, ParaVision 360 writes parameter
-files as **UTF-8**, and string values may contain non-ASCII characters — Bruker's own standard
-T2-map dataset writes `<σ of Signal Intensity>` and `<Fit χ²>` in `VisuFGElemComment`. Decode as
-UTF-8, and do not assume one byte per character when working with the declared maximum length.
+files as **UTF-8**, and string values may contain non-ASCII characters — the public PV360 3.6
+T2-map scan ([github.com/cecilyen/PV360_StdData](https://github.com/cecilyen/PV360_StdData),
+`T2map_MSME/pdata/2/visu_pars`) writes `<σ of Signal Intensity>` and `<Fit χ²>` in
+`VisuFGElemComment`. Decode as UTF-8, and do not assume one byte per character when working with
+the declared maximum length.
 
 **Time values (`pvtime_t`).** PV6 D01 §1.2 lists the value kinds as "int, double, a string, an
 array value or a structure" and omits the time type, but PV6.0.1 already **declares** `ACQ_time`
@@ -320,12 +404,14 @@ separate human-readable display name:
 ##$VisuCoreByteOrder=littleEndian               # bare symbolic name — the usual form
 ##$Method=<Bruker:FLASH>                        # namespaced value — PV6+/PV360 (PV5.1 writes the bare  ##$Method=FLASH )
 ##$parname=(<EnumValue>, <EnumDisplayName>)     # name + display name (PV6+)
-##$CONFIG_SCAN_operation_mode=(<$Bis,1,...>, <[1H] TX Volume>)
+##$CONFIG_SCAN_operation_mode=(<$Bis,1,...>, <[1H] TX Volume Array, RX Surface Array>)
 ```
 
 **Bracketing is per-parameter, not per-version.** The bare form remains the majority form in PV6
-and PV360 — a single PV360 `visu_pars` writes `##$VisuInstanceType=STANDARD_INSTANCE`,
-`##$VisuCoreWordType=_16BIT_SGN_INT` and `##$VisuCoreByteOrder=littleEndian` unbracketed, and the
+and PV360 — the public PV360 3.6 `T1_FLASH` `visu_pars`
+([github.com/cecilyen/PV360_StdData](https://github.com/cecilyen/PV360_StdData)) writes
+`##$VisuInstanceType=STANDARD_INSTANCE`, `##$VisuCoreWordType=_16BIT_SGN_INT` and
+`##$VisuCoreByteOrder=littleEndian` unbracketed, and the
 only `=<...>` values in that file are timestamps, not enums. Angle brackets appear where the value
 is a namespaced or dynamic identifier (`<Bruker:FLASH>`, `<$Bis,1,...>`), and the `(name,
 display-name)` tuple where the enum carries a separate display name. A parser must accept all
@@ -337,9 +423,10 @@ interpretation, their order.
 
 > **Parsing note — strings are opaque, and you must mask them.** The text inside `<...>` is
 > free-form and may contain characters that are otherwise structural, including `(`, `)` and `,`.
-> A frame-group comment can read `<T2 relaxation: y=A+C*exp(-t/T2)>`, and Bruker's own ParaVision
-> 360 standard dataset writes `<Parameter maps T2 relaxation, bg: Otsu.>` — **a comma followed by
-> a space inside a string**.
+> A frame-group comment can read `<T2 relaxation: y=A+C*exp(-t/T2)>`, and the public PV360 3.6
+> T2-map scan ([github.com/cecilyen/PV360_StdData](https://github.com/cecilyen/PV360_StdData),
+> `T2map_MSME/pdata/2/visu_pars`) writes `<Parameter maps T2 relaxation, bg: Otsu.>` — **a comma
+> followed by a space inside a string**.
 >
 > That last case matters because it rules out the shortcut. ParaVision does write struct/array
 > separators as the two-character sequences `", "` and `") "`, so a tokenizer that splits only on
@@ -357,7 +444,10 @@ interpretation, their order.
 > Relaxation Time> <Fit χ²> <Fit Valid>
 > ```
 >
-> Here `<σ of T2 Relaxation Time>` is split across the newline. A line-at-a-time tokenizer
+> Here `<σ of T2 Relaxation Time>` is split across the newline (from the same public
+> `T2map_MSME/pdata/2/visu_pars`; on disk the wrapped line ends with a **trailing space** before
+> the newline, which is what makes plain newline-removal reassemble the string correctly). A
+> line-at-a-time tokenizer
 > mis-parses this; concatenate the whole value block first.
 
 ### 2.3 Array and Struct Encoding
@@ -429,14 +519,15 @@ to have static length, so the indicator would be redundant.
 **Run-length encoding (ParaVision 360).** PV360 compresses runs of equal values as `@N*(value)`,
 meaning *N* repetitions of *value*. The file announces it in its own header
 (`$$ Write Options: Symbolic Enums, RLE encoded arrays, symbol visibility`), and it appears both
-in top-level arrays and inside struct fields:
+in top-level arrays and inside struct fields — both examples from the public PV360 3.6
+`T1_FLASH` `acqp` ([github.com/cecilyen/PV360_StdData](https://github.com/cecilyen/PV360_StdData)):
 
 ```
 ##$ACQ_branch_preload=( 10, 2 )
 @18*(1000000) 500 500
 
 ##$ACQ_RfShapes=( 64 )
-(<$ExcPulse1Shape>, 16.115141070475755, 0, 0.5, 1, 0 100 100 @21*(0), 0 0 90
+(<$ExcPulse1Shape>, 65.353359982412812, 0, 0.5, 1, 0 100 100 @21*(0), 0 0 90
 @21*(0)) (<>, 0, 0, 0.5, 0, @24*(0), @24*(0)) ...
 ```
 
@@ -478,9 +569,22 @@ Parameters belong to classes that define their scope and behavior. Key parameter
 | GO | `acqp` (subclass of ACQP) | GOP acquisition pipeline control — **PV5.1/PV6/PV7 only** |
 | GS | `acqp` (subclass of ACQP) | GSP / GS_Auto setup pipeline parameters — **PV5.1/PV6/PV7 only** |
 
-ParaVision 360 writes **no** `GO_*` or `GS_*` parameter at all (zero occurrences in the acqp of
-Bruker's released 360.3.x datasets), so a reader must not depend on `GO_raw_data_format` or
+ParaVision 360 writes **no** `GO_*` or `GS_*` parameter at all — zero occurrences in the `acqp`
+of the public PV360 3.6 standard-protocol scans
+([github.com/cecilyen/PV360_StdData](https://github.com/cecilyen/PV360_StdData)), the public
+PV360 3.4 CS-FLASH scan (MRIReco.jl test data), and Bruker's 360.3.5–360.3.7 standard datasets —
+so a reader must not depend on `GO_raw_data_format` or
 `GO_block_size` being present — see [Section 13.1](#131-paravision-360-v3x).
+
+**Out-of-scope parameter classes.** The parameter reference manuals additionally document
+classes this specification deliberately does not cover (PV5.1 D13 §13.3–13.4; PV6 D02 §2.4;
+PV360 §4.13.5.2–4). `GRADIENT_STATUS`, `SHIM_STATUS`, `SHIMS`/`SHIMSET` and `PREEMPHASIS`
+describe installation state, read from and written to files under `<PvInstDir>/conf` rather than
+into the dataset. The ACQP hardware subclasses `HIRES` and `AVANCE`,
+`ACQ_trim_values`/`GRAD_PARS`, the SCON blanking-pulse parameters, the `ACQ_BF` frequency
+mechanism, and `RECI` are spectrometer-control detail — omitted here even though many of their
+members (`DIGMOD`, `DECIM`, `SPNAM0`, `SOLVENT`, `ACQ_trim`, the GS-pipeline entries) do appear
+inside every real `acqp`.
 
 ---
 
@@ -658,7 +762,9 @@ So the two forms share their first six fields and differ only in the tail:
 | `chanNum` | — | `[7]` | RF channel the job is acquired on |
 | `title` | — | `[8]` (last) | Symbolic job name (`job0` for the main job; also the `rawdata.<title>` suffix) |
 
-Worked instances, both from real data:
+Worked instances, both from real public data (the 8-field tuple from the PV7 study,
+[Zenodo 4522220](https://zenodo.org/records/4522220), expno 38; the 9-field tuple from the PV360
+3.6 `T1_FLASH`, [github.com/cecilyen/PV360_StdData](https://github.com/cecilyen/PV360_StdData)):
 
 | Form | `ACQ_sw_version` | Example `ACQ_jobs[n]` | `scanSize` | `nStoredScans` |
 |------|------------------|-----------------------|:----------:|:--------------:|
@@ -667,8 +773,9 @@ Worked instances, both from real data:
 
 > **Do not read the scan count from `[3]`.** `[3]` is `nTotalScans`, the number of scans the
 > experiment *acquires*; `nStoredScans` is the number *written*, and the two differ whenever
-> post-acquisition averaging is in play. In the Bruker-released PV360 T1-FLASH
-> (`ACQ_jobs = (416, 9, 36, 7776, 101, 58823.5, 2592, 1, <job0>)`, `NAE = 3`) they differ by
+> post-acquisition averaging is in play. In the public PV360 3.6 `T1_FLASH`
+> ([github.com/cecilyen/PV360_StdData](https://github.com/cecilyen/PV360_StdData);
+> `ACQ_jobs = (400, 9, 18, 7776, 101, 74626.9, 2592, 1, <job0>)`, `NAE = 3`) they differ by
 > exactly the averaging factor: `7776 / 2592 = 3 = NAE`. Sizing the file from `[3]` overestimates
 > it threefold. A reader should branch on the struct **arity** (`len(ACQ_jobs[n])`), not on the
 > version string: `nStoredScans` is the **last** element of the 8-field form and `[6]` of the
@@ -703,8 +810,10 @@ ParaVision 360 allows **up to 8 jobs** per experiment; the PV6 header sets `ACQ_
 
 > **`fid` and `rawdata.jobN` may coexist:** In PV6 these are not always alternatives. Some
 > methods write **both** - e.g. the spectroscopy methods CSI, NSPECT, PRESS, STEAM and ISIS
-> write a `fid` and a `rawdata.job0` holding different contents (in one PRESS scan `fid` is
-> 32 KB while `rawdata.job0` is 2 MB), whereas IgFLASH is purely job-based
+> write a `fid` and a `rawdata.job0` holding different contents — in the public PV6.0.1 study
+> ([Zenodo 4048253](https://zenodo.org/records/4048253)) the PRESS scan (expno 35) has a
+> 32,768-byte `fid` beside a 2,097,152-byte `rawdata.job0` — whereas the same study's IgFLASH
+> scan (expno 5) is purely job-based
 > (`ACQ_jobs_size = 2`). `ACQ_jobs_size` indicates how many `rawdata.jobN` files to expect.
 
 ### 3.4 2dseq - Reconstructed Image Data
@@ -759,7 +868,8 @@ size_bytes = sizeof(word) * NR * NI * product(RECO_size[i]) * RecoNumOutputChan 
 
 > **Apply the complex factor to exactly one of these.** `VisuCoreFrameCount` **already counts the
 > imaginary frames**, so the Visu form needs no `×2` — adding one doubles the answer. `NI`/`NR` do
-> not, so the RECO form does need it. Verified against a PV7 complex reconstruction:
+> not, so the RECO form does need it. Verified against a public PV7 complex reconstruction
+> ([Zenodo 4522220](https://zenodo.org/records/4522220), STEAM expno 37, `pdata/2`):
 > `VisuCoreSize = 2048`, `VisuCoreFrameCount = 2`, `_16BIT_SGN_INT` → `2 × 2 × 2048 = 8192` bytes,
 > which is the on-disk size exactly.
 
@@ -786,10 +896,13 @@ real_value = pixel_value / RECO_map_slope + RECO_map_offset
 ```
 
 Consequently `VisuCoreDataSlope = 1 / RECO_map_slope`. This holds exactly in real data — Bruker's
-released PV360 T1-FLASH has `RECO_map_slope = 0.60257982959531287` and
-`VisuCoreDataSlope = 1.6595311540241746`, whose product is 1.0 to the last bit. Multiplying by
-`RECO_map_slope` instead of dividing makes values `slope²` too small (≈2.75× here); prefer
-the `VisuCoreDataSlope` form, which needs no inversion.
+login-gated PV360 3.7 T1-FLASH has `RECO_map_slope = 0.60257982959531287` and
+`VisuCoreDataSlope = 1.6595311540241746`, whose product is 1.0 to the last bit, and the public
+PV360 3.6 `T1_FLASH` ([github.com/cecilyen/PV360_StdData](https://github.com/cecilyen/PV360_StdData))
+agrees to within one ulp: `0.98905588699847902 × 1.0110652119312826 = 0.9999999999999999`.
+Multiplying by
+`RECO_map_slope` instead of dividing makes values `slope²` too small (≈2.75× in the 3.7 example);
+prefer the `VisuCoreDataSlope` form, which needs no inversion.
 
 ### 3.5 Method-Specific Auxiliary Files
 
@@ -799,9 +912,11 @@ Specific PVM **acquisition methods** additionally write companion binary files a
 sequences.
 
 > **Most of these files are undocumented by Bruker — but not all.** `rawdata.Navigator` and
-> `rawdata.DriftCompensation` *are* listed in the ParaVision 360 EXPNO file table, and `fid.raw` /
-> `fid.ref` / `fid.orig` are described in the PV5.1 application manuals. Everything else here —
-> `traj`, `b0`, `fid.spiral`, `fid.navFid`, `trace.*`, `*.flt` — appears in no ParaVision manual.
+> `rawdata.DriftCompensation` *are* listed in the ParaVision 360 EXPNO file table, `fid.raw` /
+> `fid.ref` / `fid.orig` are described in the PV5.1 application manuals, and `fid.spiral`'s
+> content and acquisition order are documented in the PV5.1 Method Descriptions manual (A06,
+> SPIRAL §6.25.4 and DtiSpiral §6.28.3). Everything else here —
+> `traj`, `trajDC`, `b0`, `fid.navFid`, `trace.*`, `*.flt` — appears in no ParaVision manual.
 > The toolbox headers (`PvmTypes/TrajectoryTypes.h`, `SpiralTypes.h`, `epiTypes.h`) name the
 > governing *method parameters* and their mode enums but define no file layouts, so those entries
 > are reconstructed from method parameters plus inspection of real datasets and should be read as
@@ -809,18 +924,19 @@ sequences.
 
 | File | Produced by | Description |
 |------|-------------|-------------|
-| `traj` | UTE, UTE3D, ZTE (radial), SPIRAL | K-space sampling **trajectory**, header-less binary of **64-bit floats** (`float64`). Shape `(ACQ_dim, points_per_projection, num_projections)`; for spiral the last axis is the number of interleaves (`PVM_SpiralNbOfInterleaves`). Consumed by the non-Cartesian regridding network via `RecoRegridNTrajFile` / `RecoRegridNTrajType` (see [Section 10.2](#102-multi-channel-reconstruction)) — **not** by `RECO_regrid_mode`, which is EPI gradient-ramp resampling. |
-| `fid.spiral` | SPIRAL, DtiSpiral | **The raw (as-acquired) data file** — `fid` in the same EXPNO holds the *regridded* result, so the usual roles are reversed. Acquisition order in `fid.spiral` is slices → movie frames → `NA` → interleaves (`PVM_SpiralNbOfInterleaves`) → `NR`; `fid` is then ordered slices → repetitions. Binary, same word type as `fid`. |
-| `fid.navFid` | PV5.1 IntraGate | **Navigator** echo data acquired interleaved with imaging echoes, written into the EXPNO by the IntraGate pipeline. |
+| `traj` | UTE, UTE3D, ZTE (radial), SPIRAL | K-space sampling **trajectory**, header-less binary of **64-bit floats** (`float64`). Shape `(ACQ_dim, points_per_projection, num_projections)`; for spiral the last axis is the number of interleaves (`PVM_SpiralNbOfInterleaves`). Observed publicly in PV6.0.1 3D-UTE data (MRIReco.jl test data) and the PV360 3.6 UTE3D scan ([github.com/cecilyen/PV360_StdData](https://github.com/cecilyen/PV360_StdData)). Consumed by the non-Cartesian regridding network via `RecoRegridNTrajFile` / `RecoRegridNTrajType` (see [Section 10.2](#102-multi-channel-reconstruction)) — **not** by `RECO_regrid_mode`, which is EPI gradient-ramp resampling. |
+| `trajDC` | SPIRAL, DtiSpiral (PV6+) | [observed] Second trajectory file written next to `traj` by spiral methods; header-less `float64` binary, slightly smaller than the `traj` beside it (230,400 vs 250,368 bytes in the PV6.0.1 SPIRAL scan, [Zenodo 4048253](https://zenodo.org/records/4048253) expno 23; also that study's DtiSpiral expno 24, and the PV7 DtiSpiral/SPIRAL scans, [Zenodo 4522220](https://zenodo.org/records/4522220) expnos 11/36). Mentioned in no ParaVision manual. |
+| `fid.spiral` | SPIRAL, DtiSpiral | **The raw (as-acquired) data file** — `fid` in the same EXPNO holds the *regridded* result, so the usual roles are reversed. Acquisition order in `fid.spiral` is slices → movie frames → `NA` → interleaves (`PVM_SpiralNbOfInterleaves`) → `NR`, with `fid` then ordered slices → repetitions (PV5.1 A06, SPIRAL §6.25.4 "Loop Structure"). DtiSpiral's variant inserts the diffusion loop: slices → `NA` → dummy scans → interleaves → diffusion → `NR`, `fid` ordered slices → diffusion → repetitions (A06 §6.28.3). Binary, same word type as `fid`. |
+| `fid.navFid` | PV5.1 IntraGate | **Navigator** echo data acquired interleaved with imaging echoes, written into the EXPNO by the IntraGate pipeline (observed in the public PV5.1 study, [Zenodo 4048286](https://zenodo.org/records/4048286), expno 35). |
 | `rawdata.job1` | PV6 navigator acquisition | Serially stored FIDs of each navigator scan; size = scan size × RX channels × `NA` × `NR`. Present when navigator acquisition is selected — note PV6 puts navigators in a numbered job, not a named one. |
 | `rawdata.Navigator` | PV360 | The PV360 named-job spelling of the same thing, listed in the PV360 EXPNO file table. |
 | `rawdata.DriftCompensation` | Methods running drift compensation | Raw data for the drift-compensation job; documented alongside `rawdata.job0` and `rawdata.Navigator` in the PV360 EXPNO file table. |
-| `b0` | UTE3D (PV360) | Off-resonance reference, `float64`, two values per sample over the same sample/projection grid as `traj` — see [Section 14.5](#145-trajectory-traj-size). |
+| `b0` | UTE3D (PV6+, PV360) | Off-resonance reference, `float64`, two values per sample over the same sample/projection grid as `traj` — see [Section 14.5](#145-trajectory-traj-size). Written by PV6.0.1 as well as PV360: the public PV6.0.1 3D-UTE scan (MRIReco.jl test data) carries `b0` alongside `traj` with the same 2-per-sample size ratio. |
 | `fid.orig` | Spectroscopy post-processing | Written when **Eddy Current Compensation and/or Retro Frequency Lock** is active: the original, uncorrected FID before post-processing. File size = scan size. |
-| `trace.singleData`, `trace.dualData`, `trace.infoData`, `trace.resultData` | Spectroscopy / method-debug (e.g. PRESS) | Acquisition **trace** data (the ParaVision trace/debug facility). The `trace.*Data` files are `32-bit float` binary; `trace.infoData` is a text descriptor that names the binary trace files and their data type. |
-| `*.flt` | IntraGate self-gating application/AU (not the acquisition method) | Raw binary **float arrays**, not filters. In the EXPNO: per-repetition coefficient arrays `Magnetization.flt`, `Phase.flt`, `MagSlope.flt`, `PhaseSlope.flt` with matching `*SequencePattern.flt` descriptors and a `respReference.flt`. In the PROCNO: `heartAssignment.flt` / `respAssignment.flt` and the `heartSignalCombined.flt` / `respSignalCombined.flt` / `*Demerged.flt` cardiac and respiratory self-gating signals. |
+| `trace.singleData`, `trace.dualData`, `trace.infoData`, `trace.resultData` | Spectroscopy / method-debug (e.g. PRESS) | Acquisition **trace** data (the ParaVision trace/debug facility). The `trace.*Data` files are `32-bit float` binary; `trace.infoData` is a text descriptor that names the binary trace files and their data type. Observed in the public PV5.1 study ([Zenodo 4048286](https://zenodo.org/records/4048286), PRESS expno 27). |
+| `*.flt` | IntraGate self-gating application/AU (not the acquisition method) | Raw binary **float arrays**, not filters. In the EXPNO: per-repetition coefficient arrays `Magnetization.flt`, `Phase.flt`, `MagSlope.flt`, `PhaseSlope.flt` with matching `*SequencePattern.flt` descriptors and a `respReference.flt`. In the PROCNO: `heartAssignment.flt` / `respAssignment.flt` and the `heartSignalCombined.flt` / `respSignalCombined.flt` / `*Demerged.flt` cardiac and respiratory self-gating signals. The application also writes a text `IntraGate.info` into the PROCNO — Tcl-style `set par::<name> "<value>"` lines recording the detected respiration/heart rates and gating window. All observed in the public PV5.1 study ([Zenodo 4048286](https://zenodo.org/records/4048286), expno 35). |
 | `fid.refscan` | Methods acquiring a reference scan | The accumulated reference signal, also mirrored into `PVM_RefScan`. PV5.1 spectroscopy additionally writes `fid.raw` (each individual scan, size = scan size × `NA`) and `fid.ref` (each navigator scan). |
-| `fid_proc.64`, `fid_refscan.64` | PV360 spectroscopy (e.g. PRESS) — in the **PROCNO**, not the EXPNO | Processed and reference FIDs as **64-bit doubles**, real/imaginary interleaved. Bruker's PV360 PRESS scan has `PVM_SpecMatrix = 2048` and a 32,768-byte `fid_proc.64` = 8 × 2 × 2048, i.e. one complex float64 pair per spectral point. |
+| `fid_proc.64`, `fid_refscan.64` | PV360 spectroscopy (e.g. PRESS) — in the **PROCNO**, not the EXPNO | Processed and reference FIDs as **64-bit doubles**, real/imaginary interleaved. The public PV360 3.6 `PRESS_1H` scan ([github.com/cecilyen/PV360_StdData](https://github.com/cecilyen/PV360_StdData)) has `PVM_SpecMatrix = 2048` and a 32,768-byte `fid_proc.64` = 8 × 2 × 2048, i.e. one complex float64 pair per spectral point. |
 
 > **Dataset typing convention:** the binary filename stem identifies the dataset type
 > (`fid`, `2dseq`, `rawdata`, `ser`, `traj`), and any dot-suffix identifies a subtype
@@ -863,7 +979,191 @@ ParaVision 360 renames much of this group — see [Section 9](#9-subject-file) f
 Acquisition parameters controlling the scanner. See [Section 5](#5-acqp-parameters-acquisition).
 
 #### `method`
-Method-specific parameters. Contents depend on the pulse sequence used (e.g., RARE, FLASH, EPI). Contains sequence-specific timing, contrast, and geometry parameters set by PVM methods. These parameters are method-dependent and not described here as they vary by sequence.
+
+The `method` file holds the user-level **PVM** (ParaVision Method) parameters from which the
+base-level `acqp` and `reco` parameters are derived (PV5.1 Method Programming manual D08
+§8.3–8.4). `##$Method` names the sequence — bare on PV5.1 (`##$Method=MGE`), namespaced on
+PV6+/PV360 (`##$Method=<Bruker:FLASH>`). The sequence-specific parameters vary by method, but
+the PVM common groups below appear in essentially every imaging method file, in every version
+(counts below are from 144 method files across the public PV5.1/PV6.0.1/PV7/PV360 datasets).
+The family definitions are in the PV5.1 Applications manual (A06 §6.3, "Common Parameter
+Classes"), the PV6 User Manual (§1.9.1.6) and the PV360 manual (§2.11.1.6) — near-identical text
+across versions.
+
+**Encoding (`PVM_Enc*`)** — the acquired-k-space description (PV5.1 A06 §6.3.5; PV6 User Manual
+§1.9.1.6.1; PV360 §2.11.1.6.1; programming side PV5.1 D08 §8.4.5.1). PV5.1 spells the per-axis
+members as numbered scalars (`PVM_EncOrder1`, `PVM_EncStart1`, `PVM_EncZfAccel1`,
+`PVM_EncPpiAccel1`, `PVM_EncPftAccel1`, …); PV6+/PV360 write per-dimension arrays
+(`PVM_EncOrder`, `PVM_EncStart`, `PVM_EncZf`, `PVM_EncPpi`, `PVM_EncPft`, …). Both spellings are
+listed where they differ:
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `PVM_EncMatrix` | int[dim] | Effective **acquisition** matrix: `PVM_Matrix × PVM_AntiAlias` reduced by all accelerations; sets `ACQ_size` (see the encoded-matrix note in [Section 3.1](#31-fid---raw-acquisition-data-single-experiment)) |
+| `PVM_EncSteps1`, `PVM_EncSteps2` | int[] | Phase-encode step positions in k-space, units of 1/FOV, **in acquisition order** |
+| `PVM_EncValues1` | double[] | The encoding steps scaled to the `[-1, 1]` gradient range — **stored by PV6+ only** (defined but not written by PV5.1) |
+| `PVM_EncCentralStep1` | int | Step within a segment that samples the k-space centre (effective-TE bookkeeping) |
+| `PVM_EncOrder1` (PV5.1) / `PVM_EncOrder[]` (PV6+) | enum | k-space ordering: `LINEAR_ENC` or `CENTRIC_ENC`; PV360 adds `RARE_ENC` (RARE-based methods write `( 2 ) LINEAR_ENC RARE_ENC`) and Zig-Zag (§2.11.1.6.1) |
+| `PVM_EncStart1` (PV5.1) / `PVM_EncStart[]` (PV6+) | double | Phase-encode start position, −1 (edge) … +1 |
+| `PVM_EncPpiAccel1` (PV5.1) / `PVM_EncPpi[]` (PV6+) | int | Parallel-imaging (GRAPPA) acceleration factor |
+| `PVM_EncPpiRefLines1` / `PVM_EncPpiRefLines[]` | int | Auto-calibration reference lines at the k-space centre |
+| `PVM_EncPftAccel1` / `PVM_EncPft[]` | double | Partial-Fourier acceleration, 1.0 (full) … 2.0 (half k-space) |
+| `PVM_EncPftOverscans1` / `PVM_EncPftOverscans[]` | int | Lines sampled on the truncated k-space half |
+| `PVM_EncZfAccel1` + `PVM_EncZfRead` (PV5.1) / `PVM_EncZf[]` (PV6+) | double | Zero-fill acceleration (symmetric truncation) |
+| `PVM_EncTotalAccel` | double | Product of all acceleration factors |
+| `PVM_EncNReceivers` | int | Number of active receive channels (present in 144/144 sampled files) |
+| `PVM_EncUseMultiRec`, `PVM_EncAvailReceivers`, `PVM_EncActReceivers`, `PVM_EncChanScaling` | — | Multi-receiver switch, available/active channels, per-channel scaling |
+
+PV360 additionally writes `PVM_EncCS*` (compressed sensing) and `PVM_EncGen*` (generalized
+3D/CAIPIRINHA encoding tables) — PV360 manual §2.11.1.6.1. Worked public examples:
+`##$PVM_EncOrder1=LINEAR_ENC` (PV5.1, [Zenodo 4048286](https://zenodo.org/records/4048286));
+`##$PVM_EncMatrix=( 2 ) 256 256`, `##$PVM_EncSteps1=( 256 ) -128 -127 ...`,
+`##$PVM_EncCentralStep1=1` (PV6.0.1, [Zenodo 4048253](https://zenodo.org/records/4048253)).
+
+**In-plane geometry** (PV5.1 A06 §6.3.3; PV360 §2.11.1.6 "Resolution Card"):
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `PVM_SpatDimEnum` | enum | Spatial dimensionality `1D`/`2D`/`3D` — written bare by PV5.1 (`=2D`), as a string by PV6+ (`=<2D>`) |
+| `PVM_Matrix` | int[dim] | **Reconstructed** image size per dimension; the acquired size is `PVM_EncMatrix` |
+| `PVM_Fov` | double[dim] | Field of view (mm) |
+| `PVM_SpatResol` | double[dim] | Reconstructed pixel size (mm) = `PVM_Fov / PVM_Matrix` |
+| `PVM_AntiAlias` | double[dim] | Anti-alias oversampling factor (relative object size that will not fold in) |
+| `PVM_Isotropic` + `PVM_IsotropicFovRes` | enum | Isotropy constraint on FOV/matrix/resolution. `PVM_Isotropic` exists in every version; PV6+ *adds* `PVM_IsotropicFovRes` (the documented parameter — PV6 §1.9.1.6, PV360 §2.11.1.6) and keeps writing both side by side |
+
+**Slice geometry** (PV5.1 A06 §6.3.4; types and dimensions in PV5.1 D08 §8.4.3.2 — the
+slice-package arrays have one entry per package, `PVM_ObjOrderList` has one per slice):
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `PVM_SliceThick` | double | Slice thickness (mm), profile FWHM |
+| `PVM_NSPacks` | int | Number of slice packages |
+| `PVM_SPackArrNSlices` | int[NSPacks] | Slices per package |
+| `PVM_SPackArrSliceOrient` | enum[NSPacks] | `axial`/`sagittal`/`coronal` per package |
+| `PVM_SPackArrReadOrient` | enum[NSPacks] | Read direction (`L_R`/`A_P`/`H_F`) per package |
+| `PVM_SPackArrGradOrient` | double[NSPacks][3][3] | Package orientation matrix in the gradient system |
+| `PVM_SPackArrReadOffset` / `Phase1Offset` / `Phase2Offset` / `SliceOffset` | double[NSPacks] | FOV offsets (mm) along read/phase1/phase2/slice |
+| `PVM_SPackArrSliceGap`, `PVM_SPackArrSliceGapMode` | double[NSPacks], enum | Inter-slice gap and `contiguous`/`non_contiguous` mode |
+| `PVM_SPackArrSliceDistance` | double[NSPacks] | Centre-to-centre slice spacing (D08 Table 8.10; linked to slice thickness and gap) |
+| `PVM_ObjOrderScheme` | enum | Slice excitation order: `Sequential`, `Reverse_sequential`, `Interlaced` (default — reduces cross-talk), `Reverse_interlaced`, `Angiography`, `User_defined_slice_scheme` (`PV_SLICE_SCHEME_TYPE`, `methodTypes.h`; no PV5.1/PV6/PV360 manual lists the members — the PV2.1 MicroImaging manual names most of them descriptively) |
+| `PVM_ObjOrderList` | int[total slices] | The actual excitation order — a 0-based permutation, e.g. `( 3 ) 0 2 1` |
+| `PVM_MajSliceOri` | YesNo | Restrict to pure axial/sagittal/coronal orientations |
+
+**Timing and loops** (PV5.1 A06 §6.5 "Common Parameters" and §6.3.10.1):
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `PVM_EchoTime` | double | TE (ms) |
+| `PVM_RepetitionTime` | double | TR (ms) between consecutive excitations of the same slice |
+| `PVM_NAverages` | int | Signal averages accumulated before storage |
+| `PVM_NRepetitions` | int | Repetitions of the whole experiment (the `NR`/time dimension) |
+| `PVM_NEchoImages` | int | Images with different echo times per excitation |
+| `PVM_NMovieFrames` | int | Cine/movie frames (movie methods) |
+| `PVM_DummyScans`, `PVM_DummyScansDur` | int, double | Steady-state preparation scans (not stored) and their duration (ms) — **PV6+** (PV6 User Manual "Dummy Scans"); PV5.1 methods write local names instead (`NDummyScans`, `NDummyCycles`, `DummyTime`) |
+| `PVM_ScanTimeStr` | string | Total scan duration, human-readable (`<0h1m42s400ms>`) |
+| `PVM_ScanTime` | double | Total scan duration in **ms** — **PV6+ only**; PV5.1 writes only `PVM_ScanTimeStr`. No manual documents it (declared in the PV6.0.1 header `proto/pvm_extern.h`); the millisecond unit is confirmed by `PVM_ScanTime=102400` beside `PVM_ScanTimeStr=<0h1m42s400ms>` in the public PV6.0.1 study ([Zenodo 4048253](https://zenodo.org/records/4048253)) |
+| `PVM_DeriveGains` | YesNo | Automatic RF gain calculation from flip angles |
+
+**Bandwidth and digitizer** (`PVM_EffSWh`: PV5.1 A06 §6.5; the DigitizerPars group: PV5.1 D08
+§8.4.2, which documents `PVM_DigEndDelMin`/`PVM_DigEndDelOpt` itself — the other members'
+meanings exist only in the PV5.1 header `digitizerClassDefs.h` comments):
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `PVM_EffSWh` | double | Effective readout bandwidth (Hz); equals `acqp` `SW_h`; receiver dwell time = `1/PVM_EffSWh` |
+| `PVM_DigDw` / `PVM_DigSw` | double | ADC dwell time (ms) / sampling bandwidth (Hz) — control `SW_h` |
+| `PVM_DigNp` | int | Points per scan — controls `ACQ_size[0]` |
+| `PVM_DigShift` | int | Digital-filter group delay in **points** (the leading samples of each stored scan) |
+| `PVM_DigGroupDel` | double | The same group delay in ms |
+| `PVM_DigQuad`, `PVM_DigFilter`, `PVM_DigRes`, `PVM_DigAutSet` | — | Quadrature mode (controls `AQ_mod`), DSP firmware (`DSPFIRM`), digitizer resolution (bits), auto-setup switch |
+| `PVM_DigDur`, `PVM_DigEndDelMin`, `PVM_DigEndDelOpt` | double | Acquisition-interval duration and end-of-scan delays |
+
+PV360 no longer writes the `PVM_Dig*` group (zero occurrences in the public PV360 3.6 method
+files); receiver-filter information moves to `ACQ_RxFilterInfo` / `ACQ_RxFilterSettings` in
+`acqp`. PV7 still writes the full group ([Zenodo 4522220](https://zenodo.org/records/4522220)).
+
+**EPI and segmentation** (`PVM_EpiEchoSpacing`: PV6 User Manual / PV360 manual "Echo Spacing";
+`PVM_EpiNShots`, `NSegments`: PV5.1 A06):
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `PVM_EpiEchoSpacing` | double | Time (ms) between centres of consecutive gradient echoes in the EPI train |
+| `PVM_EpiNShots` | int | Number of interleaved shots (segments) of a segmented EPI |
+| `NSegments` | int | Segment count of segmented (multi-shot) EPI-family methods (EPI, FAIR_EPI, DtiEpi, T1/T2/T2S_EPI); method-local, not PVM-namespaced. Other methods use their own local spellings — FISP writes `Nsegments`, MDEFT writes `SegmNumber`, RARE segments via `PVM_RareFactor` |
+
+EPI methods carry a large further `PVM_Epi*` group (gradient shapes, ramp/blip timing,
+trajectory adjustment `PVM_EpiTrajAdj*`, ghost correction, per-channel GRAPPA coefficients),
+documented per method in the EPI chapters of the version manuals.
+
+**Diffusion (`PVM_Dw*`)** (PV5.1 A06 §6.3.13.2 "Main Diffusion Parameter Class" and §6.3.13.4
+"Diffusion Output Parameter Class"; identical text in the PV360 manual):
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `PVM_DwNDiffDir` | int | Number of diffusion gradient directions |
+| `PVM_DwNDiffExpEach` | int | Diffusion experiments (b-values) per direction |
+| `PVM_DwAoImages` | int | A0 (b≈0) images |
+| `PVM_DwNDiffExp` | int | Total diffusion experiments `N_D = A0 + NDir × NExpEach` |
+| `PVM_DwDir` | double[NDir][3] | Unit diffusion direction vectors |
+| `PVM_DwBvalEach` | double[] | Nominal b-values (s/mm²) |
+| `PVM_DwBMat` | double[N_D][3][3] | Full b-matrix per experiment, **imaging (r,p,s) frame**, including imaging-gradient cross terms |
+| `PVM_DwEffBval` | double[N_D] | Effective b-value = trace of `PVM_DwBMat` (differs slightly from nominal) |
+| `PVM_DwGradVec` | double[N_D][3] | Diffusion gradient amplitude vectors in the **x,y,z gradient frame** |
+| `PVM_DwModDur`, `PVM_DwModEchDel` | double | Diffusion module duration and its echo-time contribution |
+
+The manual's formula is verifiable publicly: the 60-direction, 4-shell mouse DWI
+([Zenodo 8120834](https://zenodo.org/records/8120834)) has `PVM_DwNDiffDir=60`,
+`PVM_DwNDiffExpEach=4`, `PVM_DwAoImages=5` and `PVM_DwNDiffExp=245` = 5 + 60 × 4, with
+`PVM_DwEffBval=( 245 )` and `PVM_DwGradVec=( 245, 3 )` sized to match.
+
+**Spectroscopy (`PVM_Spec*`)** (PV5.1 A06 §6.3.7; identical definitions in the PV360 manual):
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `PVM_SpecDimEnum` | enum | Spectroscopic dimensionality (`1D`, …) |
+| `PVM_SpecMatrix` | int[specdim] | Sampling points per spectroscopic dimension |
+| `PVM_SpecSWH` / `PVM_SpecSW` | double[] | Spectral width in Hz / ppm (Nyquist limit) |
+| `PVM_SpecDwellTime` | double[] | Dwell time between samples (µs) |
+| `PVM_SpecNomRes` | double[] | Nominal spectral resolution (Hz/point) |
+| `PVM_SpecAcquisitionTime` | double | Acquisition duration (ms) = points × dwell |
+| `PVM_SpecOffsetHz` / `PVM_SpecOffsetppm` | double[] | Receiver offset from the basic frequency |
+| `PVM_EncSpectroscopy` | YesNo | Marks spectroscopic (non-imaging) encoding (PV6+) |
+
+Public example: the PV360 3.6 `PRESS_1H` scan
+([github.com/cecilyen/PV360_StdData](https://github.com/cecilyen/PV360_StdData)) writes
+`PVM_SpecMatrix=( 1 ) 2048`, `PVM_SpecSWH=( 1 ) 4385.96...`, `PVM_SpecDimEnum=<1D>` — the
+`PVM_SpecMatrix` consumed by the `fid_proc.64` size in [Section 3.5](#35-method-specific-auxiliary-files).
+
+**Nuclei and frequency** (PV5.1 A06 §6.3.6). Present in every sampled method file:
+`PVM_Nucleus1` (string, e.g. `<1H>`) with `PVM_Nucleus[1-8]Enum` channel selectors, and
+`PVM_GradCalConst` (double — maximum gradient frequency in Hz/mm for the channel-1 nucleus).
+The RF-calibration group split by version: PV5.1 writes reference *attenuations*
+(`PVM_RefAttMod1`/`PVM_RefAttCh1`/`PVM_RefAttStat1`), PV6+ reference *powers*
+(`PVM_RefPowMod1`/`PVM_RefPowCh1`/`PVM_RefPowStat1`) plus the per-channel frequency table
+`PVM_FrqRef`/`PVM_FrqRefPpm`/`PVM_FrqWork`/`PVM_FrqWorkOffset` (not written by PV5.1 — split
+verified between [Zenodo 4048286](https://zenodo.org/records/4048286) and
+[Zenodo 4048253](https://zenodo.org/records/4048253)).
+
+**Preparation modules.** Most methods embed optional preparation modules, each contributing an
+On/Off switch plus its own parameter set: fat suppression (`PVM_FatSupOnOff`), spatial
+saturation (`PVM_FovSatOnOff`, `PVM_FovSat*`), external triggering (`PVM_TriggerModule`,
+`PVM_TriggerDelay`), navigators (`PVM_NavOnOff`, `PVM_Nav*`), and on PV6+ the map-based
+shimming group (`PVM_MapShim*`). See the Preparation Modules chapters (PV5.1 A06 §6.3.10;
+PV6/PV360 User Manual method-card chapters).
+
+#### `configscan`
+
+Scan-specific configuration snapshot (group CONFIG_SCAN), PV6+. On PV360 the manual documents
+its members (§4.13.4.1, §4.13.5.1): `CONFIG_SCAN_version` (1 for PV360), the ADJUSTMENT_GROUP
+(see [Section 1.1](#11-study-level)), and the MR extension —
+`CONFIG_SCAN_coil_configuration` (ID of the active coil configuration),
+`CONFIG_SCAN_operation_mode` (the current routing mode — the enum-with-display-name example of
+[Section 2.2](#22-data-types)), the per-channel active-element tables
+`CONFIG_SCAN_receive_coil_select` / `CONFIG_SCAN_transmit_coil_select` and
+`CONFIG_SCAN_RxCoilsNames` / `CONFIG_SCAN_TxCoilsNames` (a useful cross-check for the
+receiver-count logic of [Section 3.3](#33-rawdatajobn---job-based-raw-data-pv6)), and the
+hardware BIS strings `CONFIG_SCAN_gradient_system` / `CONFIG_SCAN_shim_system` with
+`ACQ_status` (`<manufacturer>_<partNo>_<serialNo>`) and `SHIM_status_check_sum`.
 
 ### 4.3 Reconstruction-Level Parameter Files
 
@@ -960,10 +1260,12 @@ though `scanSize` and `ACQ_size[0]` do **not** coincide in general (see
 | `GO_block_size` | enum | Per-scan block layout: `Standard_KBlock_Format` (default; zero-fill to 1024 bytes) or `continuous` |
 | `AQ_mod` | enum | Digitization/acquisition (quadrature) mode — **PV5.1/PV6/PV7 only** |
 | `ACQ_scan_size` | enum | Scans acquired per digitizer start: `One_scan` (default) or `ACQ_phase_factor_scans` (EPI-style continuous trains) |
-| `ACQ_scan_shift` | int | Digital-filter group-delay compensation, in points — **PV5.1/PV6/PV7 only**. Recommended negative. The **acquisition** discards this many leading points before the scan is transferred to the host, so `fid` already excludes them and no group-delay skipping is needed at read time |
+| `ACQ_scan_shift` | int | Digital-filter group-delay compensation, in points — **PV5.1/PV6/PV7 only**. Recommended negative (a negative value makes ParaVision compute the optimal scan-shift value automatically — D13). Per D13 the shift compensates the digital-filter group delay by acquiring additional data points; observed `fid` files carry no residual group-delay transient, so no skipping is needed at read time (derived/observed — the manuals do not state the on-disk effect explicitly) |
 
 > **Not present in ParaVision 360.** `AQ_mod`, `ACQ_scan_shift` and the whole `GO_*` subclass are
-> absent from the `acqp` of Bruker's released 360.3.5–360.3.7 datasets (zero occurrences). For
+> absent from the `acqp` of the public PV360 3.4 and 3.6 datasets (MRIReco.jl test data;
+> [github.com/cecilyen/PV360_StdData](https://github.com/cecilyen/PV360_StdData)) and of Bruker's
+> 360.3.5–360.3.7 standard datasets (zero occurrences). For
 > PV360 the raw word type comes from `ACQ_word_size` + `BYTORDA`, and the layout from `ACQ_jobs` /
 > `ACQ_ScanPipeJobSettings`. (`DTYPA` is a separate case — it is a TopSpin `acqu`/`acqus`
 > parameter and ParaVision never writes it into `acqp` in *any* version.)
@@ -1023,9 +1325,9 @@ descriptive label of the resulting geometry.
 >
 > | Dataset | `ACQ_slice_sepn_mode` | `NSLICES` | `ACQ_grad_matrix` |
 > |---|---|---|---|
-> | PV5.1 `0.2H2/13` | `Contiguous` | 4 | `( 4, 3, 3 )` |
-> | PV6.0.1 `cyceron_dwi/1` | `Contiguous` | 15 | `( 15, 3, 3 )` |
-> | PV360 3.7 T1-FLASH | `Contiguous` | 9 | `( 9, 3, 3 )` |
+> | PV5.1 `0.2H2` expno 13 ([Zenodo 4048286](https://zenodo.org/records/4048286)) | `Contiguous` | 4 | `( 4, 3, 3 )` |
+> | PV6.0.1 Cyceron DWI expno 1 ([gitlab.com/naveau/bruker2nifti_qa](https://gitlab.com/naveau/bruker2nifti_qa)) | `Contiguous` | 15 | `( 15, 3, 3 )` |
+> | PV360 3.6 `T1_FLASH` ([github.com/cecilyen/PV360_StdData](https://github.com/cecilyen/PV360_StdData)) | `Contiguous` | 9 | `( 9, 3, 3 )` |
 >
 > So one matrix per slice is the norm across PV5.1, PV6 and PV360 alike, and the matrices simply
 > repeat when the slices are parallel. Read `N` from the array's own leading dimension in the
@@ -1103,6 +1405,56 @@ The `ACQ_patient_pos` parameter defines how the subject is positioned in the mag
 
 The patient position affects the mapping between gradient axes and anatomical directions. For non-default positions, specific gradient axes must be negated or exchanged to maintain correct anatomical orientation.
 
+### 5.7 Identification and Timing (ACQ_INFO)
+
+The ACQ_INFO subgroup records what was acquired, by whom, and with what timing — the parameters
+a reader uses for metadata rather than for decoding bytes (PV5.1 D13 §13.4.5.4; PV6 D02
+§2.4.5.4; PV360 §4.13.4.2.1 "Common Base-Level Acquisition Parameters"):
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `ACQ_sw_version` | string | ParaVision version, set automatically (e.g. `<PV 6.0.1>`, `<PV-360.3.6>`) — the version detector used throughout this document |
+| `ACQ_scan_name` | string | Scan name shown in the UI |
+| `ACQ_method` | string | Method name (the `acqp`-side mirror of `##$Method`) |
+| `ACQ_protocol_name` | string | Protocol the scan was created from |
+| `ACQ_operator`, `ACQ_institution`, `ACQ_station` | string | Operator, institution and station names |
+| `ACQ_echo_time` | double[] | The **weighted** echo time(s) in ms |
+| `ACQ_inter_echo_time` | double[] | The echo time (TE) for every image |
+| `ACQ_repetition_time` | double[] | Repetition time between subsequent multiplex steps (ms) |
+| `ACQ_inversion_time` | double[] | Inversion time(s) (ms) |
+| `ACQ_recov_time` | double[] | Recovery time(s) (ms) |
+| `ACQ_scan_time` | double | Total scan time (ms) — declared `double` in the PV5.1/PV6.0.1 headers (`proto/acq_extern.h`); PV360 documents it (§4.13.4.2.1) but real PV360 `acqp` files do not write it |
+| `ACQ_flip_angle` | double | Excitation flip angle (degrees) |
+| `ACQ_echo_descr`, `ACQ_movie_descr` | string[] | Per-echo / per-movie-frame display descriptions |
+| `ACQ_completed` | YesNo | Whether the acquisition ran to completion |
+| `ACQ_scans_completed`, `ACQ_nr_completed` | int | Scans / repetitions completed — with `ACQ_completed` these let a reader detect aborted scans, complementing `nStoredScans` ([Section 3.3](#33-rawdatajobn---job-based-raw-data-pv6)) |
+| `GRPDLY` | double | Group delay of the digital filter, in (possibly fractional) points |
+
+PV360 adds `ACQ_protocol_location`, `ACQ_series_time` and `ACQ_system_order_number`
+(§4.13.4.2.1); `ACQ_comment` is already documented in the PV5.1/PV6 parameter references
+(D13 §13.4.5.4 / D02 §2.4.5.4).
+
+### 5.8 ATS Parameters (PV360)
+
+On PV360 multi-modality systems, the animal transport system (ATS) carries the subject between
+modalities, and the ACQ_ATS subgroup records the table position (PV360 manual §4.13.4.2.2).
+These matter for geometry: `ACQ_AtsCenterDistance` "contains the distance between the reference
+origin of the ATS and the selected image position in mm for the study, **which will be used as
+origin in Visu coordinates**" — the origin shift warned about in
+[Section 12](#12-coordinate-systems).
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `ACQ_AtsOffsetsSize`, `ACQ_AtsOffsets` | int, double[] | Cradle offsets (mm) relative to the selected position of interest; 0 disables repositioning |
+| `ACQ_AtsAbsolutePosition` | double | Absolute table position at scan start (0.0 when no ATS) |
+| `ACQ_AtsCenterDistance` | double | ATS reference origin → selected image position (mm); the Visu coordinate origin |
+| `ACQ_AtsCurrentOffset` | double | Current cradle offset |
+| `ACQ_AtsForceMove`, `ACQ_AtsCoverOpen` | YesNo | Movement/interlock state |
+
+Whether a study used the ATS at all is recorded in the `subject` file: `CMN_study_use_ats`
+(YesNo) and `CMN_study_bed` (cradle name) — PV360 manual §4.13.2.2 (see
+[Section 9](#9-subject-file)).
+
 ---
 
 ## 6. RECO Parameters (Reconstruction)
@@ -1119,7 +1471,9 @@ The `reco` file controls how raw data is transformed into images. Most RECO para
 - **BP_WITH_FT_MODE** (1) - FT in first direction, then back projection
 - **BP_MODE** (2) - Pure back projection, no FT
 - **USER_MODE** (3) - User-defined filter-graph reconstruction network, available since **PV5.1**
-  (member 3 of `RECO_TYPE` in the PV5.1 header; real PV5.1 data stores `RECO_mode=USER_MODE`).
+  (member 3 of `RECO_TYPE` in the PV5.1 header; the public PV5.1 study,
+  [Zenodo 4048286](https://zenodo.org/records/4048286), stores `RECO_mode=USER_MODE` in 14 of
+  its reconstructions).
   From **PV5.1 onward** the pipeline is additionally described explicitly on disk by the
   `RecoStage*` parameters, documented in the PV5.1 Image Reconstruction manual under "Network
   description (RecoStageGroup)" (see [Section 10.2](#102-multi-channel-reconstruction)). Used for
@@ -1291,8 +1645,10 @@ RECO_ft_mode[i] = COMPLEX_FT       for i > 0
 ```
 
 **Data rotation:** `RECO_rotate` specifies a circular shift of data rows after FT and before
-output cropping. Like `RECO_offset` it is **two-dimensional, `[direction][object]`** — real PV360
-data writes `##$RECO_rotate=( 2, 9 )` for a 2-direction, 9-object reconstruction. A reader that
+output cropping. Like `RECO_offset` it is **two-dimensional, `[direction][object]`** — the public
+PV360 3.6 `T1_FLASH` `reco`
+([github.com/cecilyen/PV360_StdData](https://github.com/cecilyen/PV360_StdData)) writes
+`##$RECO_rotate=( 2, 9 )` for a 2-direction, 9-object reconstruction. A reader that
 treats it as a flat per-direction vector mis-reads every multi-slice dataset.
 ```
 0 <= RECO_rotate[i][j] < 1    (fraction of RECO_ft_size[i])
@@ -1471,7 +1827,10 @@ The Visu parameter group contains the following subgroups:
 | `VisuCreator` | string | Creator application(s), semicolon-separated — PV5.1/PV6 allow at most two entries; PV360 states only a 64-character maximum |
 | `VisuCreatorVersion` | string | Creator version(s) |
 | `VisuCreationDate` | string | Creation date/time |
-| `VisuInstanceType` | enum | `STANDARD_INSTANCE` (full geometry) or `MINIMAL_INSTANCE` (basic info only) |
+| `VisuInstanceType` | enum | `STANDARD_INSTANCE` (full geometry) or `MINIMAL_INSTANCE` (basic info only). **Absent ⇒ `STANDARD_INSTANCE`** — "If the parameter is missing the dataset is a standard instance dataset" (PV6 D02 §2.4.11.1; PV360 §4.13.3.1) |
+| `VisuInstanceModality` | string | **[PV360]** DICOM Modality term for the images: `MR`, `PT` or `CT` (§4.13.3.1) — observed `<MR>` in the public PV360 3.6 data |
+| `VisuInstanceDeIdentified` | YesNo | **[PV360]** whether the VISU parameters are anonymized (de-identified) |
+| `VisuInstanceDeIdentifyOption` | enum | **[PV360]** de-identification option; only valued when de-identified |
 
 **`VisuVersion` values.** The ParaVision 360 manual gives the authoritative list (the PV5.1 and
 PV6.0.1 Parameter References only ever state "1 for ParaVision 4 and 5", never updated for their
@@ -1486,7 +1845,7 @@ own value):
 | 5 | ParaVision 360.3.0, 360.3.1, 360.3.2 |
 | 6 | ParaVision 360.3.3 |
 | 7 | ParaVision 360.3.4 |
-| 8 | ParaVision 360.3.5 (and, observed, 360.3.6 and 360.3.7) |
+| 8 | ParaVision 360.3.5 (per the manual) — also observed for 360.3.6 (public data, [github.com/cecilyen/PV360_StdData](https://github.com/cecilyen/PV360_StdData)) and 360.3.7 (Bruker's login-gated standard datasets) |
 
 Bruker's list has **no ParaVision 7.0 entry**; PV7 datasets are observed to carry `3`, as PV6 does.
 The value 0 is a real case, not a placeholder: it means the Visu parameters were derived rather
@@ -1500,7 +1859,8 @@ releases share one value.
 > `VisuSeriesDate` and `VisuAcqDate` are declared `char[21]` in PV5.1 — a fixed-length formatted
 > string — but `pvtime_t` in PV6.0.1 and PV360, which serialises as the ISO-8601 or struct forms
 > described in [Section 2.2](#22-data-types), e.g.
-> `##$VisuCreationDate=<2025-08-14T11:16:17,491+0200>`. Note the ISO-8601 form contains a **comma**
+> `##$VisuCreationDate=<2024-07-25T09:18:04,238+0200>` (the public PV360 3.6 `T1_FLASH`
+> `visu_pars`). Note the ISO-8601 form contains a **comma**
 > before the milliseconds field, inside the `<...>` delimiters — one more reason to mask string
 > regions before splitting on commas.
 
@@ -1514,9 +1874,11 @@ These parameters fully describe the image geometry and data layout:
 | `VisuCoreFrameCount` | int | Total number of frames in dataset |
 | `VisuCoreSize` | int[] | Frame dimensions in pixels (e.g., `256 256` for 2D) |
 | `VisuCoreDimDesc` | enum[] | Dimension types: `spatial`, `spectroscopic`, `temporal` |
-| `VisuCoreExtent` | double[] | Physical extent per dimension, **in the units given by `VisuCoreUnits`** — not always mm: Bruker's PV360 single-voxel PRESS dataset writes `VisuCoreUnits = <[ppm]>`. For spatial dimensions the extent runs outer edge to outer edge |
+| `VisuCoreExtent` | double[] | Physical extent per dimension, **in the units given by `VisuCoreUnits`** — not always mm: the public PV360 3.6 `PRESS_1H` scan ([github.com/cecilyen/PV360_StdData](https://github.com/cecilyen/PV360_StdData)) writes `VisuCoreUnits = <[ppm]>`. For spatial dimensions the extent runs outer edge to outer edge |
 | `VisuCoreFrameThickness` | double[] | Slice thickness in mm (spatial frames) |
-| `VisuCoreUnits` | string[] | Units per dimension (default: `mm`) |
+| `VisuCoreUnits` | string[] | Units per dimension (default: `mm`). PV360 requires unit strings (also `VisuCoreDataUnits`) to conform to the **UCUM** standard (§4.13.3.2) |
+| `VisuCoreModalityOffset` | double[1 or FrameCount][3] | **[PV360]** per-frame spatial modality offset in mm; first dimension is 1 when all offsets are identical, else `VisuCoreFrameCount`; second dimension always 3 (§4.13.3.2) |
+| `VisuCoreAtsCenterDistance` | double | **[PV360]** labelled reference-position distance to a fixed cradle position in ATS direction, mm — the origin shift of [Section 12](#12-coordinate-systems) (§4.13.3.2; see also `ACQ_AtsCenterDistance`, [Section 5.8](#58-ats-parameters-pv360)) |
 | `VisuCorePosition` | double[][3] | Position of the centre of the **first pixel/voxel transferred**, in patient coordinates (mm). Usually that is the first pixel in the image coordinate system — but for frames with 3 spatial dimensions *and* `VisuCoreDiskSliceOrder = disk_reverse_slice_order` it is instead the first voxel of the **last** 2D frame in the stored dataset. |
 | `VisuCoreOrientation` | double[][9] | 3x3 orientation matrix per frame |
 | `VisuCoreTransposition` | int[] | Dimension transposition per frame: `0` = no exchange; `n < VisuCoreDim` = exchange dimensions `n` and `n-1`; `VisuCoreDim` = exchange dimensions `0` and **`VisuCoreDim - 1`**. (The PV5.1/PV6 manuals write "0 and `VisuCoreDim`", which is one past the last dimension; PV360 3.6+ corrects it to `VisuCoreDim-1`, the only in-range reading.) **Optional** — written only when frames differ in transposition; its absence means no frame needs one. |
@@ -1525,7 +1887,9 @@ These parameters fully describe the image geometry and data layout:
 
 > **Parsing notes.**
 > - `VisuCoreDimDesc` is an array. ParaVision 360 writes it as a sized array even for 1D frames —
->   Bruker's single-voxel PRESS dataset has `##$VisuCoreDim=1` with `##$VisuCoreDimDesc=( 1 )` /
+>   the public PV360 3.6 `PRESS_1H` scan
+>   ([github.com/cecilyen/PV360_StdData](https://github.com/cecilyen/PV360_StdData)) has
+>   `##$VisuCoreDim=1` with `##$VisuCoreDimDesc=( 1 )` /
 >   `spectroscopic`. Older writers may emit a **single bare enum** instead of a list, so normalize
 >   to a one-element list before testing rather than assuming either shape.
 > - Frames are image data only when every `VisuCoreDimDesc` entry is `spatial`.
@@ -1666,8 +2030,15 @@ expected set rather than a closed one:
 
 > `FG_DIFFUSION` and `FG_DTI` are **two distinct ids**, not aliases. `FG_DIFFUSION` does not exist
 > in PV5.1: there the diffusion-encoding loop is carried by **`FG_MOVIE` with the group comment
-> `<diffusion>`** — PV6 renamed that same loop to `FG_DIFFUSION`. `FG_DTI` labels the *derived*
-> tensor-map series in both versions (group comment `<Generated Diffusion Tensor Images>`), not the
+> `<diffusion>`** — `(7, <FG_MOVIE>, <diffusion>, 2, 1)` in the public PV5.1 study
+> ([Zenodo 4048286](https://zenodo.org/records/4048286), expno 12) — and PV6 renamed that same
+> loop to `FG_DIFFUSION`: `(9, <FG_DIFFUSION>, <diffusion>, 2, 2)` in the public Cyceron DWI
+> ([gitlab.com/naveau/bruker2nifti_qa](https://gitlab.com/naveau/bruker2nifti_qa), expno 2).
+> `FG_DTI` labels the *derived*
+> tensor-map series in both versions — with a version-dependent group comment: PV5.1 writes
+> `<Generated Diffusion Tensor Images>` (Zenodo 4048286 expno 32 `pdata/2`), PV6 writes `<DTI>`
+> ([Zenodo 4048253](https://zenodo.org/records/4048253) expno 48 `pdata/2`, and the Cyceron DWI
+> likewise) — not the
 > encoding loop. A reader keying on `FG_DTI` to find diffusion encodings finds nothing on PV5.1.
 
 The same header also defines the `VisuFGElemId` strings that label the elements of an `FG_COMPLEX`
@@ -1681,10 +2052,16 @@ values** — `VisuCoreFrameType` is declared `RECO_IMAGE_TYPE` and has no comple
 >   move it to the third (slice) axis rather than assuming a fixed position.
 > - A single echo encoded as an `FG_ECHO` group (`len == 1`) is **not** multi-echo
 >   data; treat it as a single volume.
-> - `FG_ISA` groups carry derived maps. In Bruker's released datasets their `groupComment` is
->   simply `<Parameters>`; the per-map labels live in `VisuFGElemComment` instead — e.g.
+> - `FG_ISA` groups carry derived maps, and their `groupComment` is **not a reliable constant**.
+>   The public PV360 3.6 T2-map scan
+>   ([github.com/cecilyen/PV360_StdData](https://github.com/cecilyen/PV360_StdData),
+>   `T2map_MSME/pdata/2`) writes simply `<Parameters>`, with the per-map labels in
+>   `VisuFGElemComment` instead — e.g.
 >   `<Signal Intensity> <σ of Signal Intensity> <T2 Relaxation Time> <σ of T2 Relaxation Time>
->   <Fit χ²> <Fit Valid>`. Note those labels are both non-ASCII and, as written on disk, wrapped
+>   <Fit χ²> <Fit Valid>` — while PV6.0.1 writes descriptive comments:
+>   `(5, <FG_ISA>, <T1 saturation recovery>, 0, 2)`
+>   ([Zenodo 4048253](https://zenodo.org/records/4048253), expno 43 `pdata/2`). Note the PV360
+>   labels are both non-ASCII and, as written on disk, wrapped
 >   across a line break mid-string (see the parsing note in §2.2).
 
 **Cardinality rule.** How many values a parameter carries depends on whether it is tied to a frame
@@ -1710,8 +2087,11 @@ So a reader must not assume "one per slice" for any of these: check the actual c
 - `VisuAcqDiffusionBMatrix` - Diffusion b-matrix per encoding
 - `VisuCoreDataUnits` - Data units per frame
 - `VisuCoreFrameType` - Frame type per frame
-- `VisuCardiacMovieFrameTime` - Cardiac cine frame time
-- `VisuRespMovieFrameTime` - Respiratory cine frame time
+- `VisuCardiacMovieFrameTime` - Cardiac cine frame time — each element is a **(nominal, actual)
+  trigger-time struct** (`VisuTriggerTimeType`), not a bare double (PV360 §4.13.3.10; the struct
+  is defined in the PV6.0.1 header `Visu/VisuTypes.h` — PV6 D02 §2.4.11.9 lists only the
+  parameter name)
+- `VisuRespMovieFrameTime` - Respiratory cine frame time (same struct type)
 
 ### 7.5 Subject Parameters (VisuSubject)
 
@@ -1723,6 +2103,8 @@ So a reader must not assume "one per slice" for any of these: check the actual c
 | `VisuSubjectSex` | enum | `MALE`, `FEMALE`, `UNDEFINED`, `UNKNOWN` |
 | `VisuSubjectComment` | string | Comments |
 | `VisuSubjectType` | enum | `Biped` (humans, monkeys…), `Quadruped` (rodents, dogs, cats, horses…), `Phantom`, `Other` (e.g. material), `OtherAnimal` (e.g. snakes) — **PV6.0.1+**; not present in PV5.1 `visu_pars` |
+| `VisuSubjectUid` | string | **[PV360]** unique subject identifier (§4.13.3.4) |
+| `VisuSubjectInstanceCreationDate` | time | **[PV360]** creation date of the subject instance (§4.13.3.4) |
 
 `VisuSubjectType` affects the geometry labelling of images (anatomical axis conventions differ between bipeds, quadrupeds, phantoms, etc.).
 
@@ -1751,6 +2133,10 @@ A series corresponds to a combination of EXPNO and PROCNO:
 | `VisuSubjectPosition` | enum | Position of the subject in the magnet (`PATIENT_POS_TYPE`): `Head_Supine`, `Head_Prone`, `Head_Left`, `Head_Right`, `Foot_Supine`, `Foot_Prone`, `Foot_Left`, `Foot_Right` |
 | `VisuSeriesTypeId` | string | Series type identifier — see the value list below |
 | `VisuSeriesComment` | string | Free-text comment |
+| `VisuSeriesCreationId` | enum | **[PV360]** how the series came to be: `VCMN_ACQUISITION`, `VCMN_DERIVED`, `VCMN_DICOM_IMPORT` (§4.13.3.6) |
+| `VisuSeriesExperimentComment`, `VisuSeriesReferences` | string, struct[] | **[PV360]** experiment comment; references to related series (§4.13.3.6) |
+| `VisuSeriesFrameOfReferenceUid` | string | **[PV360]** frame-of-reference UID — "all image series with the same frame of reference are spatial related, i.e., the coordinate system is the same" (§4.13.3.6); a direct co-registration hint |
+| `VisuSeriesDenoisingInfo` | struct | **[PV360]** if valued, the series was denoised during reconstruction (neural-network denoising record: name/version/displayName/nickname/preDenoisingLevel/denoisingLevel — −1 meaning multiple levels, then recorded in `VisuDepValsDouble` on an `FG_RECONSTRUCTION` group — /numDirections) (§4.13.3.6) |
 
 **VisuSeriesNumber formula (deprecated):**
 ```
@@ -1786,6 +2172,7 @@ for imported data:
 | `VisuAcqSoftwareVersion` | string | ParaVision version |
 | `VisuInstitution` | string | Institution name |
 | `VisuStation` | string | Station/spectrometer name (optional) |
+| `VisuSystemOrderNumber` | string | **[PV360]** system order number (§4.13.3.7) |
 
 PV5.1's VisuEquipment group consists of exactly `VisuAcqSoftwareVersion`, `VisuInstitution` and
 `VisuStation`.
@@ -1828,6 +2215,30 @@ Reference defines further members (`VisuAcqSpinsVelocityEncoded`, `VisuAcqHasTim
 `VisuAcqKSpaceFiltering`, …). `VisuAcqGradEncoding` (PV6+) replaces the deprecated `VisuAcqImagePhaseEncDir`, which recorded
 only phase-encoding directions and is the form PV5.1 writes.
 
+**Per-frame timing (PV360).** Three common acquisition parameters give each VISU frame its own
+clock — directly useful for fMRI/BIDS timing metadata (PV360 §4.13.3.8):
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `VisuAcqFrameTime` | struct[FrameCount] | Per-frame acquisition **start time** (`pvtime_t`) and duration (`VisuFrameAcqTime` structs) |
+| `VisuAcqFrameReferenceTime` | pvtime_t[FrameCount] | Per-frame reference time (time type, §4.13.3.8) — "in MR the reference time may be the time of the zero kspace line" |
+| `VisuAcqFrameNumbers` | int[FrameCount] | Ordering of the VISU frames in acquisition |
+
+**Trigger/gating.** The common trigger parameters record how cardiac/respiratory
+synchronization was performed (PV360 §4.13.3.10; same names in PV6 D02 §2.4.11.9 — PV6 writes
+`VisuCardiacSynchUsed`/`VisuRespSynchUsed` even in ordinary anatomical scans, observed in
+[Zenodo 4048253](https://zenodo.org/records/4048253)):
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `VisuCardiacSynchUsed` | YesNo | Cardiac synchronization used |
+| `VisuCardiacSynchTechnique` | enum | `CARDIAC_NONE`, `CARDIAC_REALTIME`, `CARDIAC_PROSPECTIVE`, `CARDIAC_RETROSPECTIVE`, `CARDIAC_PACED` |
+| `VisuCardiacSignalSource`, `VisuCardiacHeartRate`, `VisuCardiacCycle`, `VisuCardiacTriggerCnt` | — | Signal source, heart rate, cycle length, trigger count |
+| `VisuRespSynchUsed`, `VisuRespSynchTechnique`, `VisuRespSignalSource`, `VisuRespCycle`, `VisuRespTriggerCnt` | — | The respiratory mirror of the above |
+
+The per-frame `VisuCardiacMovieFrameTime` / `VisuRespMovieFrameTime` arrays are listed with the
+frame-group–dependent parameters in [Section 7.4](#74-frame-groups-visuframeorderdesc).
+
 ### 7.10 Slice Packages
 
 Slice packages group 2D slices with the same orientation into 3D-interpretable slabs:
@@ -1844,8 +2255,10 @@ them — and may be absent even in PV6/PV360 datasets. Do not require them.
 > **Parsing notes.**
 > - `VisuCoreSlicePacksDef` is a **single** struct `(fg_index, num_packages)` written on the
 >   assignment line, not a one-element array of structs; the package count is the second element.
->   An `fg_index` of **`-1`** is a documented sentinel meaning there is no slices frame group and
+>   An `fg_index` of **`-1`** is a sentinel meaning there is no slices frame group and
 >   *all* frames belong to the slice packages — do not use it as an index into `VisuFGOrderDesc`.
+>   (Documented in the `VISU_SLICE_PACK_TYPE` declaration, PV6.0.1 `Visu/VisuTypes.h`: "It is -1
+>   if all frames belong to the slice packages" — the parameter manuals do not mention it.)
 > - `VisuCoreSlicePacksSlices` holds one `[first_slice_index, count]` per package.
 >   Packages may have **different** slice counts (e.g. a 3-pack scout with 5/3/5
 >   slices), so read each package's own `count` — do not reuse the first package's
@@ -1858,6 +2271,28 @@ them — and may be absent even in PV6/PV360 datasets. Do not require them.
 >   matrix that applies to every frame, or one per frame-group element. Count its values before
 >   grouping them by the per-package slice counts.
 
+### 7.11 Coil Parameters (VisuCoilTransmit/VisuCoilReceive)
+
+The coil groups describe the transmit and receive hardware. **The whole group is optional**, and
+it is PV6.0.1+ (consistent with the PV5.1 equipment note in
+[Section 7.8](#78-equipment-parameters-visuequipment)). Members per PV6 D02 §2.4.11.8 "Coil
+parameters" and PV360 §4.13.3.11 "MR Coil Parameters" (which adds the 64-character maxima and
+the `VisuMultiCoilStruct` type name):
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `VisuCoilReceiveName` | string | Name of the receive coil |
+| `VisuCoilReceiveManufacturer` | string | Coil manufacturer |
+| `VisuCoilReceiveType` | enum | `BODY_COIL`, `VOLUME_COIL`, `SURFACE_COIL`, `MULTICOIL` |
+| `VisuCoilReceiveIsQuadrature` | YesNo | Quadrature coil |
+| `VisuCoilReceiveMultiName` | struct[] | Per-element description in a multi-coil setting (`VisuMultiCoilStruct`: coil name + active-during-acquisition flag). "May only exist if `VisuCoilReceiveType` is MULTICOIL" |
+| `VisuCoilReceiveMultiComment` | string[] | Per-element comments |
+| `VisuCoilTransmitName`, `VisuCoilTransmitManufacturer`, `VisuCoilTransmitType`, `VisuCoilTransmitIsQuadrature`, `VisuCoilTransmitMultiName`, `VisuCoilTransmitMultiComment` | — | The transmit-side mirrors of the six above |
+
+When one physical coil both transmits and receives, the two subgroups simply carry the same
+values. Which receive *elements* were active is also recorded scan-side in `configscan`
+(`CONFIG_SCAN_receive_coil_select`, see [Section 4.2](#42-experiment-level-parameter-files)).
+
 ---
 
 ## 8. D3/d3proc Parameters (Legacy Image Display)
@@ -1866,7 +2301,7 @@ The `d3proc` file contains legacy image display parameters. These are deprecated
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `DATTYPE` | enum or int | Data type, enum `DATTYPE_TYPE`: 0=`ip_bit`, 1=`ip_byte` (int8), 2=`ip_u_byte` (uint8), 3=`ip_short` (int16), 4=`ip_u_short` (uint16), 5=`ip_int` (int32), 6=`ip_u_int` (uint32). **ParaVision writes the symbol, not the ordinal** — shipped `d3proc` files contain `##$DATTYPE=ip_short` — so a reader must accept both forms. In practice 2/3/5 are used, corresponding to `RECO_wordtype` `_8BIT_UNSGN_INT`/`_16BIT_SGN_INT`/`_32BIT_SGN_INT`. **`DATTYPE` cannot express float data**: `d3typ.h` contains `#define ip_float ip_int`, so a 32-bit float `2dseq` also reports `ip_int`. Always prefer `RECO_wordtype`/`VisuCoreWordType`. |
+| `DATTYPE` | enum or int | Data type, enum `DATTYPE_TYPE`: 0=`ip_bit`, 1=`ip_byte` (int8), 2=`ip_u_byte` (uint8), 3=`ip_short` (int16), 4=`ip_u_short` (uint16), 5=`ip_int` (int32), 6=`ip_u_int` (uint32). **ParaVision writes the symbol, not the ordinal** — real `d3proc` files contain `##$DATTYPE=ip_short` ([Zenodo 4048286](https://zenodo.org/records/4048286), expno 16) or `ip_int` — so a reader must accept both forms. In practice 2/3/5 are used, corresponding to `RECO_wordtype` `_8BIT_UNSGN_INT`/`_16BIT_SGN_INT`/`_32BIT_SGN_INT`. **`DATTYPE` cannot express float data**: `d3typ.h` contains `#define ip_float ip_int`, so a 32-bit float `2dseq` also reports `ip_int`. Always prefer `RECO_wordtype`/`VisuCoreWordType`. |
 | `IM_SIX` | int | Image matrix length in x — the **fastest-varying** axis, i.e. the number of values per row. Written after transposition |
 | `IM_SIY` | int | Image matrix length in y — the number of rows. Written after transposition |
 | `IM_SIZ` | int | Number of frames (z-direction) |
@@ -1874,7 +2309,16 @@ The `d3proc` file contains legacy image display parameters. These are deprecated
 | `SEQTYPE` | enum | Frame sequence type (`SEQTYPE_TYPE`, header order): `slices`, `echoes`, `ms_me`, `project`, `sl_tseq`, `pr_tseq`, `tseq_pr` |
 | `CEN_SLC` | int | Index of the centre slice |
 | `SIM_SIX` / `SIM_SIY` / `SIM_SIZ` / `SIM_SIT` | int | Sub-matrix sizes, with origins `SIM_X0` / `SIM_Y0` / `SIM_Z0` / `SIM_T0` |
-| `PR_STA` | 16-element array | Elements `[0]`, `[1]`, `[2]` are the physical FOV in cm for directions 0–2; `[15]` is the byte order (0 = little-endian, 1 = big-endian). Being one array it has a single element type — floating point — and fractional values are written verbatim (`2.5 2.5 0 …`), so parse all sixteen as doubles |
+| `PR_STA` | 16-element array | Elements `[0]`, `[1]`, `[2]` are the physical FOV in cm for directions 0–2; `[15]` is the byte order (0 = little-endian, 1 = big-endian). Being one array it has a single element type — floating point — and fractional values are written verbatim (`5 5 0.5 0 …` in [Zenodo 4048286](https://zenodo.org/records/4048286) expno 9), so parse all sixteen as doubles |
+
+> **The manuals' `IM_SIX`/`IM_SIY` parentheticals are swapped.** Both parameter references
+> annotate `IM_SIX` as "(number of rows)" and `IM_SIY` as "(number of columns)" (PV5.1 D13
+> §13.4.11.2; PV6 D02 §2.4.10.2) — the opposite of the actual layout. In the public PV5.1 study
+> ([Zenodo 4048286](https://zenodo.org/records/4048286)) scan 24 has `RECO_size = (2048, 32, 32)`
+> and `d3proc` holds `IM_SIX=2048`, `IM_SIY=32`, `IM_SIZ=32` — `IM_SIX` tracks the first,
+> fastest-varying output dimension (and the 1D spectrum in scan 28 has `IM_SIX=2048`,
+> `IM_SIY=1`). This document keeps the on-disk semantics; do not "correct" it back to the
+> manuals' wording.
 
 **Image scaling (legacy):**
 
@@ -1887,7 +2331,10 @@ The `d3proc` file contains legacy image display parameters. These are deprecated
 These are superseded by the Visu parameters where available — `NC_proc` by
 `VisuCoreDataSlope`/`VisuCoreDataOffs`, and `YMIN_p`/`YMAX_p` by
 `VisuCoreDataMin`/`VisuCoreDataMax` (which are themselves pre-scaling values, to be transformed
-with the slope and offset).
+with the slope and offset). Note that on disk `YMIN_p`/`YMAX_p` are written into `procs`, not
+into `d3proc` (zero occurrences across the public datasets' `d3proc` files); the manuals
+document them under the D3 "Image Scaling" heading as Image Display & Processing state (D13
+§13.4.11.3 / D02 §2.4.10.3).
 
 ---
 
@@ -1929,6 +2376,18 @@ and `SUBJECT_study_instance_uid` from the list above, and replaces the rest:
 at all (`SUBJECT_remarks` is retained, but omitted from the file when empty). Both PV5.1 and PV6 define `SUBJECT_sex_human` *and* `SUBJECT_sex_animal`; which one carries the
 value follows `SUBJECT_type` — human/biped subjects use `SUBJECT_sex_human` (`Male`/`Female`),
 animal types use `SUBJECT_sex_animal` (`MALE`/`FEMALE`/`UNDEFINED`/`UNKNOWN`).
+
+PV360 additionally stores the ATS usage in the subject file: `CMN_study_use_ats` (YesNo —
+whether the animal transport system is used for the study) and `CMN_study_bed` (name of the
+animal cradle) — PV360 manual §4.13.2.2. These are the detection parameters for the ATS
+coordinate-origin shift of [Section 12](#12-coordinate-systems).
+
+> **`SUBJECT_version_nr` is not a version detector.** The PV360 manual (which spells it
+> `SUBJECT_version_number`) states the value is 1 for ParaVision 2–6 and 3 for PV360 — but the
+> public files disagree with the first half: PV5.1 writes `##$SUBJECT_version_nr=2`
+> ([Zenodo 4048286](https://zenodo.org/records/4048286)) and PV6.0.1 writes `1`
+> ([Zenodo 4048253](https://zenodo.org/records/4048253)). Treat it as a parameter-set revision
+> only; identify the writing version from `ACQ_sw_version` / `VisuCreatorVersion`.
 
 ---
 
@@ -2050,8 +2509,15 @@ types, and ParaVision 360 `reco` files reference further ones that no PV6 header
 `RecoAcqOutFilter`, `RecoAddFilter`, `RecoAverageFilter`, `RecoDivideFilter`, `RecoDummySink`,
 `RecoEpiGhostFilter`, `RecoHalfFourierFilter`, `RecoMaskFilter`, `RecoProgressMonitorFilter`,
 `RecoReformatFilter`, `RecoRegridApodCorrFilter`, `RecoRegridDensCorrFilter`, `RecoRegridNFilter`,
-`RecoStabCorrFilter`, `RecoSharedQueueSource` among them. Treat an unrecognised node type as
-expected, not as a parse error.
+`RecoStabCorrFilter`, `RecoSharedQueueSource` among them (all observable in the `reco` files of
+the public PV360 3.6 standard-protocol dataset,
+[github.com/cecilyen/PV360_StdData](https://github.com/cecilyen/PV360_StdData)). Treat an
+unrecognised node type as expected, not as a parse error.
+
+`RecoDefaultJobTitle` (PV360, a RECO-group internal parameter — not observed written to `reco`
+files) names the acquisition job the reconstruction reads;
+absent/empty means job index 0 — also the job whose `chanNum` determines the parallel-channel
+count for reconstruction (PV360 manual §4.13.5.7.3).
 
 | Node type | Role |
 |-----------|------|
@@ -2169,9 +2635,13 @@ Where:
 
 GO parameters (subclass of ACQP) control the acquisition and reconstruction pipeline behavior.
 
-> **PV5.1 / PV6 / PV7 only.** No `GO_*` key appears in any file of a Bruker-released ParaVision
-> 360 dataset. On PV360 the raw-data layout comes from `ACQ_jobs` and
-> `ACQ_ScanPipeJobSettings` instead — see [Section 13.1](#131-paravision-360-v3x).
+> **PV5.1 / PV6 / PV7 only.** No `GO_*` key appears in any study/EXPNO/PROCNO file of the public
+> PV360 3.6 standard-protocol dataset
+> ([github.com/cecilyen/PV360_StdData](https://github.com/cecilyen/PV360_StdData)) nor of
+> Bruker's 360.3.5–360.3.7 standard datasets (the 360.3.5 download's `*.examination` database
+> exports, which sit beside the studies, do still embed `GO_*`/`GS_*` keys), and the PV360
+> manual describes the raw layout solely via `ACQ_jobs` and
+> `ACQ_ScanPipeJobSettings` (§4.12.3) — see [Section 13.1](#131-paravision-360-v3x).
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
@@ -2188,6 +2658,19 @@ GO parameters (subclass of ACQP) control the acquisition and reconstruction pipe
 | `GO_use_macro` | YesNo | Execute the post-processing macro after acquisition |
 | `GO_macro` | string | Post-processing macro as `<category>:<name>`, called with the dataset path (up to PROCNO) |
 | `GO_LogTimestamp` | YesNo | Log timestamps during acquisition — **PV6+**; declared in the headers, but Bruker documents no semantics |
+
+**Where the GO/GS controls went in ParaVision 360.** PV360 replaces the GO and GS subclasses
+with the ACQ_SCAN and ACQ_SETUP subgroups (PV360 manual §4.13.5.5.7 and §4.13.5.5.6):
+
+- **ACQ_SCAN** (the GOP successor): `ACQ_ScanOnlineReco` (≈ `GO_online_reco`),
+  `ACQ_ScanFtDisplay`, `RecoDisplay` (≈ `GO_reco_display`), `RecoEachNR` (≈ `GO_reco_each_nr`),
+  and `ACQ_ScanPipeJobSettings` — the per-job storage policy already described in
+  [Section 13.1](#131-paravision-360-v3x).
+- **ACQ_SETUP** (the GSP successor): `ACQ_SetupOnlineReco`, `ACQ_SetupRecoDisplay` (the YesNo
+  example of [Section 2.2](#22-data-types)), `ACQ_SetupImageType` (supersedes `RECO_image_type`
+  when reconstruction runs in a setup pipeline), `ACQ_SetupFtDisplay`, `ACQ_SetupType` (enum
+  `GSTYP`: `Spectrometer_Parameters`, `Gradients`, `Preemphasis`, `Shim`), `ACQ_SetupAutoName`
+  and `ACQ_SetupPipeJobSettings`.
 
 ---
 
@@ -2212,8 +2695,10 @@ This document uses **logical/encoding** for read/phase/slice and **magnet/gradie
 - Origin at the middle of the instrument (magnet isocentre) for single-modality systems.
   **On ParaVision 360 multi-modality systems with an ATS (animal transport system) the origin is
   instead the labelled position of the subject in the animal cradle**, and the offset is recorded
-  in `VisuCoreAtsCenterDistance`. A reader that assumes isocentre on such a dataset places every
-  volume wrongly along the bore axis.
+  in `VisuCoreAtsCenterDistance` / `ACQ_AtsCenterDistance` (see
+  [Section 5.8](#58-ats-parameters-pv360)); whether the ATS was used at all is
+  `CMN_study_use_ats` in the `subject` file. A reader that assumes isocentre on such a dataset
+  places every volume wrongly along the bore axis.
 
 ### Image Coordinate System
 - First direction: left to right in displayed image
@@ -2294,7 +2779,7 @@ itself is stated in the PV6 parameter manual and the PV5.1 Geometry Editor docum
 | Feature | PV5.x | PV6.x |
 |---------|-------|-------|
 | Study directory path | `<DiskUnit>/data/<user>/nmr/<name>/...` (name max 15 chars) | `<DataPath>/<name>/...` (name max 64 chars) |
-| Study-level files | `subject`, `AdjStatePerStudy` (the only two in PV5.1 D12 Table 12.2) | adds `AdjResult/` (one subdirectory per result, each with `result.jcamp`), `ResultState`, `ScanProgram.scanProgram` |
+| Study-level files | `subject`, `AdjStatePerStudy` (the only two in PV5.1 D12 Table 12.2; `AdjResult/` is nevertheless observed in PV5.1 data — see [Section 1.1](#11-study-level)) | documents `AdjResult/` (one subdirectory per result, each with `result.jcamp`); adds `ResultState`, `ScanProgram.scanProgram` |
 | Raw data storage | `fid` (renamed `ser` on TopSpin export) | `fid` plus optional job-based `rawdata.job[N]` |
 | PROCNO files | `2dseq`, `reco`, `visu_pars`, `d3proc`, `meta`, `procs`, `id`, `roi`, `isa`, `fun/` | drops `meta`; `d3proc` "exists only for legacy datasets"; adds `methreco` (group `MethodRecoGroup`) — method-specific reconstruction *input*, which is not a replacement for `d3proc`'s image description |
 | JCAMP-DX version | 4.24 | 4.24 |
@@ -2326,22 +2811,24 @@ shares the JCAMP-DX 4.24 format and the study/experiment/reconstruction hierarch
 (`<DataPath>/<name>/<expno>/pdata/<procno>`, the same PV6-style path — `<name>` created by
 ParaVision, max 64 chars, default `<DataPath>` = `<PvInstDir>/<USER>`), but differs in several
 important ways. The authority here is ParaVision 360's own Programming & Administration manual
-(chapter "Data Formats", §4.12 in the 3.6/3.7 editions), cross-checked against the Bruker-released
-ParaVision 360 standard datasets for 360.3.5, 360.3.6 and 360.3.7:
+(chapter "Data Formats", §4.12 in the 3.6/3.7 editions), cross-checked against the public PV360
+3.6 standard-protocol dataset
+([github.com/cecilyen/PV360_StdData](https://github.com/cecilyen/PV360_StdData)) and — where
+marked — Bruker's login-gated standard datasets for 360.3.5 and 360.3.7:
 
 | Feature | ParaVision 360 v3.x |
 |---------|---------------------|
 | Raw data | `rawdata.<title>` only — no file named `fid`. `job0` by convention for the main experiment; `rawdata.Navigator` and `rawdata.DriftCompensation` are documented subtypes. The GO subclass parameters are **absent** |
 | Raw scan size | Given by `ACQ_jobs[n].scanSize` (`[0]`); word type by `ACQ_word_size`/`BYTORDA` |
-| Study-level files | Adds `study.MR` (group `MR Extended STUDY_MODALITY`) and `study.PT` (PET), plus an `AdjProtocol`/`AdjProtocols` directory of adjustment protocol files |
+| Study-level files | Adds `study.MR` (group `MR Extended STUDY_MODALITY`) and `study.PT` (PET), plus an adjustment-protocol directory — manual Table 4.4 spells it `AdjProtocol`, released 360.3.6/3.7 studies write `AdjProtocols` on disk |
 | PROCNO files | `2dseq`, `id`, `methreco`, `reco`, `visu_pars` — the manual's table lists **no `d3proc` and no `procs`** |
-| PET | A second raw-data model exists for PET/MR systems: list-mode data lives on the PET reconstruction server under `<PetDataPath>/ParaVision/data/<user>/<studyDir>/<expno>`, not on the MR workplace. Not covered by this document |
+| PET | A second raw-data model exists for PET/MR systems: list-mode data lives on the PET reconstruction server under `<PetDataPath>/ParaVision/data/<user>/<studyDir>/<expno>`, not on the MR workplace — see the list-mode format below |
 | VisuVersion | `8` across 360.3.5–360.3.7 (see [Section 7.1](#71-dataset-administration-visuinstance)) |
 | Word type | `ACQ_ScanPipeJobSettings[j].storageDataType` — `STORE_32bit_signed` (default) or `STORE_64bit_float` — with `ACQ_word_size`/`BYTORDA` alongside |
-| Pulse program | Precompiled `pulseprogram.precomp` at the scan root; the source program is a separate `lists/pp/<seq>.ppg` (e.g. `lists/pp/FLASH.ppg`) |
+| Pulse program | Precompiled `pulseprogram.precomp` at the scan root; the source program is a separate `lists/pp/<seq>.ppg` (e.g. `lists/pp/FLASH.ppg`). The PV360 manual's EXPNO table (Table 4.5) still lists a plain `pulseprogram` source file, but released 360.3.x datasets ship only the `.precomp` + `lists/pp/` form — accept either |
 | Extra parameter files | `acqp.out`, `reco.out` (output snapshots), `shimcondition`, `methreco` (in PROCNO), `configscan` |
-| Logs | `MxiAcqReco.log` (acquisition/reconstruction trace log, text) — written into the **PROCNO** |
-| Other observed EXPNO files | `MapShim`, `EpiGhostCorrPars-E<n>-P<n>` (method/adjustment side files, not documented in the manual's EXPNO table) |
+| Logs | `MxiAcqReco.log` (acquisition/reconstruction trace log, text) — written into the **PROCNO**; a PROCNO may also carry a `reports/` bundle, e.g. `reports/MapShimReport1/` with `MapShimReport1.pdf`, `.xml` and `Figures/Figure_<n>.svg` (observed in the public `T2star_map_MGE` scan, not in the manual's tables) |
+| Other observed EXPNO files | `MapShim` (public 3.6 data), `EpiGhostCorrPars-E<n>-P<n>` (observed only in Bruker's login-gated standard datasets) — method/adjustment side files, not documented in the manual's EXPNO table |
 | Exports | `pdata/<procno>/dicom/*.dcm` and `pdata/<procno>/nifti/*.nii` written by PV360 |
 | Diffusion (DTI) | Job-based only (`rawdata.job0`); b-values/vectors in `method` |
 | Non-Cartesian | UTE3D ships a `traj` trajectory file **and** a `b0` off-resonance reference file |
@@ -2353,8 +2840,10 @@ ParaVision 360 standard datasets for 360.3.5, 360.3.6 and 360.3.7:
 > per-scan size in real points and — in this 9-field PV360 form — `nStoredScans` is `[6]`
 > (the 8-field PV6/PV7 form instead puts it **last**, at `[7]`), e.g.
 > `(400, 9, 18, 7776, 101, 74626.9, 2592, 1, <job0>)` → `scanSize=400`, `nStoredScans=2592`,
-> `chanNum=1`, `title=job0`. `ACQ_size[0]` need not equal the job scan size — in the Bruker
-> 360.3.7 T1-FLASH `ACQ_size = ( 1024, 1 )` while `scanSize = 416`. The raw word type comes from
+> `chanNum=1`, `title=job0`. `ACQ_size[0]` need not equal the job scan size — in the same public
+> PV360 3.6 `T1_FLASH`
+> ([github.com/cecilyen/PV360_StdData](https://github.com/cecilyen/PV360_StdData))
+> `ACQ_size = ( 1024, 1 )` while `scanSize = 400`. The raw word type comes from
 > `ACQ_word_size` + `BYTORDA`.
 >
 > The companion `ACQ_ScanPipeJobSettings[j]` records the storage policy. It is a **17-element
@@ -2363,7 +2852,9 @@ ParaVision 360 standard datasets for 360.3.5, 360.3.6 and 360.3.7:
 > `(storeDataMode, storageDataType, displayMode, logTimeStamp, accumMode, …)`, e.g.
 > `(STORE_processed, STORE_32bit_signed, DISPLAY_each_accumulation, LOG_none, ACCUM_average, 1,
 > 2592, 0, 0, 2592, 2592, NORMALIZE_none, PIPELINE_processed, 0, STREAMING_none,
-> DISPLAY_CoilsSideBySide, 1)`. The documented members are:
+> DISPLAY_CoilsSideBySide, 1)` — verbatim from the public PV360 3.6 `T1_FLASH` `acqp`
+> ([github.com/cecilyen/PV360_StdData](https://github.com/cecilyen/PV360_StdData)). The
+> documented members are:
 >
 > - `storeDataMode` — `STORE_processed` (default; after accumulation/averaging), `STORE_raw`
 >   (before any accumulation), or `STORE_discard` (data is not written at all, so no
@@ -2378,6 +2869,53 @@ ParaVision 360 standard datasets for 360.3.5, 360.3.6 and 360.3.7:
 >
 > Time-domain values can be read as ADC input voltages: the range −10 V to +10 V maps onto the
 > integer range −2³⁰ to +2³⁰.
+
+#### PET list-mode raw data (PV360 PET/MR)
+
+On PET/MR systems the PET acquisition engine writes **list-mode (LM) files** — a proprietary
+binary format documented in the PV360 manual, §4.12.4–4.12.4.3 (default `<PetDataPath>` on the
+reconstruction server: `M:\albira_data\`). Each LM file is a fixed header followed by a list of
+detected coincidence (or single) events.
+
+**LM file header** — "the header size is 176 bytes with an alignment of 4 bytes" (§4.12.4.1), in
+the manual's field order (the sizes sum to exactly 176):
+
+| Offset | Field | Type (bytes) |
+|-------:|-------|--------------|
+| 0 | `Identifier` | char[16] |
+| 16 | `RawCounts` | double (8) |
+| 24 | `AcqTime` | double (8) |
+| 32 | `Activity` (µCi) | double (8) |
+| 40 | `Isotope` | char[16] |
+| 56 | `DetectorSizeX` | double (8) |
+| 64 | `DetectorSizeY` | double (8) |
+| 72 | `StartTime` | double (8) |
+| 80 | `MeasurementTime` | double (8) |
+| 88 | `ModuleNumber` | int (4) |
+| 92 | `RingNumber` | int (4) |
+| 96 | `RingDistance` | double (8) |
+| 104 | `DetectorDistance` | double (8) |
+| 112 | `IsotopeHalfLife` | double (8) |
+| 120 | `Reserved` | float[8] (32) |
+| 152 | `Version` | char[2] |
+| 154 | `Reserved` | char[2] |
+| 156 | `GatePeriod` | double (8) |
+| 164 | `DOILayer` | ushort (2) |
+| 166 | `DecodingMethod` | short (2) |
+| 168 | `StudyNumber` | short (2) |
+| 170 | `Reserved` | char[6] |
+
+**Event records** — "each entry of a coincidence or single event uses 40 bytes" (§4.12.4.2):
+`Time` (double), `Energy1`/`Energy2` (float), `Amount` (float), `xPosition1`/`yPosition1`/
+`xPosition2`/`yPosition2` (ushort, 0–299), `Pair` (ushort), `GateFlag` (ushort). Note the
+listed fields sum to 32 bytes — the manual does not account for the remaining 8 of the stated
+40 (presumably alignment padding), so step records by 40 bytes, not by the field sum. A `Pair`
+number **greater than 255 marks a single event** rather than a coincidence. The pair numbering
+follows the detector geometry: "the 24 detector modules (3 rings with 8 modules each) are
+numbered clockwise (seen from the front)" (§4.12.4.3). The MR-side workstation sees only the
+per-study `study.PT` context ([Section 1.1](#11-study-level)); the LM data itself stays on the
+PET server. (The PV360 manual also documents CT parameter groups, §4.13.3.13/§4.13.6 — like PET
+reconstruction, beyond this document's MRI scope.)
 
 ### 13.2 ParaVision 7.0
 
@@ -2399,6 +2937,7 @@ Zenodo [4522220](https://zenodo.org/records/4522220)):
 | `VisuVersion` | `3` (same as PV6) |
 | `d3proc` | Not written (dropped) |
 | PROCNO file `pvmeta` | A small native JCAMP parameter file (group `PV_META`, e.g. `RefCopyId`) alongside `reco`/`methreco`/`visu_pars` — **defined since PV6.0.1** (`generated/DataPath.h`), not new in PV7; DICOM exports under `pdata/<procno>/dicom/` |
+| Observed extras | Study-level `Mapshim/<n>/` shim work directory and per-EXPNO `PowAdjustment/<n>/Results` / `SetupPulsePower/<n>/Profiles` adjustment files (public PV7 study, [Zenodo 20429962](https://zenodo.org/records/20429962)) — see [Sections 1.1](#11-study-level)–[1.2](#12-experiment-level-expno) |
 
 > **Non-native sidecars in public PV7 test data.** The BrukerAPI Zenodo dataset ships companion
 > files that are **not** written by ParaVision and must be ignored by a Bruker parser:
@@ -2408,6 +2947,12 @@ Zenodo [4522220](https://zenodo.org/records/4522220)):
 > should treat `.npz`/`.json` as non-Bruker and skip them — brkraw-legacy already does, converting
 > the PV7 study with no code changes (all 30 image scans → NIfTI, spectroscopic scans rejected
 > cleanly).
+>
+> Third-party processing tools drop their own descriptors into EXPNOs, too — e.g. the plain
+> key=value `exp.par` files (`fileType = "Paravision-LittleEndian"`, zero-fill/FT settings) found
+> throughout the PV5.1/PV6.0.1 studies of
+> [Zenodo 5565584](https://zenodo.org/records/5565584). Like `.npz`/`.json`, these are not
+> ParaVision files and must be skipped.
 
 ---
 
@@ -2415,7 +2960,9 @@ Zenodo [4522220](https://zenodo.org/records/4522220)):
 
 Sections 14.1-14.3 apply the size formulas of [Section 3.1](#31-fid---raw-acquisition-data-single-experiment)
 and [Section 3.4](#34-2dseq---reconstructed-image-data) to illustrative (not dataset-specific)
-parameter sets; 14.4 and 14.5 instead work through **real Bruker-released ParaVision 360 data**. Reproducing the on-disk byte count from the parameters is the quickest way to
+parameter sets; 14.4 and 14.5 instead work through **real ParaVision data** — publicly
+available except the rows marked as Bruker's login-gated PV360 3.7 standard dataset.
+Reproducing the on-disk byte count from the parameters is the quickest way to
 validate a parser.
 
 ### 14.1 `fid` size — 2D multi-slice, multi-channel
@@ -2496,9 +3043,11 @@ than a single-channel count would suggest. The word type is given by `ACQ_word_s
 (equivalently `ACQ_ScanPipeJobSettings[N].storageDataType`), and `ACQ_jobs_size` gives the number of acquisition *jobs*; each job whose `storeDataMode` is not
 `STORE_discard` writes one `rawdata.<title>` file.
 
-Worked example — Bruker-released PV360 3.6 4-channel T1-FLASH
-(`ACQ_jobs = (400, 9, 18, 7776, 101, 74626.9, 2592, 1, <job0>)` → `scanSize=400`,
-`nStoredScans=2592`; 4 active receivers; 32-bit):
+Worked example — the public PV360 3.6 4-channel `T1_FLASH`
+([github.com/cecilyen/PV360_StdData](https://github.com/cecilyen/PV360_StdData);
+`ACQ_jobs = (400, 9, 18, 7776, 101, 74626.9, 2592, 1, <job0>)` → `scanSize=400`,
+`nStoredScans=2592`; `ACQ_ReceiverSelectPerChan = ( 1, 7 )` `No No No Yes Yes Yes Yes` → 4
+active receivers; 32-bit):
 
 ```
 rawdata.job0 size = 4 * 400 * 4 * 2592 = 16,588,800 bytes   (matches the on-disk file exactly)
@@ -2522,29 +3071,36 @@ turn, samples along a projection, projections outermost):
 traj size = 8 * ACQ_dim * samples_per_projection * num_projections
 ```
 
-> **`samples_per_projection` is not `PVM_TrajSamples`.** No Bruker parameter holds it directly, and
-> the obvious candidate overstates it. On the Bruker-released PV360 UTE3D scans:
+> **`samples_per_projection` is not `PVM_TrajSamples` (on PV360).** No Bruker parameter holds it
+> directly, and on PV360 the obvious candidate overstates it:
 >
 > | | `PVM_TrajSamples` | `NPro` | `traj` bytes | implied samples/projection |
 > |---|---|---|---|---|
-> | PV360 3.7 | 95 | 51360 | 92,448,000 | 92448000 / 8 / 3 / 51360 = **75** |
-> | PV360 3.6 | 94 | 51360 | 91,215,360 | 91215360 / 8 / 3 / 51360 = **74** |
+> | PV360 3.7 UTE3D (Bruker login-gated standard dataset) | 95 | 51360 | 92,448,000 | 92448000 / 8 / 3 / 51360 = **75** |
+> | PV360 3.6 UTE3D ([github.com/cecilyen/PV360_StdData](https://github.com/cecilyen/PV360_StdData)) | 94 | 51360 | 91,215,360 | 91215360 / 8 / 3 / 51360 = **74** |
+> | PV6.0.1 3D UTE (MRIReco.jl test data) | 54 | 28733 | 37,237,968 | 37237968 / 8 / 3 / 28733 = **54** ✓ |
 >
+> On PV6.0.1 `PVM_TrajSamples` **matches** the file exactly, so the inflation is PV360-specific.
 > Recover the sample count from the file size and `ACQ_dim`/`NPro` rather than from
-> `PVM_TrajSamples` (or `PVM_TrajResultSize`, which carries the same inflated value).
+> `PVM_TrajSamples` (or `PVM_TrajResultSize`, which carries the same inflated value on PV360).
 
 The companion `b0` off-resonance file shipped alongside `traj` by UTE3D is also `float64`, with
 **two** values per sample over the same sample and projection counts
-(`8 * 2 * samples_per_projection * num_projections`): 61,632,000 bytes = `8 * 2 * 75 * 51360` for
-the PV360 3.7 scan above.
+(`8 * 2 * samples_per_projection * num_projections`): 60,810,240 bytes = `8 * 2 * 74 * 51360`
+for the public PV360 3.6 scan above, 24,825,312 bytes = `8 * 2 * 54 * 28733` for the public
+PV6.0.1 scan, and 61,632,000 bytes = `8 * 2 * 75 * 51360` for the gated PV360 3.7 scan.
 
 The `traj` is sized independently of the raw data; the read axis of the `fid`/`rawdata.jobN` may be
 oversampled relative to the trajectory sample count.
 
 > **Sourcing:** no Bruker manual documents `traj` or `b0`, and the toolbox headers the trajectory
 > parameters live in (`PvmTypes/TrajectoryTypes.h`) define only adjustment and reconstruction
-> *modes*, not the file layout. The dtype, ordering and sizes above are **derived by inspection of
-> Bruker-released datasets**, not quoted from documentation — the `float64` interpretation is the
+> *modes*, not the file layout. The dtype, ordering and sizes above are **derived by inspection
+> of real UTE datasets** — publicly, the PV360 3.6 UTE3D scan
+> ([github.com/cecilyen/PV360_StdData](https://github.com/cecilyen/PV360_StdData)) and the
+> PV6.0.1 3D UTE scan (MRIReco.jl test data,
+> [media.tuhh.de/ibi/mrireco/MRIRecoTestData.tar.gz](http://media.tuhh.de/ibi/mrireco/MRIRecoTestData.tar.gz))
+> — not quoted from documentation. The `float64` interpretation is the
 > one that yields a monotonically ramping, correctly-normalised k-space coordinate, where `float32`
 > yields noise.
 
