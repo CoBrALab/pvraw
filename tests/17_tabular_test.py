@@ -192,3 +192,38 @@ def test_participant_sidecar_is_not_written_without_its_table(tmp_path):
                            [{'participant_id': 'sub-01'}], {}, {})
     assert (tmp_path / 'participants.tsv').exists()
     assert (tmp_path / 'participants.json').exists()
+
+
+def test_a_second_conversion_keeps_the_first_subject(tmp_path):
+    """participants.tsv must be merged across conversions, not overwritten.
+
+    It is the one table that spans conversions: every other one lives inside a
+    subject directory. Overwriting it leaves the earlier subject's directory with no
+    row, which the validator reports as PARTICIPANT_ID_MISMATCH -- an error, not a
+    warning. Found while documenting how to add a subject to an existing dataset.
+    """
+    path = tmp_path / 'participants.tsv'
+
+    tabular.merge_participants(path, [
+        {'participant_id': 'sub-01', 'species': 'n/a', 'age': 0.29,
+         'sex': None, 'weight': None},
+    ])
+    tabular.merge_participants(path, [
+        {'participant_id': 'sub-02', 'species': 'n/a', 'age': 0.49,
+         'sex': 'male', 'weight': 0.0371},
+    ])
+
+    rows = path.read_text().splitlines()
+    assert rows[0] == 'participant_id\tspecies\tage\tsex\tweight'
+    assert [r.split('\t')[0] for r in rows[1:]] == ['sub-01', 'sub-02']
+    assert rows[1] == 'sub-01\tn/a\t0.29\tn/a\tn/a'
+
+
+def test_reconverting_a_subject_updates_its_row_rather_than_duplicating_it(tmp_path):
+    path = tmp_path / 'participants.tsv'
+    tabular.merge_participants(path, [{'participant_id': 'sub-01', 'sex': 'male'}])
+    tabular.merge_participants(path, [{'participant_id': 'sub-01', 'sex': 'female'}])
+
+    rows = path.read_text().splitlines()
+    assert len(rows) == 2, 'expected one header and one subject row'
+    assert rows[1].split('\t')[3] == 'female'
