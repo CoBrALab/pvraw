@@ -28,8 +28,9 @@ it and block nothing.
 
 ## Track 1 — the PR stack
 
-PR1–PR4 are done. On the PV6 lego phantom the validator reports **0 errors**
-throughout, with warnings 499 → 429.
+PR1–PR5 are done. On the PV6 lego phantom the validator reports **0 errors**
+throughout, with warnings 499 → 428. Roughly 375 of those remaining are fields
+Bruker simply does not record, so they are not a backlog.
 
 ### PR1 · Schema pin and version unification — done
 
@@ -86,8 +87,10 @@ Three claims in the file are wrong and get corrected:
 `reco` is added as a fourth parameter source, which unlocks `CoilCombinationMethod`.
 `CONFIG_SCAN_gradient_system` lives in `configscan`, which `brukerapi` does not load,
 so `GradientSetType` stays unmapped with a corrected comment — reading that file here
-would reintroduce exactly what ADR 0002 removed. **Still open:** an upstream
-`brukerapi` issue asking it to expose `configscan` has not been filed yet.
+would reintroduce exactly what ADR 0002 removed. Filed upstream as
+[isi-nmr/brukerapi-python#189](https://github.com/isi-nmr/brukerapi-python/issues/189),
+asking for `configscan` to be loaded as an optional parameter file alongside `reco`
+and `d3proc`. `GradientSetType` becomes mappable if that lands.
 
 `RepetitionTime` needs the guard `InversionTime` already has: variable-TR sequences
 (RAREVTR) return an array, and `{'TR': 'VisuAcqRepetitionTime', 'Equation': 'TR/1000'}`
@@ -158,22 +161,47 @@ to the BIDS `FERMI`, `GAUSSHANN`, `SINCHANN` or `SINCGAUSS` values.
 or `COMBINED` and then recommends the moment and duration. Errors stay 0, which is
 the limit; the warning count is a weaker signal than it looks.
 
-### PR5 · Modality-agnostic and tabular files
+### PR5 · Modality-agnostic and tabular files — done
 
-`participants.tsv` gains `sex` and `weight` (kg, 1:1 — but `0.001` is ParaVision's
-unset sentinel) and a **derived** `age`; the birth date itself is never written,
-since BIDS has no column for it. Version fallbacks are needed because PV360 renames
-half the subject class. `species`, `strain` and `handedness` are omitted — no source
-exists, and `SUBJECT_type` is body plan, not taxonomy (and its enum identity changed
-between PV5.1 and PV6, so a numeric read mis-decodes).
+New `lib/tabular.py` builds the rows. It takes parameter objects rather than a
+loader, so a row can be built and tested without a dataset on disk.
 
-`_scans.tsv` and `_sessions.tsv` with the **true** `acq_time`. Shifting dates before
-sharing is the user's job, and the generated README says so — a converter that
-silently destroys timing is worse than an honest one.
+`participants.tsv` carries `participant_id`, `species`, `age`, `sex` and `weight`,
+each described in `participants.json` — `weight` is not a BIDS-defined column, and
+an undescribed non-standard column is a warning. `age` is **derived** from
+`SUBJECT_dbirth` and the study date and the birth date is then discarded, since
+BIDS has an age column and no birth-date column. `sex` reads all four version
+spellings and treats `UNDEFINED`/`UNKNOWN` as absence. `weight` treats ParaVision's
+`0.001` sentinel as absent. `strain` and `handedness` are omitted — no source.
 
-`generateModalityAgnosticFiles` stops calling `sys.exit()` when `participants.tsv`
-already exists, which currently makes it impossible to add a subject to an existing
-tree. The dead `etc/` line in `.bidsignore` goes.
+`_scans.tsv` and `_sessions.tsv` carry `acq_time` from `VisuAcqDate`, the
+acquisition *start*, which is what BIDS asks for — not `VisuCreationDate` (when the
+reconstruction was written) and not `get_scan_time`'s `scan_time`, which adds the
+duration and so is the end. The times are the scanner clock as recorded; the README
+says to shift dates before sharing, because a converter cannot do that without
+destroying timing the user may still need.
+
+**`species` is written as `n/a` rather than omitted, which reverses what "no source"
+would suggest.** BIDS reads an *absent* species column as `homo sapiens`, so
+omitting it would make every animal dataset silently claim to be human — the same
+failure as a bare `PhaseEncodingDirection`. No binomial name is derivable, so `n/a`
+it is, plus a warning.
+
+**The taxon comes from the subject frame, not the subject file.** ParaVision picks
+its coordinate system per specimen (PV6.0.1 manual S1.3.6: Rodent for quadrupeds,
+Primate for bipeds, Material for phantoms), so it is read per scan from
+`VisuSubjectType` and resolved by `uses_quadruped_frame` — the same rule the affine
+uses, not a second copy of it. That distinction is the whole point: PV5.1 cannot
+express a subject type and writes `SUBJECT_type=Human` for **every** study
+regardless of specimen, so the first version of this, which read the study
+`subject` file, stayed silent on exactly the rodent data where the human default
+does most harm. A quadruped answer is definite; a biped answer only narrows the
+subject to a primate.
+
+`generateModalityAgnosticFiles` no longer calls `sys.exit()` when
+`participants.tsv` exists, so a subject can finally be added to a converted
+dataset, and `.bidsignore` is no longer written — its only content was `etc/`, for
+scans that are skipped and never emitted.
 
 ### PR6 · Routing
 

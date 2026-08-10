@@ -212,9 +212,13 @@ class BrukerLoader:
         return self._study.avail_reco_id
 
     # subject-level fields; None when the export carries no `subject` file
+    @property
+    def subject(self):
+        """The study's ``subject`` parameter file."""
+        return self._study.subject
+
     def _subject_value(self, key, default=None):
-        subject = self._study.subject
-        return get_value(subject, key, default)
+        return get_value(self.subject, key, default)
 
     @property
     def user_account(self):

@@ -317,7 +317,14 @@ def func_volume_tr(dset, row, num_volumes):
 
 
 def build_bids_json(dset, row, fname, json_path, scale_mode='header', intended_for=None):
+    """Convert one datasheet row and return the NIfTI paths written.
+
+    The paths are what ``_scans.tsv`` is built from: only the converter knows how
+    many files one row becomes, since echoes and slice-pack chunks each get their own.
+    """
     import pandas as pd
+
+    written = []
 
     # TaskName is required for func and must equal the task- entity label.
     task_name = row.task if (pd.notnull(row.task) and re.search('func', str(row.DataType),
@@ -334,6 +341,7 @@ def build_bids_json(dset, row, fname, json_path, scale_mode='header', intended_f
             currentFileName = f'{fname}_echo-{echo + 1}_{row.modality}'
             output_path = os.path.join(row.Dir, currentFileName)
             nii.to_filename(f'{output_path}.nii.gz')
+            written.append(f'{output_path}.nii.gz')
             if json_path:
                 ref = get_bids_ref_obj(json_path, row)
                 nslices = nii.shape[2] if nii.ndim >= 3 else 1
@@ -355,6 +363,7 @@ def build_bids_json(dset, row, fname, json_path, scale_mode='header', intended_f
             else:
                 current = f'{fname}_{row.modality}'
             nii.to_filename(os.path.join(row.Dir, f'{current}.nii.gz'))
+            written.append(os.path.join(row.Dir, f'{current}.nii.gz'))
             if re.search('dwi', row.modality, re.IGNORECASE):
                 # DTI parameter (FSL style); one bval/bvec per written volume
                 nvol = nii.shape[3] if nii.ndim >= 4 else 1
@@ -373,6 +382,7 @@ def build_bids_json(dset, row, fname, json_path, scale_mode='header', intended_f
                                task_name=task_name, intended_for=intended_for,
                                num_slices=num_slices,
                                repetition_time=func_volume_tr(dset, row, nvol))
+    return written
 
 
 def encdir_code_converter(enc_param):

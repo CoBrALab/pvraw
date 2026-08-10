@@ -1,7 +1,6 @@
 import argparse
 import os
 import re
-import sys
 import warnings
 
 from .. import BrukerLoader, __version__
@@ -445,6 +444,13 @@ def main():
         # prepare the required file for converted BIDS dataset
         generateModalityAgnosticFiles(root_path, json_fname)
 
+        # Rows for the modality-agnostic tables, collected while converting and
+        # written once at the end: a subject's row is only correct after its scans
+        # are known, and _scans.tsv needs the filenames the converter chose.
+        participant_rows = []
+        session_rows = {}        # subject label -> [session row, ...]
+        scan_rows = {}           # (subject label, session label or None) -> [row, ...]
+
         print('Inspect input BIDS datasheet...')
 
         # if the path directly contains scan files for one participant
@@ -511,10 +517,16 @@ def main():
                                                                            'among the scans with the same modality.')
                                             else:
                                                 conflict_tested.append(fname)
-                                            build_bids_json(dset, sub_row, fname, json_fname, scale_mode=scale_mode)
+                                            recordScanRows(
+                                                scan_rows, root_path, dset, sub_row, include_session,
+                                                build_bids_json(dset, sub_row, fname, json_fname,
+                                                                scale_mode=scale_mode))
                                     else:
                                         fname = f'{row.FileName}'
-                                        build_bids_json(dset, row, fname, json_fname, scale_mode=scale_mode)
+                                        recordScanRows(
+                                            scan_rows, root_path, dset, row, include_session,
+                                            build_bids_json(dset, row, fname, json_fname,
+                                                            scale_mode=scale_mode))
                                     list_tested_fn.append(temp_fname)
                                 except Exception as e:
                                     # One scan failing to convert must not abort the whole
@@ -526,11 +538,13 @@ def main():
                         # converted; otherwise participants.tsv would list a subject
                         # with no data (BIDS PARTICIPANT_ID_MISMATCH).
                         if list_tested_fn:
-                            with open(os.path.join(root_path, 'participants.tsv'), 'a+') as f:
-                                f.write(subj_code + '\n')
+                            recordParticipant(participant_rows, session_rows, dset,
+                                              subj_code, filtered_dset, include_session)
                         print('...Done.')
             except FileNotValidError:
                 pass
+
+        writeParticipantTables(root_path, participant_rows, session_rows, scan_rows)
     else:
         parser.print_help()
 
@@ -699,13 +713,13 @@ def generateModalityAgnosticFiles(root_path, json_fname):
     import json
     from copy import deepcopy
 
+    from ..lib import tabular
     from ..lib.bids import BIDS_VERSION
     from ..lib.reference import DATASET_DESC_REF
 
     data_des = os.path.join(root_path, 'dataset_description.json')
     readme = os.path.join(root_path, 'README')
     changes = os.path.join(root_path, 'CHANGES')
-    bidsignore = os.path.join(root_path, '.bidsignore')
 
     if not os.path.exists(data_des):
         desc = deepcopy(DATASET_DESC_REF)
@@ -723,41 +737,111 @@ def generateModalityAgnosticFiles(root_path, json_fname):
         with open(readme, 'w') as f:
             f.write(f'This dataset was converted using BrkRaw (v{__version__}) on '
                     f'{datetime.datetime.now().astimezone().isoformat()}.\n')
+            f.write('\n## Acquisition times\n'
+                    'The `acq_time` columns hold the scanner clock as recorded, not a\n'
+                    'shifted one. If you are sharing this dataset, shift the dates\n'
+                    'first -- BIDS asks for that, and a converter cannot do it for you\n'
+                    'without destroying the timing you may still need.\n')
+            f.write('\n## Species\n'
+                    'The `species` column is `n/a`: ParaVision records a body plan\n'
+                    '(Biped/Quadruped/Phantom), never a binomial name. Fill it in --\n'
+                    'BIDS reads an absent species as `homo sapiens`.\n')
             f.write('\n## How to cite?\n - https://doi.org/10.5281/zenodo.3818615\n')
     if not os.path.exists(changes):
         with open(changes, 'w') as f:
             f.write(f'1.0.0 {datetime.datetime.now().astimezone().date().isoformat()}\n'
                     f' - Dataset created with BrkRaw v{__version__}.\n')
-    if not os.path.exists(bidsignore):
-        with open(bidsignore, 'w') as f:
-            # Unclassified Bruker scans (if any are placed here manually) are excluded
-            # from validation rather than emitted as an invalid BIDS datatype.
-            f.write('etc/\n**/etc/\n')
 
     # https://bids-specification.readthedocs.io/en/stable/03-modality-agnostic-files.html
-    # participant.tsv file. if not exist, create it, and append. if need tab use \t
-    participantsTsvPath = os.path.join(root_path, 'participants.tsv')
-    if not os.path.exists(participantsTsvPath):
-        with open(participantsTsvPath, 'a+') as f:
-            f.write('participant_id\n')
-    else:
-        print('Exiting before convert..., participants.tsv already exist in output folder: ', participantsTsvPath)
-        sys.exit()
+    # participants.tsv is written once, after conversion, by writeParticipantTables:
+    # its rows are only known then, and a header written here would have to be
+    # rewritten anyway. Its sidecar has no such dependency, so it goes now.
+    participants_json = os.path.join(root_path, 'participants.json')
+    if not os.path.exists(participants_json):
+        descriptions = {'participant_id': {'Description': 'Participant identifier'}}
+        descriptions.update(tabular.PARTICIPANT_DESCRIPTIONS)
+        with open(participants_json, 'w') as f:
+            json.dump(descriptions, f, indent=4)
 
-    # participant.json file. if not exist, create it, and append. if need tab use \t
-    participantsJsonPath = os.path.join(root_path, 'participants.json')
-    if not os.path.exists(participantsJsonPath):
-        with open(participantsJsonPath, 'a+') as f:
-            sideCar = { 
-                "participant_id": {
-                    "Description": "Participant identifier"
-                }
-            }
-            json.dump(sideCar, f, indent=4)
-    else:
-        print('Exiting...before convert, participants.json already exist in output folder: ', participantsJsonPath)
-        sys.exit()
 
+
+def recordScanRows(scan_rows, root_path, dset, row, include_session, written):
+    """Note each written image in the ``_scans.tsv`` rows for its subject/session.
+
+    One datasheet row can become several files -- multi-echo and multi-slicepack
+    both split -- so the converter has to say what it actually wrote.
+    """
+    import pandas as pd
+
+    from ..lib import tabular
+
+    if not written:
+        return
+    subject = f'sub-{row.FileName.split("_")[0].replace("sub-", "", 1)}'
+    session = f'ses-{row.SessID}' if (include_session and pd.notnull(row.SessID)) else None
+    # `filename` is relative to the directory holding the table, which is the
+    # session directory when there is one and the subject directory otherwise.
+    base = os.path.join(root_path, subject, session) if session \
+        else os.path.join(root_path, subject)
+    try:
+        acquired = tabular.acq_time(dset.get_visu_pars(row.ScanID, row.RecoID))
+    except Exception:
+        acquired = None
+    for path in written:
+        scan_rows.setdefault((subject, session), []).append({
+            'filename': os.path.relpath(path, base).replace(os.sep, '/'),
+            'acq_time': acquired,
+        })
+
+
+def recordParticipant(participant_rows, session_rows, dset, subj_code, filtered_dset,
+                      include_session):
+    """Note one converted subject, and its sessions when the dataset has any."""
+    from ..lib import tabular
+
+    subject = dset.subject
+    participant_rows.append(tabular.participant_row(subject, subj_code))
+    # The taxon comes from the subject frame the scan was acquired in, read per
+    # scan -- never from the study `subject` file, which says Human on every PV5.1
+    # study regardless of specimen.
+    converted = filtered_dset.dropna(subset=['FileName'])
+    if len(converted):
+        first = converted.iloc[0]
+        try:
+            visu_pars = dset.get_visu_pars(first.ScanID, first.RecoID)
+        except Exception:
+            visu_pars = None
+        if tabular.is_non_human(visu_pars):
+            warnings.warn(
+                f'{subj_code}: acquired in the rodent (quadruped) subject frame, so '
+                'the subject is not human -- but ParaVision records no species name. '
+                'BIDS reads an absent species as "homo sapiens", so set the species '
+                'column in participants.tsv before sharing this dataset.')
+    if include_session:
+        acquired = tabular.session_date(subject)
+        for sess_id in filtered_dset['SessID'].dropna().unique():
+            rows = session_rows.setdefault(subj_code, [])
+            label = f'ses-{sess_id}'
+            if not any(r['session_id'] == label for r in rows):
+                rows.append({'session_id': label, 'acq_time': acquired})
+
+
+def writeParticipantTables(root_path, participant_rows, session_rows, scan_rows):
+    """Write participants.tsv and every _sessions.tsv / _scans.tsv."""
+    from ..lib import tabular
+
+    if participant_rows:
+        tabular.write_tsv(os.path.join(root_path, 'participants.tsv'),
+                          tabular.PARTICIPANT_COLUMNS, participant_rows)
+    for subject, rows in session_rows.items():
+        tabular.write_tsv(os.path.join(root_path, subject, f'{subject}_sessions.tsv'),
+                          ('session_id', 'acq_time'), rows)
+    for (subject, session), rows in scan_rows.items():
+        stem = f'{subject}_{session}' if session else subject
+        directory = os.path.join(root_path, subject, session) if session \
+            else os.path.join(root_path, subject)
+        tabular.write_tsv(os.path.join(directory, f'{stem}_scans.tsv'),
+                          ('filename', 'acq_time'), rows)
 
 
 def completeFieldsCreateFolders (df, filtered_dset, dset, multi_session, root_path, subj_code):
