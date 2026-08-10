@@ -2,6 +2,10 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Bruker Data Format
+
+The ultimate source of truth for implementing this software is FILE_FORMAT.md
+
 ## Project Overview
 
 BrkRaw-legacy is a Python library for accessing and converting raw MRI data from Bruker Biospin preclinical scanners. It provides a CLI (`brkraw-legacy`) and Python API for reading Bruker PvDatasets (directory or archive), deriving their geometry, and exporting to NIfTI/BIDS formats.

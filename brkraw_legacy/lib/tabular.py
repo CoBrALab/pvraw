@@ -8,7 +8,9 @@ Absent values are written as ``n/a``, the BIDS convention, rather than omitted:
 a column that disappears when one subject lacks a value would make the table
 ragged across subjects.
 """
+import csv
 import datetime as dt
+import os
 import re
 
 from .subject_orient import uses_quadruped_frame
@@ -189,6 +191,31 @@ def participant_row(subject, participant_id):
         'sex': sex(subject),
         'weight': weight_kg(subject),
     }
+
+
+def merge_participants(path, rows):
+    """`rows` merged into any participants.tsv already at `path`, new rows winning.
+
+    participants.tsv is the one table that spans conversions: every other table lives
+    inside a subject directory, so re-converting a subject rewrites only its own.
+    Converting a second study into an existing dataset must therefore ADD to this
+    file, not replace it -- overwriting leaves a `sub-` directory with no row, which
+    is a PARTICIPANT_ID_MISMATCH error rather than a warning.
+
+    Keyed on participant_id so re-converting the same subject updates its row in
+    place rather than duplicating it.
+    """
+    merged = {}
+    if os.path.exists(path):
+        with open(path, newline='') as handle:
+            reader = csv.DictReader(handle, delimiter='\t')
+            for row in reader:
+                key = row.get('participant_id')
+                if key:
+                    merged[key] = {k: (None if v == NA else v) for k, v in row.items()}
+    for row in rows:
+        merged[row['participant_id']] = row
+    write_tsv(path, PARTICIPANT_COLUMNS, list(merged.values()))
 
 
 def write_tsv(path, columns, rows):

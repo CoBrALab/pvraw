@@ -137,6 +137,11 @@ uv run brkraw-legacy bids_convert <parent_dir> bids_map.csv -j bids_map.json -o 
 template), `-s` (swap subject/study IDs), `-t` (swap session/study ID). `bids_convert`
 accepts `-j`, `-o`, and the same `-t/-p/--ignore-*` overrides as `tonii`.
 
+Step 2 is where the work is: what to put in the datasheet, what to do about scans
+marked `etc`, how to name a task, how to link a fieldmap to the images it corrects, and
+what the validator warnings mean are all covered in
+**[How to convert Bruker studies to BIDS](docs/how-to-convert-to-bids.md)**.
+
 The output is validator-clean: correct filenames and entity ordering, JSON sidecars,
 `dataset_description.json`, `participants.tsv`/`.json`, `<subject>_sessions.tsv`,
 `<subject>_scans.tsv` with acquisition times, `README` and `CHANGES`. `anat`, `func`,

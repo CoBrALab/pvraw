@@ -966,8 +966,11 @@ def writeParticipantTables(root_path, participant_rows, session_rows, scan_rows)
     from ..lib import tabular
 
     if participant_rows:
-        tabular.write_tsv(os.path.join(root_path, 'participants.tsv'),
-                          tabular.PARTICIPANT_COLUMNS, participant_rows)
+        # Merged, not overwritten: converting a second study into an existing dataset
+        # must add to this table. Replacing it leaves the earlier subject's directory
+        # with no row, which is a PARTICIPANT_ID_MISMATCH error.
+        tabular.merge_participants(os.path.join(root_path, 'participants.tsv'),
+                                   participant_rows)
         # Written with the table, never before it: the sidecar of a table that was
         # never created is an error, and every column here needs describing anyway
         # because `weight` is not a BIDS-defined column.
