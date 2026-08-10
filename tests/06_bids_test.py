@@ -79,6 +79,22 @@ def test_label_validation():
     assert not bids.is_valid_label('a-b')
 
 
+def test_bids_version_comes_from_the_schema_not_a_literal():
+    """``BIDSVersion`` must track the schema we validate against.
+
+    Regression: three places hardcoded '1.10.0' while the loaded schema was 1.11.1,
+    so every converted dataset claimed a version it was never checked against. This
+    runs offline, unlike the end-to-end check that reads the written sidecar.
+    """
+    import re
+
+    from brkraw_legacy.lib.reference import DATASET_DESC_REF
+
+    assert re.fullmatch(r'\d+\.\d+\.\d+', bids.BIDS_VERSION), bids.BIDS_VERSION
+    # The template must not carry a version of its own to drift from the schema.
+    assert DATASET_DESC_REF['BIDSVersion'] == ''
+
+
 def test_subject_session_id_sanitized_to_valid_bids_label():
     """A subject/session ID must become an alphanumeric BIDS label. Regression:
     a version-derived id like PV360's ``std_PV360_3.7`` kept its '.', which is
@@ -165,7 +181,9 @@ def test_end_to_end_bids_convert(lego_study, tmp_path):
 
     # dataset_description.json: required keys, correct spelling, modern version
     desc = json.loads((out / 'dataset_description.json').read_text())
-    assert desc['BIDSVersion'] == '1.10.0'
+    # From the loaded schema, never a literal: the dataset must claim exactly the
+    # version the validator below is pinned to.
+    assert desc['BIDSVersion'] == bids.BIDS_VERSION
     assert desc['DatasetType'] == 'raw'
     assert any(g['Name'] == 'BrkRaw-legacy' for g in desc['GeneratedBy'])
     for typo in ('HowToAsknowledge', 'EthicApprovals', 'ReferenceAndLinks'):
@@ -213,7 +231,11 @@ def test_phase_encoding_direction_is_bids_axis(h2_study, tmp_path):
 def test_end_to_end_passes_validator(lego_study, tmp_path):
     out = _prepare_anat_dataset(lego_study, tmp_path)
 
-    proc = subprocess.run([_validator_bin(), str(out), '--json'],
+    # Pin the schema to the same release the dataset claims, rather than whatever the
+    # validator happens to bundle: an unpinned run can go red on a spec release that
+    # touched nothing here.
+    proc = subprocess.run([_validator_bin(), str(out),
+                           '--schema', f'v{bids.BIDS_VERSION}', '--json'],
                           capture_output=True, text=True, check=False)
     report = json.loads(proc.stdout or '{}')
     issues = report.get('issues', {})

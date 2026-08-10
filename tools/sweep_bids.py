@@ -13,6 +13,8 @@ import sys
 import tempfile
 from pathlib import Path
 
+from brkraw_legacy.lib.bids import BIDS_VERSION
+
 _REPO = Path(__file__).resolve().parent.parent
 TESTDATA = Path(sys.argv[1]) if len(sys.argv) > 1 else _REPO / 'resources' / 'testdata'
 OUT = Path(sys.argv[2] if len(sys.argv) > 2 else 'sweep_bids_results.json')
@@ -76,8 +78,8 @@ def sweep_unit(label, path, kind):
         rec['n_json'] = len(list(out.rglob('*.json')))
         if niis and Path(VALIDATOR).exists():
             vjson = tmp / 'validation.json'
-            _vrc, vso, _vse = run([VALIDATOR, str(out), '--format', 'json',
-                                   '--outfile', str(vjson)], 240)
+            _vrc, vso, _vse = run([VALIDATOR, str(out), '--schema', f'v{BIDS_VERSION}',
+                                   '--format', 'json', '--outfile', str(vjson)], 240)
             try:
                 report = json.loads(vjson.read_text() if vjson.exists() else (vso or '{}'))
                 issues = report.get('issues', {})
