@@ -76,3 +76,22 @@ def test_element_comments_tolerates_a_single_string():
     assert derived.element_comments(_p(VisuFGElemComment='T2 relaxation time')) == \
         ['T2 relaxation time']
     assert derived.element_comments(_p()) == []
+
+
+@pytest.mark.parametrize(('desc', 'is_map'), [
+    ([[5, 'FG_ISA', 'T2 relaxation', 0, 2]], True),
+    ([[5, 'FG_ISA', 'T2 relaxation', 0, 2], [5, 'FG_SLICE', None, 2, 2]], True),
+    ([[5, 'FG_ISA', 'T1 saturation recovery', 0, 2], [5, 'FG_ECHO', None, 2, 1]], False),
+    ([[5, 'FG_ISA', 'T2 relaxation', 0, 2], [6, 'FG_MOVIE', 'vtr', 2, 2]], False),
+])
+def test_a_repeated_fit_is_not_a_single_map(desc, is_map):
+    """A fit repeated along another axis has no single map to extract.
+
+    PV5.1 scan 31 is FG_ISA x FG_ECHO -- five maps over five echoes. BIDS has no
+    echo- entity for a parametric map, so emitting one produced ENTITY_NOT_IN_RULE,
+    and picking one echo silently would discard the rest. The whole stack goes to
+    derivatives instead. A slice axis does not count: it makes voxels, not volumes.
+    """
+    visu = _p(VisuFGOrderDesc=desc,
+              VisuFGElemComment=np.array(ISA_T2 if 'T2' in str(desc) else ISA_T1))
+    assert (derived.isa_map(visu) is not None) is is_map

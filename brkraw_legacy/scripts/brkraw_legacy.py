@@ -4,7 +4,7 @@ import re
 import warnings
 
 from .. import BrukerLoader, __version__
-from ..lib import derived
+from ..lib import asl, derived
 from ..lib.errors import FileNotValidError, InvalidApproach, ValueConflictInField
 from ..lib.utils import get_value, mkdir, save_meta_files, set_rescale
 
@@ -337,11 +337,12 @@ def main():
                             # neither BOLD nor anatomical; it belongs in BIDS
                             # perf/asl, which is not emitted here. Leave it
                             # unclassified rather than mislabel it.
-                            elif re.search(r'FAIR|ASL|perfusion', method, re.IGNORECASE):
-                                datatype = 'etc'
-                                warnings.warn(f'ScanID:[{scan_id}] looks like ASL/perfusion ({method}); BIDS '
-                                              'perf/asl is not supported, marked as "etc". Set '
-                                              'DataType/modality in the datasheet to convert it.')
+                            # ASL is neither BOLD nor anatomical. Keyed off the
+                            # method name only, and checked before the epi->func
+                            # branch, because FAIR_EPI and CASL_EPI both contain
+                            # 'epi' and FAIR_RARE reads as 'rare'.
+                            elif asl.labeling_type(method):
+                                datatype = 'perf'
 
                             # A BOLD time-series needs >1 volume; a single-
                             # repetition EPI is not bold (BIDS BOLD_NOT_4D).
@@ -367,6 +368,9 @@ def main():
                                     item['Start'] = s
                                     item['End'] = e
                                     df = pd.concat([df, pd.DataFrame([item])], ignore_index=True)
+                            elif datatype == 'perf':
+                                item['modality'] = 'asl'
+                                df = pd.concat([df, pd.DataFrame([item])], ignore_index=True)
                             elif datatype == 'dwi':
                                 item['modality'] = 'dwi'
                                 df = pd.concat([df, pd.DataFrame([item])], ignore_index=True)
@@ -736,7 +740,6 @@ def generateModalityAgnosticFiles(root_path, json_fname):
     import json
     from copy import deepcopy
 
-    from ..lib import tabular
     from ..lib.bids import BIDS_VERSION
     from ..lib.reference import DATASET_DESC_REF
 
@@ -775,16 +778,11 @@ def generateModalityAgnosticFiles(root_path, json_fname):
             f.write(f'1.0.0 {datetime.datetime.now().astimezone().date().isoformat()}\n'
                     f' - Dataset created with BrkRaw v{__version__}.\n')
 
-    # https://bids-specification.readthedocs.io/en/stable/03-modality-agnostic-files.html
-    # participants.tsv is written once, after conversion, by writeParticipantTables:
-    # its rows are only known then, and a header written here would have to be
-    # rewritten anyway. Its sidecar has no such dependency, so it goes now.
-    participants_json = os.path.join(root_path, 'participants.json')
-    if not os.path.exists(participants_json):
-        descriptions = {'participant_id': {'Description': 'Participant identifier'}}
-        descriptions.update(tabular.PARTICIPANT_DESCRIPTIONS)
-        with open(participants_json, 'w') as f:
-            json.dump(descriptions, f, indent=4)
+    # participants.tsv and participants.json are deliberately NOT written here.
+    # Both are written after conversion by writeParticipantTables, and only when
+    # there is a participant to record: a study whose every scan is unclassifiable
+    # produces no rows at all, and a sidecar written up front would then be left
+    # describing a table that does not exist (SIDECAR_WITHOUT_DATAFILE).
 
 
 
@@ -962,12 +960,21 @@ def _patchSidecar(directory, nifti_relpath, fields):
 
 
 def writeParticipantTables(root_path, participant_rows, session_rows, scan_rows):
-    """Write participants.tsv and every _sessions.tsv / _scans.tsv."""
+    """Write participants.tsv/.json and every _sessions.tsv / _scans.tsv."""
+    import json
+
     from ..lib import tabular
 
     if participant_rows:
         tabular.write_tsv(os.path.join(root_path, 'participants.tsv'),
                           tabular.PARTICIPANT_COLUMNS, participant_rows)
+        # Written with the table, never before it: the sidecar of a table that was
+        # never created is an error, and every column here needs describing anyway
+        # because `weight` is not a BIDS-defined column.
+        descriptions = {'participant_id': {'Description': 'Participant identifier'}}
+        descriptions.update(tabular.PARTICIPANT_DESCRIPTIONS)
+        with open(os.path.join(root_path, 'participants.json'), 'w') as f:
+            json.dump(descriptions, f, indent=4)
     for subject, rows in session_rows.items():
         tabular.write_tsv(os.path.join(root_path, subject, f'{subject}_sessions.tsv'),
                           ('session_id', 'acq_time'), rows)

@@ -28,8 +28,8 @@ it and block nothing.
 
 ## Track 1 — the PR stack
 
-PR1–PR7 are done. On the PV6 lego phantom the validator reports **0 errors**
-throughout, with warnings 499 → 447. Roughly 375 of those remaining are fields
+Track 1 is complete. The full-corpus sweep (`tools/sweep_bids.py`) runs 97
+units at **0 pipeline errors and 0 validator-flagged**. Roughly 375 of those remaining are fields
 Bruker simply does not record, so they are not a backlog.
 
 ### PR1 · Schema pin and version unification — done
@@ -258,47 +258,74 @@ It runs **after** conversion, because `run-` indices are only resolved while
 converting and `IntendedFor` must name what was actually written. PR5's `_scans.tsv`
 rows already carry filename and `acq_time`, which is exactly the input.
 
-### PR8 · ASL / `perf`
+### PR8 · ASL / `perf` — done
 
-Largest, therefore last.
+FAIR and CASL scans now convert to `perf/asl` with an `aslcontext.tsv`.
 
-`perf` added to `DATATYPES`; `default_suffix` gains a `perf` branch. The
-force-to-`etc` branch is replaced, keyed off `##$Method` only and ordered ahead of
-the `epi`→`func` match (`FAIR_EPI` and `CASL_EPI` both contain "epi").
+**Nothing about the frame-group layout is assumed.** Across the corpus the same
+information appears as `(MOVIE, IRMODE)`, `(IRMODE, MOVIE)` — reversed by
+`PVM_FairMode INTERLEAVED2` — `(SLICE, IRMODE, CYCLE)` and, for CASL,
+`(SLICE, MOVIE, CYCLE)`. New `lib/asl.py` finds the labelling axis by **name**,
+never by matching element counts: PV7 scan 16 has slice=2 *and* irmode=2, so
+guessing between them would silently invert the perfusion signal.
 
-`aslcontext.tsv` is built from `VisuFGOrderDesc` + `VisuFGElemComment`, flattened in
-Fortran order with `FG_SLICE` excluded. It **fails loudly** if the element comments
-are not the known values, and never falls back to axis order — `PVM_FairMode`
-`INTERLEAVED2` reverses the frame-group order, and the single-inversion modes
-produce no `FG_IRMODE` axis at all.
+Element labels are matched by prefix because there are three spellings — and the
+third was not in any earlier survey of this data:
+
+```
+PV5.1        'Selective Inversion Mode' / 'Non-selective Inversion Mode'
+PV6, PV7     'Selective Inversion'      / 'Non-selective Inversion'
+PV7 (some)   'S TI: 1000.0 ms'          / 'NS TI: 1000.0 ms'
+```
+
+`S` prefixes both short spellings, so non-selective must be tested first or every
+label reads as a control. An unrecognised label raises rather than falling back to
+axis order.
+
+Verified against all 8 ASL scans across three ParaVision versions: derived row
+count equals written volume count in every one.
 
 The schema encodes `aslcontext.tsv` as an *association*, not a required file, and
-every ASL check is guarded on its presence. A missing one therefore **silently
-disables all eleven ASL error checks** rather than erroring — which is why partial
-ASL support is not a smaller deliverable, it is an unmeasurable one.
+every ASL check is guarded on its presence — so a missing one **silently disables
+all eleven ASL error checks**. That is why partial ASL support would not have been
+a smaller deliverable, only an unmeasurable one.
 
-Six required fields cannot be written in `reference.py`'s mini-language, because they
-need the method name, the frame-group layout and the written volume count, none of
-which `meta_check_express` can see: `ArterialSpinLabelingType`,
-`BackgroundSuppression`, `M0Type`, `TotalAcquiredPairs`, and the per-volume
-`PostLabelingDelay` / `RepetitionTimePreparation`. They are computed in
-`save_json`/`build_bids_json`, as `SliceTiming` and `RepetitionTime` already are, and
-`reference.py` carries an entry for each pointing at where.
+Six required fields cannot be expressed as per-parameter mappings, so they are
+computed in one place. Several are constants because ParaVision has no such
+module: no FAIR or CASL method in any version present has background suppression,
+a Q2TIPS/QUIPSS bolus cut-off or a flow crusher. `BolusCutOffFlag: false` is also
+what keeps `BolusCutOffDelayTime`/`Technique` from being required.
+`TotalAcquiredPairs` is `min(label, control)` because CASL in `Dynamic` mode sets
+the two counts independently. **No pCASL method exists in any ParaVision version
+present**, so `PCASLType` is permanently unmappable rather than merely unmapped.
 
-Values with no Bruker source anywhere: `M0Type` is `"Absent"`;
-`BackgroundSuppression`, `BolusCutOffFlag` and `VascularCrushing` are constant
-`false`, since no such module exists in any ParaVision version present.
-`TotalAcquiredPairs` is `min(label, control)` — in CASL `Dynamic` mode label and
-control counts are set independently, so one warning there is unavoidable.
+Two bugs found by validating rather than by reading:
 
-`ArterialSpinLabelingType` is `PASL` (FAIR) or `CASL`. **No pCASL method exists in
-any ParaVision version present**, so `PCASLType` and every `BolusCutOff*` field is
-permanently unmappable, not merely unmapped.
+- `a or b` **raises** on an array, and `VisuAcqRepetitionTime` is one on a
+  variable-TR scan. That aborted all four ASL conversions *after* the image was
+  written, leaving an orphan NIfTI and duplicate `_scans.tsv` rows.
+- PV5.1 exposed a PR6 bug: scan 31 is `FG_ISA × FG_ECHO`, five maps over five
+  echoes, and the multi-echo branch split it into `echo-N_T1map` — but BIDS has no
+  `echo` entity for a parametric map. A fit repeated along another axis has no
+  single map to extract, so the whole stack goes to `derivatives/`. PR6 had been
+  validated on PV6 only.
 
-Multi-echo ASL needs one shared `aslcontext.tsv` — the suffix takes no `echo`
-entity, but `build_bids_json` appends `_echo-N_` unconditionally today.
+## What the full-corpus sweep caught, and why it should run first
 
-`test_asl_scans_not_auto_classified` is rewritten; it currently asserts the opposite.
+`tools/sweep_bids.py` converts and validates **every** study in the corpus. Run
+after PR8, it flagged 11 of 97 units with `SIDECAR_WITHOUT_DATAFILE` — a
+regression introduced back in PR5, which moved `participants.tsv` to be written
+only when there are rows but left `participants.json` written unconditionally. In
+a study where every scan is unclassifiable there are no rows, so the sidecar
+described a table that was never created.
+
+Every PR in this stack was validated against one to three hand-picked studies, all
+of which convert something. The class of study where the answer is "nothing
+converts" was never exercised. All 11 units were already in the corpus — the gap
+was in what got run, not in the data available.
+
+**The sweep belongs before each PR, not after the last one.** After the fix: 97
+units, 0 pipeline errors, 0 validator-flagged.
 
 ## Track 2 — the phase-encode sign (research, non-blocking)
 
@@ -356,7 +383,9 @@ file writes it and it is the only record of k-space traversal order.
 
 ## Verification
 
-- `tools/sweep_bids.py` for validator error counts, before and after each PR.
+- `tools/sweep_bids.py` for validator error counts, **before** each PR as well as
+  after. Hand-picked studies all convert something; only the sweep exercises the
+  study where nothing does, which is where this stack's one regression hid.
 - `tools/sweep_nifti.py --compare` for anything that could move geometry.
 - The offline value test keeps the fast suite honest between `data` runs.
 

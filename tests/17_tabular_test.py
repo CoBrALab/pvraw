@@ -165,4 +165,30 @@ def test_rerunning_into_an_existing_tree_is_allowed(tmp_path):
 
     generateModalityAgnosticFiles(str(tmp_path), None)
     generateModalityAgnosticFiles(str(tmp_path), None)   # must not raise SystemExit
+    assert (tmp_path / 'dataset_description.json').exists()
+
+
+def test_participant_sidecar_is_not_written_without_its_table(tmp_path):
+    """participants.json must not appear before participants.tsv exists.
+
+    A study whose every scan is unclassifiable produces no participant rows, so no
+    table -- and a sidecar written up front is then left describing a file that
+    does not exist. The full-corpus sweep caught this on 11 units, all of them
+    studies where nothing reaches the validated tree.
+    """
+    from brkraw_legacy.scripts.brkraw_legacy import (
+        generateModalityAgnosticFiles,
+        writeParticipantTables,
+    )
+
+    generateModalityAgnosticFiles(str(tmp_path), None)
+    assert not (tmp_path / 'participants.json').exists()
+
+    writeParticipantTables(str(tmp_path), [], {}, {})       # nothing converted
+    assert not (tmp_path / 'participants.json').exists()
+    assert not (tmp_path / 'participants.tsv').exists()
+
+    writeParticipantTables(str(tmp_path),
+                           [{'participant_id': 'sub-01'}], {}, {})
+    assert (tmp_path / 'participants.tsv').exists()
     assert (tmp_path / 'participants.json').exists()

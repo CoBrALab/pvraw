@@ -397,6 +397,14 @@ def build_bids_json(dset, row, fname, json_path, scale_mode='header', intended_f
                 dset.save_bdata(row.ScanID, current, dir=row.Dir, reco_id=row.RecoID,
                                 num_volumes=nvol)
             # magnitude data does not require JSON (BIDS)
+            # ASL needs a volume-by-volume context file next to the image. Without
+            # it the validator silently skips ELEVEN checks: aslcontext is an
+            # association, not a required file, and every ASL check is guarded on
+            # its presence -- so a missing one is unmeasurable rather than an error.
+            asl_extra = None
+            if re.fullmatch('asl', str(row.modality), re.IGNORECASE):
+                asl_extra = _write_asl_context(dset, row, current, nii)
+
             if json_path and not re.search('magnitude', row.modality, re.IGNORECASE):
                 ref = get_bids_ref_obj(json_path, row)
                 condition = ['fm', None] if re.search('fieldmap', row.modality, re.IGNORECASE) else None
@@ -408,8 +416,44 @@ def build_bids_json(dset, row, fname, json_path, scale_mode='header', intended_f
                                metadata=ref, condition=condition,
                                task_name=task_name, intended_for=intended_for,
                                num_slices=num_slices,
-                               repetition_time=func_volume_tr(dset, row, nvol))
+                               repetition_time=func_volume_tr(dset, row, nvol),
+                               extra=asl_extra)
     return written
+
+
+def _write_asl_context(dset, row, stem, nii):
+    """Write ``<stem>_aslcontext.tsv`` and return the ASL sidecar fields.
+
+    The context file must have exactly one row per written volume: the validator's
+    ASLCONTEXT_TSV_NOT_CONSISTENT compares it against the NIfTI's 4th dimension and
+    that one IS an error.
+    """
+    from . import asl
+    from .errors import InvalidValueInField
+
+    visu_pars = dset.get_visu_pars(row.ScanID, row.RecoID)
+    method = dset.get_method(row.ScanID)
+    types = asl.volume_types(visu_pars)
+    n_volumes = nii.shape[3] if nii.ndim >= 4 else 1
+    if types is None:
+        raise InvalidValueInField(
+            f'ScanID:[{row.ScanID}] is labelled asl but declares no control/label axis.')
+    if len(types) != n_volumes:
+        raise InvalidValueInField(
+            f'ScanID:[{row.ScanID}] resolved {len(types)} ASL volume types for '
+            f'{n_volumes} written volumes; refusing to write a context file that '
+            'would not describe the image.')
+
+    # aslcontext takes no echo- or part- entity, so a split scan shares one file.
+    context = re.sub(r'_(echo|part)-[0-9a-zA-Z]+', '', stem)
+    context = re.sub(r'_asl$', '', context)
+    with open(os.path.join(row.Dir, f'{context}_aslcontext.tsv'), 'w') as f:
+        f.write('volume_type\n')
+        f.writelines(f'{t}\n' for t in types)
+
+    return asl.sidecar_fields(str(get_value(method, 'Method') or ''), method,
+                              visu_pars, types,
+                              n_slices=nii.shape[2] if nii.ndim >= 3 else 1)
 
 
 def encdir_code_converter(enc_param):
