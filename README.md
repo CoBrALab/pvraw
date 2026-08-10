@@ -47,22 +47,37 @@ archive — every command and API call below accepts both.
 
 ## Installation
 
-Requires Python >= 3.11.
+Requires Python >= 3.11. Everything here uses [uv](https://docs.astral.sh/uv/), which
+manages the interpreter and the dependencies for you — there is no separate virtualenv
+to create or activate.
+
+**As a command-line tool.** Installs `brkraw-legacy` onto your `PATH`, isolated from
+your other environments:
 
 ```bash
-pip install git+https://github.com/gdevenyi/brkraw-legacy.git
+uv tool install git+https://github.com/gdevenyi/brkraw-legacy.git
+uv tool upgrade brkraw-legacy      # later, to update
 ```
 
-From source (development), using [uv](https://docs.astral.sh/uv/):
+**As a dependency of your own project**, for the Python API:
+
+```bash
+uv add git+https://github.com/gdevenyi/brkraw-legacy.git
+```
+
+**From source**, for development or to run an unreleased change:
 
 ```bash
 git clone https://github.com/gdevenyi/brkraw-legacy.git
 cd brkraw-legacy
 uv sync                       # runtime deps, editable install
-uv sync --extra dev           # test/lint tooling (pytest, ruff, bids-validator)
+uv sync --extra dev           # also pytest, ruff and bids-validator
 ```
 
 One command-line tool is installed: **`brkraw-legacy`** (inspection/conversion).
+
+> The examples below are written as `uv run brkraw-legacy ...`, which works from a
+> source checkout. If you installed with `uv tool install`, drop the `uv run` prefix.
 
 ---
 
@@ -72,15 +87,15 @@ One command-line tool is installed: **`brkraw-legacy`** (inspection/conversion).
 Print study/subject info and a table of scans, reconstructions, dimensions and resolutions.
 
 ```bash
-brkraw-legacy info <input>           # <input> = study dir or .zip
+uv run brkraw-legacy info <input>           # <input> = study dir or .zip
 ```
 
 ### Convert one study — `brkraw-legacy tonii`
 Convert a single study to NIfTI. Without `-s` every scan/reconstruction is converted.
 
 ```bash
-brkraw-legacy tonii <input>                       # convert all scans
-brkraw-legacy tonii <input> -s 2 -r 1 -o out      # only ScanID 2, RecoID 1 -> out.nii.gz
+uv run brkraw-legacy tonii <input>                       # convert all scans
+uv run brkraw-legacy tonii <input> -s 2 -r 1 -o out      # only ScanID 2, RecoID 1 -> out.nii.gz
 ```
 
 | Option | Description |
@@ -101,32 +116,41 @@ Convert **every** study under a parent directory into a simple
 `sub-<id>/ses-<id>/<datatype>/` tree (`anat`/`func`/`dwi`/`etc`).
 
 ```bash
-brkraw-legacy tonii_all <parent_dir> -o <output_dir>
+uv run brkraw-legacy tonii_all <parent_dir> -o <output_dir>
 ```
 
 Accepts the same `-t/-p/--ignore-*` options as `tonii`.
 
 ### Convert to BIDS — `brkraw-legacy bids_helper` + `bids_convert`
-Produce a spec-compliant [BIDS](https://bids.neuroimaging.io) (v1.10) dataset in two steps:
+Produce a spec-compliant [BIDS](https://bids.neuroimaging.io) dataset in two steps:
 
 ```bash
 # 1. Generate an editable datasheet (+ JSON metadata template with -j)
-brkraw-legacy bids_helper <parent_dir> bids_map -j
+uv run brkraw-legacy bids_helper <parent_dir> bids_map -j
 
 # 2. Review/fill bids_map.csv (subject, session, datatype, suffix, task, acq, run, ...),
 #    then convert using the datasheet and metadata template
-brkraw-legacy bids_convert <parent_dir> bids_map.csv -j bids_map.json -o <bids_output>
+uv run brkraw-legacy bids_convert <parent_dir> bids_map.csv -j bids_map.json -o <bids_output>
 ```
 
 `bids_helper` options: `-f csv|tsv` (datasheet format), `-j` (also write the metadata
 template), `-s` (swap subject/study IDs), `-t` (swap session/study ID). `bids_convert`
 accepts `-j`, `-o`, and the same `-t/-p/--ignore-*` overrides as `tonii`.
 
-The output is validator-clean: correct filenames/entity ordering, JSON sidecars (with
-`TaskName`, units, etc.), `dataset_description.json` (`BIDSVersion` 1.10 + `GeneratedBy`),
-`participants.tsv`/`.json`, `README`, `CHANGES`, and a `.bidsignore`. Validate with the
-official [bids-validator](https://github.com/bids-standard/bids-validator). Spectroscopic and
-unclassifiable scans are skipped rather than written as invalid datatypes.
+The output is validator-clean: correct filenames and entity ordering, JSON sidecars,
+`dataset_description.json`, `participants.tsv`/`.json`, `<subject>_sessions.tsv`,
+`<subject>_scans.tsv` with acquisition times, `README` and `CHANGES`. `anat`, `func`,
+`dwi`, `fmap` and `perf` (ASL, with its `aslcontext.tsv`) are emitted, and fieldmaps are
+linked to the images they correct via `B0FieldIdentifier` and `IntendedFor`.
+
+`BIDSVersion` is taken from the BIDS schema the converter validates against, so the two
+can never disagree. Validate with the official
+[bids-validator](https://github.com/bids-standard/bids-validator).
+
+Nothing is silently dropped. A ParaVision-computed stack with no single BIDS suffix (a
+DTI tensor reconstruction) goes to `derivatives/brkraw-legacy/`, and a scan that cannot
+be classified goes to `sourcedata/` — both outside the validated tree, so the data is
+kept without costing an error.
 
 ---
 
@@ -210,6 +234,41 @@ study.save_bdata(scan_id, 'dwi', dir='.')   # writes dwi.bval / dwi.bvec
 study.override_subjtype('Quadruped')        # fix mis-set subject type
 study.override_position('Head_Supine')       # fix mis-set position
 ```
+
+---
+
+## Development
+
+From a source checkout, after `uv sync --extra dev`:
+
+```bash
+uv run pytest                        # everything; sample data is fetched from the network
+uv run pytest -m "not data"          # offline unit tests only, no downloads
+uv run pytest tests/08_orientation_test.py    # a single file
+
+uv run ruff check .                  # must be clean
+uv run ruff check . --fix            # safe fixes only -- then re-run the tests
+```
+
+Data-dependent tests download public sample studies (Zenodo, GitHub) and cache them under
+`$BRKRAW_TEST_DATA_DIR`. Set it to keep the cache between runs:
+
+```bash
+BRKRAW_TEST_DATA_DIR=~/.cache/brkraw-test-data uv run pytest -m data
+```
+
+Two sweep tools compare a whole corpus before and after a change, which is how geometry and
+BIDS regressions get caught:
+
+```bash
+uv run python tools/sweep_nifti.py <corpus_dir>              # affines, data hashes, headers
+uv run python tools/sweep_nifti.py <corpus_dir> --compare=<earlier.json>
+uv run python tools/sweep_bids.py                            # convert + validate every study
+```
+
+CI installs from `uv.lock` with `uv sync --locked`, so every tool version is pinned and a new
+ruff or pytest release cannot break an unrelated change. `--locked` also fails if
+`pyproject.toml` was edited without re-running `uv lock`.
 
 ---
 
