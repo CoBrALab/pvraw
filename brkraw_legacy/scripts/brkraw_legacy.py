@@ -22,11 +22,30 @@ def main():
                                        dest='function',
                                        metavar='command')
 
+    # Help text shared by more than one sub-command, so the same option cannot end up
+    # documented two different ways. Every option states its default here.
     input_str = "input raw Bruker data"
     input_dir_str = "input directory that contains multiple raw Bruker data"
-    output_dir_str = "output directory name"
-    output_fnm_str = "output filename"
-    bids_opt = "create a JSON file contains metadata based on BIDS recommendation"
+    output_dir_str = "output directory name (default: Data)"
+    output_fnm_str = ("output filename, without the extension (default: <SubjID>_<StudyID>, "
+                      "or the name of the input folder when the dataset has no subject file)")
+    bids_opt = ("create a JSON file contains metadata based on BIDS recommendation "
+                "(default: no JSON file)")
+    subjtype_opt = ("override subject type in case the original setting was not properly set. "
+                    "available options are (Biped, Quadruped, Phantom, Other, OtherAnimal) "
+                    "(default: the subject type recorded in the data)")
+    position_opt = ("override position information in case the original setting was not properly "
+                    "input. the position variable can be defiend as <BodyPart>_<Side>, available "
+                    "BodyParts are (Head, Foot, Tail) and sides are (Supine, Prone, Left, Right). "
+                    "(e.g. Head_Supine) (default: the position recorded in the data)")
+    # ADR 0002: brukerapi exposes one scaling switch, so slope and offset cannot be
+    # suppressed independently. --ignore-slope and --ignore-offset are aliases.
+    rescale_opt = ("write the raw stored values, with no slope or offset in the header "
+                   "(default: keep the scaling)")
+    slope_opt = f"alias of --ignore-rescale, slope cannot be suppressed on its own; {rescale_opt}"
+    offset_opt = f"alias of --ignore-rescale, offset cannot be suppressed on its own; {rescale_opt}"
+    localizer_opt = ("skip the scan if it is a localizer/tripilot "
+                     "(default: skip; pass --no-ignore-localizer to convert them)")
 
     info = subparsers.add_parser("info", help='Prints out the information of the internal contents in Bruker raw data')
     info.add_argument("input", help=input_str, type=str)
@@ -41,59 +60,82 @@ def main():
     # Adding arguments for each parser
     # tonii
     nii.add_argument("input", help=input_str, type=str)
-    nii.add_argument("-b", "--bids", help=bids_opt, action='store_true')
-    nii.add_argument("-o", "--output", help=output_fnm_str, type=str, default=False)
-    nii.add_argument("-s", "--scanid", help="Scan ID, option to specify a particular scan to convert.", type=str)
-    nii.add_argument("-r", "--recoid", help="RECO ID (default=1), "
-                                            "option to specify a particular reconstruction id to convert",
-                     type=int, default=1)
-    nii.add_argument("-t", "--subjecttype", help="override subject type in case the original setting was not properly set." + \
-                     "available options are (Biped, Quadruped, Phantom, Other, OtherAnimal)", type=str, default=None)
-    nii.add_argument("-p", "--position", help="override position information in case the original setting was not properly input." + \
-                     "the position variable can be defiend as <BodyPart>_<Side>, " + \
-                     "available BodyParts are (Head, Foot, Tail) and sides are (Supine, Prone, Left, Right). (e.g. Head_Supine)", type=str, default=None)
-    nii.add_argument("--ignore-slope", help='remove slope value from header', action='store_true')
-    nii.add_argument("--ignore-offset", help='remove offset value from header', action='store_true')
-    nii.add_argument("--ignore-rescale", help='remove slope and offset values from header', action='store_true')
-    nii.add_argument("--ignore-localizer", help='ignore the scan if it is localizer', action='store_true', default=True)
+    nii.add_argument("-b", "--bids", help=bids_opt, action=argparse.BooleanOptionalAction,
+                     default=False)
+    nii.add_argument("-o", "--output", help=output_fnm_str, type=str, default=None)
+    nii.add_argument("-s", "--scanid", help="Scan ID, option to specify particular scans to "
+                                            "convert; one id or a comma-separated list of them, "
+                                            "e.g. -s 3 or -s 3,4,7 "
+                                            "(default: convert every scan)",
+                     type=id_list, metavar='ID[,ID...]')
+    nii.add_argument("-r", "--recoid", help="RECO ID, option to specify particular "
+                                            "reconstruction ids to convert, as one id or a "
+                                            "comma-separated list; only read together with -s, "
+                                            "since without it every reconstruction of every scan "
+                                            "is converted (default: 1)",
+                     type=id_list, default=[1], metavar='ID[,ID...]')
+    nii.add_argument("-t", "--subjecttype", help=subjtype_opt, type=str, default=None)
+    nii.add_argument("-p", "--position", help=position_opt, type=str, default=None)
+    nii.add_argument("--ignore-slope", help=slope_opt, action=argparse.BooleanOptionalAction,
+                     default=False)
+    nii.add_argument("--ignore-offset", help=offset_opt, action=argparse.BooleanOptionalAction,
+                     default=False)
+    nii.add_argument("--ignore-rescale", help=rescale_opt, action=argparse.BooleanOptionalAction,
+                     default=False)
+    nii.add_argument("--ignore-localizer", help=localizer_opt,
+                     action=argparse.BooleanOptionalAction, default=True)
 
     # tonii_all
     niiall.add_argument("input", help=input_dir_str, type=str)
-    niiall.add_argument("-o", "--output", help=output_dir_str, type=str)
-    niiall.add_argument("-b", "--bids", help=bids_opt, action='store_true')
-    niiall.add_argument("-t", "--subjecttype", help="override subject type in case the original setting was not properly set." + \
-                     "available options are (Biped, Quadruped, Phantom, Other, OtherAnimal)", type=str, default=None)
-    niiall.add_argument("-p", "--position", help="override position information in case the original setting was not properly input." + \
-                     "the position variable can be defiend as <BodyPart>_<Side>, " + \
-                     "available BodyParts are (Head, Foot, Tail) and sides are (Supine, Prone, Left, Right). (e.g. Head_Supine)", type=str, default=None)
-    niiall.add_argument("--ignore-slope", help='remove slope value from header', action='store_true')
-    niiall.add_argument("--ignore-offset", help='remove offset value from header', action='store_true')
-    niiall.add_argument("--ignore-rescale", help='remove slope and offset values from header', action='store_true')
-    niiall.add_argument("--ignore-localizer", help='ignore the scan if it is localizer', action='store_true')
+    niiall.add_argument("-o", "--output", help=output_dir_str, type=str, default='Data')
+    niiall.add_argument("-b", "--bids", help=bids_opt, action=argparse.BooleanOptionalAction,
+                        default=False)
+    niiall.add_argument("-t", "--subjecttype", help=subjtype_opt, type=str, default=None)
+    niiall.add_argument("-p", "--position", help=position_opt, type=str, default=None)
+    niiall.add_argument("--ignore-slope", help=slope_opt, action=argparse.BooleanOptionalAction,
+                        default=False)
+    niiall.add_argument("--ignore-offset", help=offset_opt, action=argparse.BooleanOptionalAction,
+                        default=False)
+    niiall.add_argument("--ignore-rescale", help=rescale_opt,
+                        action=argparse.BooleanOptionalAction, default=False)
+    niiall.add_argument("--ignore-localizer", help=localizer_opt,
+                        action=argparse.BooleanOptionalAction, default=True)
 
     # bids_helper
     bids_helper.add_argument("input", help=input_dir_str, type=str)
     bids_helper.add_argument("output", help="output BIDS datasheet filename", type=str)
-    bids_helper.add_argument("-f", "--format", help="file format of BIDS datasheets. Use this option if you did not specify the extension on output. The available options are (csv/tsv) (default: csv)", type=str, default='csv')
-    bids_helper.add_argument("-j", "--json", help="create JSON syntax template for "
-                                                  "parsing metadata from the header", action='store_true')
-    bids_helper.add_argument("-s", "--subj", help="switch subject and study IDs", action='store_true')
-    bids_helper.add_argument("-t", "--sess", help="switch session and study ID", action='store_true')
+    bids_helper.add_argument("-f", "--format", help="file format of BIDS datasheets. Use this "
+                                                    "option if you did not specify the extension "
+                                                    "on output (default: csv)",
+                             type=str, choices=('csv', 'tsv'), default='csv')
+    bids_helper.add_argument("-j", "--json", help="create JSON syntax template for parsing "
+                                                  "metadata from the header "
+                                                  "(default: no template)",
+                             action=argparse.BooleanOptionalAction, default=False)
+    # Long-only on purpose: -s and -t mean --scanid and --subjecttype in the converting
+    # sub-commands, and one letter must not mean two things.
+    bids_helper.add_argument("--subj", help="switch subject and study IDs "
+                                            "(default: keep the recorded subject ID)",
+                             action=argparse.BooleanOptionalAction, default=False)
+    bids_helper.add_argument("--sess", help="switch session and study ID "
+                                            "(default: keep the recorded session ID)",
+                             action=argparse.BooleanOptionalAction, default=False)
 
     # bids_convert
     bids_convert.add_argument("input", help=input_dir_str, type=str)
     bids_convert.add_argument("datasheet", help="input BIDS datahseet filename", type=str)
-    bids_convert.add_argument("-j", "--json", help="input JSON syntax template filename", type=str, default=False)
-    bids_convert.add_argument("-o", "--output", help=output_dir_str, type=str, default=False)
-    bids_convert.add_argument("-t", "--subjecttype", help="override subject type in case the original setting was not properly set." + \
-                     "available options are (Biped, Quadruped, Phantom, Other, OtherAnimal)", type=str, default=None)
-    bids_convert.add_argument("-p", "--position", help="override position information in case the original setting was not properly input." + \
-                     "the position variable can be defiend as <BodyPart>_<Side>, " + \
-                     "available BodyParts are (Head, Foot, Tail) and sides are (Supine, Prone, Left, Right). (e.g. Head_Supine)", type=str, default=None)
-    bids_convert.add_argument("--ignore-slope", help='remove slope value from header', action='store_true')
-    bids_convert.add_argument("--ignore-offset", help='remove offset value from header', action='store_true')
-    bids_convert.add_argument("--ignore-rescale", help='remove slope and offset values from header',
-                              action='store_true')
+    bids_convert.add_argument("-j", "--json", help="input JSON syntax template filename "
+                                                   "(default: none, the sidecars carry only what "
+                                                   "the converter derives)", type=str, default=None)
+    bids_convert.add_argument("-o", "--output", help=output_dir_str, type=str, default='Data')
+    bids_convert.add_argument("-t", "--subjecttype", help=subjtype_opt, type=str, default=None)
+    bids_convert.add_argument("-p", "--position", help=position_opt, type=str, default=None)
+    bids_convert.add_argument("--ignore-slope", help=slope_opt,
+                              action=argparse.BooleanOptionalAction, default=False)
+    bids_convert.add_argument("--ignore-offset", help=offset_opt,
+                              action=argparse.BooleanOptionalAction, default=False)
+    bids_convert.add_argument("--ignore-rescale", help=rescale_opt,
+                              action=argparse.BooleanOptionalAction, default=False)
 
     args = parser.parse_args()
 
@@ -113,13 +155,11 @@ def main():
 
     elif args.function == 'tonii':
         path     = args.input
-        scan_id  = args.scanid
-        reco_id  = args.recoid
         study    = BrukerLoader(path)
         scale_mode = set_rescale(args)
         ignore_localizer = args.ignore_localizer
         study = override_header(study, args.subjecttype, args.position)
-        
+
         if study.is_pvdataset:
             if args.output:
                 output = args.output
@@ -128,37 +168,31 @@ def main():
             else:
                 # standalone scan without a subject file: name after the input dir
                 output = os.path.basename(os.path.normpath(path))
-            if scan_id:
-                scanname = str(get_value(study.get_acqp(int(scan_id)), 'ACQ_scan_name'))
+            # -s and -r each take a list. Without -s the study is converted whole, and
+            # -r is not read: one reco id means nothing across scans that do not share it.
+            for scan_id in (args.scanid or list(study.avail_reco_id)):
+                if scan_id not in study.avail_reco_id:
+                    print(f'No ScanID:{scan_id} in this study, available are '
+                          f'{list(study.avail_reco_id)}; skipping.')
+                    continue
+                avail = study.avail_reco_id[scan_id]
+                scanname = str(get_value(study.get_acqp(scan_id), 'ACQ_scan_name'))
                 scanname = scanname.replace(' ','-')
-                output_fname = f'{output}-{scan_id}-{reco_id}-{scanname}'
-                scan_id = int(scan_id)
-                reco_id = int(reco_id)
-                
-                if ignore_localizer and is_localizer(study, scan_id, reco_id):
+                if ignore_localizer and is_localizer(study, scan_id, avail[0]):
                     print(f'Identified a localizer, the file will not be converted: ScanID:{scan_id!s}')
-                else:
+                    continue
+                for reco_id in (args.recoid if args.scanid else avail):
+                    if reco_id not in avail:
+                        print(f'No RecoID:{reco_id} for ScanID:{scan_id}, available are '
+                              f'{avail}; skipping.')
+                        continue
+                    output_fname = f'{output}-{str(scan_id).zfill(2)}-{reco_id}-{scanname}'
                     try:
                         study.save_as(scan_id, reco_id, output_fname, scale_mode=scale_mode)
                         save_meta_files(study, args, scan_id, reco_id, output_fname)
                         print(f'NifTi file is generated... [{output_fname}]')
                     except Exception as e:
                         report_conversion_error(scan_id, reco_id, e)
-            else:
-                for scan_id, recos in study.avail_reco_id.items():
-                    scanname = str(get_value(study.get_acqp(int(scan_id)), 'ACQ_scan_name'))
-                    scanname = scanname.replace(' ','-')
-                    if ignore_localizer and is_localizer(study, scan_id, recos[0]):
-                        print(f'Identified a localizer, the file will not be converted: ScanID:{scan_id!s}')
-                    else:
-                        for reco_id in recos:
-                            output_fname = f'{output}-{str(scan_id).zfill(2)}-{reco_id}-{scanname}'
-                            try:
-                                study.save_as(scan_id, reco_id, output_fname, scale_mode=scale_mode)
-                                save_meta_files(study, args, scan_id, reco_id, output_fname)
-                                print(f'NifTi file is generated... [{output_fname}]')
-                            except Exception as e:
-                                report_conversion_error(scan_id, reco_id, e)
         else:
             print(f'{path} is not PvDataset.')
 
@@ -187,8 +221,6 @@ def main():
             raise InvalidApproach(invalid_error_message)
 
         base_path = args.output
-        if not base_path:
-            base_path = 'Data'
         mkdir(base_path)
         for raw in list_of_raw:
             sub_path = os.path.join(path, raw)
@@ -391,13 +423,9 @@ def main():
                                 df = pd.concat([df, pd.DataFrame([item])], ignore_index=True)
                             else:
                                 df = pd.concat([df, pd.DataFrame([item])], ignore_index=True)
-        if 'csv' in ds_format:
-            df.to_csv(output, index=None, sep=',')
-        elif 'tsv' in ds_format:
-            df.to_csv(output, index=None, sep='\t')
-        else:
-            print(f'[{ds_format}] is not supported.')
-            raise InvalidApproach('Invalid input for datasheet!')
+        # -f is restricted to csv/tsv by argparse, and the extension branch above only
+        # ever sets one of the two, so there is no third case to reject here.
+        df.to_csv(output, index=None, sep=',' if ds_format == 'csv' else '\t')
 
         if make_json:
             # Imported here rather than at module scope: loading the BIDS schema costs a
@@ -433,7 +461,7 @@ def main():
         pd.options.mode.chained_assignment = None
         path = args.input
         datasheet = args.datasheet
-        output = args.output
+        root_path = args.output
         datasheet_ext = os.path.splitext(datasheet)[-1]
 
         # [220202] make compatible with csv and tsv
@@ -455,11 +483,6 @@ def main():
         else:
             # if SessionID appears in datasheet, then by default session appears.
             include_session = True
-
-        if not output:
-            root_path = os.path.abspath(os.path.join(os.path.curdir, 'Data'))
-        else:
-            root_path = output
 
         mkdir(root_path)
 
@@ -574,6 +597,22 @@ def main():
         writeParticipantTables(root_path, participant_rows, session_rows, scan_rows)
     else:
         parser.print_help()
+
+
+def id_list(text):
+    """A scan/reco id, or a comma-separated list of them: ``3`` or ``3,4,7``.
+
+    One option that takes a list, rather than a repeatable option or a
+    space-separated one: ``-s`` sits next to a positional input path, and a
+    greedy ``nargs='+'`` would swallow it.
+    """
+    try:
+        ids = [int(value) for value in text.split(',') if value.strip()]
+    except ValueError:
+        raise argparse.ArgumentTypeError(f'not a whole number: {text!r}') from None
+    if not ids:
+        raise argparse.ArgumentTypeError(f'no id given: {text!r}')
+    return ids
 
 
 def report_conversion_error(scan_id, reco_id, error):
