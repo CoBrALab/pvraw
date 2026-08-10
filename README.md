@@ -98,15 +98,19 @@ uv run brkraw-legacy tonii <input>                       # convert all scans
 uv run brkraw-legacy tonii <input> -s 2 -r 1 -o out      # only ScanID 2, RecoID 1 -> out.nii.gz
 ```
 
-| Option | Description |
-|--------|-------------|
-| `-o, --output <name>` | Output filename (without extension) / prefix |
-| `-s, --scanid <id>` | Convert a single scan |
-| `-r, --recoid <id>` | Reconstruction id (default 1) |
-| `-t, --subjecttype <T>` | Override subject type (`Biped`, `Quadruped`, `Phantom`, `Other`, `OtherAnimal`) |
-| `-p, --position <P>` | Override position, `<BodyPart>_<Side>` (e.g. `Head_Supine`) |
-| `--ignore-rescale` | Write raw stored values, with no intensity scaling in the header. `--ignore-slope` and `--ignore-offset` are aliases: slope and offset cannot be suppressed independently |
-| `--ignore-localizer` | Skip localizer/tripilot scans (on by default for `tonii`) |
+| Option | Description | Default |
+|--------|-------------|---------|
+| `-o, --output <name>` | Output filename (without extension) / prefix | `<SubjID>_<StudyID>`, or the input folder name when the dataset has no subject file |
+| `-s, --scanid <id>` | Convert a single scan | every scan |
+| `-r, --recoid <id>` | Reconstruction id; only read together with `-s`, since without it every reconstruction is converted | `1` |
+| `-b, --bids` | Also write a JSON sidecar of BIDS-recommended metadata | off |
+| `-t, --subjecttype <T>` | Override subject type (`Biped`, `Quadruped`, `Phantom`, `Other`, `OtherAnimal`) | the recorded subject type |
+| `-p, --position <P>` | Override position, `<BodyPart>_<Side>` (e.g. `Head_Supine`) | the recorded position |
+| `--ignore-rescale` | Write raw stored values, with no intensity scaling in the header. `--ignore-slope` and `--ignore-offset` are aliases: slope and offset cannot be suppressed independently | off (the header carries the scaling) |
+| `--ignore-localizer` | Skip localizer/tripilot scans | on |
+
+Every on/off option also has a `--no-` form — `--no-bids`, `--no-ignore-localizer`,
+`--no-ignore-rescale` — so a default that is on can be turned off from the command line.
 
 Non-image scans (spectroscopy, etc.) and unclassifiable scans are skipped with a clear message
 rather than producing invalid output. Diffusion scans also emit FSL-style `.bval`/`.bvec`.
@@ -119,7 +123,8 @@ Convert **every** study under a parent directory into a simple
 uv run brkraw-legacy tonii_all <parent_dir> -o <output_dir>
 ```
 
-Accepts the same `-t/-p/--ignore-*` options as `tonii`.
+Accepts the same `-b/-t/-p/--ignore-*` options as `tonii`, with the same defaults.
+Without `-o` the tree is written to `Data` in the current directory.
 
 ### Convert to BIDS — `brkraw-legacy bids_helper` + `bids_convert`
 Produce a spec-compliant [BIDS](https://bids.neuroimaging.io) dataset in two steps:
@@ -133,9 +138,14 @@ uv run brkraw-legacy bids_helper <parent_dir> bids_map -j
 uv run brkraw-legacy bids_convert <parent_dir> bids_map.csv -j bids_map.json -o <bids_output>
 ```
 
-`bids_helper` options: `-f csv|tsv` (datasheet format), `-j` (also write the metadata
-template), `-s` (swap subject/study IDs), `-t` (swap session/study ID). `bids_convert`
-accepts `-j`, `-o`, and the same `-t/-p/--ignore-*` overrides as `tonii`.
+`bids_helper` options: `-f csv|tsv` (datasheet format, default `csv`, ignored when
+`output` already ends in `.csv`/`.tsv`), `-j` (also write the metadata template, default
+off), `--subj` (swap subject/study IDs, default off), `--sess` (swap session/study ID,
+default off). Those last two have no short form on purpose: `-s` and `-t` mean
+`--scanid` and `--subjecttype` elsewhere. `bids_convert` accepts `-j <template>` (default: none, so the sidecars carry only
+what the converter derives), `-o <dir>` (default: `Data`), and the same
+`-t/-p/--ignore-*` overrides as `tonii`. It converts exactly what the datasheet lists,
+so it has no `--ignore-localizer`: `bids_helper` already leaves localizers out.
 
 Step 2 is where the work is: what to put in the datasheet, what to do about scans
 marked `etc`, how to name a task, how to link a fieldmap to the images it corrects, and

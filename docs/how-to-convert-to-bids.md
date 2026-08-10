@@ -191,7 +191,11 @@ uv run brkraw-legacy tonii_all <parent_dir> -o <out>  # every study beneath a di
 ```
 
 `tonii_all` writes a plain `sub-<id>/ses-<id>/<datatype>/` tree with no sidecars,
-datasheet or modality-agnostic files.
+datasheet or modality-agnostic files. Without `-o` it writes to `Data` in the current
+directory.
+
+Both commands skip localizer/tripilot scans. Pass `--no-ignore-localizer` when you want
+those too — every on/off option has a `--no-` form.
 
 ## Related
 

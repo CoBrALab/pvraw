@@ -22,11 +22,30 @@ def main():
                                        dest='function',
                                        metavar='command')
 
+    # Help text shared by more than one sub-command, so the same option cannot end up
+    # documented two different ways. Every option states its default here.
     input_str = "input raw Bruker data"
     input_dir_str = "input directory that contains multiple raw Bruker data"
-    output_dir_str = "output directory name"
-    output_fnm_str = "output filename"
-    bids_opt = "create a JSON file contains metadata based on BIDS recommendation"
+    output_dir_str = "output directory name (default: Data)"
+    output_fnm_str = ("output filename, without the extension (default: <SubjID>_<StudyID>, "
+                      "or the name of the input folder when the dataset has no subject file)")
+    bids_opt = ("create a JSON file contains metadata based on BIDS recommendation "
+                "(default: no JSON file)")
+    subjtype_opt = ("override subject type in case the original setting was not properly set. "
+                    "available options are (Biped, Quadruped, Phantom, Other, OtherAnimal) "
+                    "(default: the subject type recorded in the data)")
+    position_opt = ("override position information in case the original setting was not properly "
+                    "input. the position variable can be defiend as <BodyPart>_<Side>, available "
+                    "BodyParts are (Head, Foot, Tail) and sides are (Supine, Prone, Left, Right). "
+                    "(e.g. Head_Supine) (default: the position recorded in the data)")
+    # ADR 0002: brukerapi exposes one scaling switch, so slope and offset cannot be
+    # suppressed independently. --ignore-slope and --ignore-offset are aliases.
+    rescale_opt = ("write the raw stored values, with no slope or offset in the header "
+                   "(default: keep the scaling)")
+    slope_opt = f"alias of --ignore-rescale, slope cannot be suppressed on its own; {rescale_opt}"
+    offset_opt = f"alias of --ignore-rescale, offset cannot be suppressed on its own; {rescale_opt}"
+    localizer_opt = ("skip the scan if it is a localizer/tripilot "
+                     "(default: skip; pass --no-ignore-localizer to convert them)")
 
     info = subparsers.add_parser("info", help='Prints out the information of the internal contents in Bruker raw data')
     info.add_argument("input", help=input_str, type=str)
@@ -41,59 +60,78 @@ def main():
     # Adding arguments for each parser
     # tonii
     nii.add_argument("input", help=input_str, type=str)
-    nii.add_argument("-b", "--bids", help=bids_opt, action='store_true')
-    nii.add_argument("-o", "--output", help=output_fnm_str, type=str, default=False)
-    nii.add_argument("-s", "--scanid", help="Scan ID, option to specify a particular scan to convert.", type=str)
-    nii.add_argument("-r", "--recoid", help="RECO ID (default=1), "
-                                            "option to specify a particular reconstruction id to convert",
+    nii.add_argument("-b", "--bids", help=bids_opt, action=argparse.BooleanOptionalAction,
+                     default=False)
+    nii.add_argument("-o", "--output", help=output_fnm_str, type=str, default=None)
+    nii.add_argument("-s", "--scanid", help="Scan ID, option to specify a particular scan to "
+                                            "convert (default: convert every scan)", type=str)
+    nii.add_argument("-r", "--recoid", help="RECO ID, option to specify a particular "
+                                            "reconstruction id to convert; only read together "
+                                            "with -s, since without it every reconstruction of "
+                                            "every scan is converted (default: 1)",
                      type=int, default=1)
-    nii.add_argument("-t", "--subjecttype", help="override subject type in case the original setting was not properly set." + \
-                     "available options are (Biped, Quadruped, Phantom, Other, OtherAnimal)", type=str, default=None)
-    nii.add_argument("-p", "--position", help="override position information in case the original setting was not properly input." + \
-                     "the position variable can be defiend as <BodyPart>_<Side>, " + \
-                     "available BodyParts are (Head, Foot, Tail) and sides are (Supine, Prone, Left, Right). (e.g. Head_Supine)", type=str, default=None)
-    nii.add_argument("--ignore-slope", help='remove slope value from header', action='store_true')
-    nii.add_argument("--ignore-offset", help='remove offset value from header', action='store_true')
-    nii.add_argument("--ignore-rescale", help='remove slope and offset values from header', action='store_true')
-    nii.add_argument("--ignore-localizer", help='ignore the scan if it is localizer', action='store_true', default=True)
+    nii.add_argument("-t", "--subjecttype", help=subjtype_opt, type=str, default=None)
+    nii.add_argument("-p", "--position", help=position_opt, type=str, default=None)
+    nii.add_argument("--ignore-slope", help=slope_opt, action=argparse.BooleanOptionalAction,
+                     default=False)
+    nii.add_argument("--ignore-offset", help=offset_opt, action=argparse.BooleanOptionalAction,
+                     default=False)
+    nii.add_argument("--ignore-rescale", help=rescale_opt, action=argparse.BooleanOptionalAction,
+                     default=False)
+    nii.add_argument("--ignore-localizer", help=localizer_opt,
+                     action=argparse.BooleanOptionalAction, default=True)
 
     # tonii_all
     niiall.add_argument("input", help=input_dir_str, type=str)
-    niiall.add_argument("-o", "--output", help=output_dir_str, type=str)
-    niiall.add_argument("-b", "--bids", help=bids_opt, action='store_true')
-    niiall.add_argument("-t", "--subjecttype", help="override subject type in case the original setting was not properly set." + \
-                     "available options are (Biped, Quadruped, Phantom, Other, OtherAnimal)", type=str, default=None)
-    niiall.add_argument("-p", "--position", help="override position information in case the original setting was not properly input." + \
-                     "the position variable can be defiend as <BodyPart>_<Side>, " + \
-                     "available BodyParts are (Head, Foot, Tail) and sides are (Supine, Prone, Left, Right). (e.g. Head_Supine)", type=str, default=None)
-    niiall.add_argument("--ignore-slope", help='remove slope value from header', action='store_true')
-    niiall.add_argument("--ignore-offset", help='remove offset value from header', action='store_true')
-    niiall.add_argument("--ignore-rescale", help='remove slope and offset values from header', action='store_true')
-    niiall.add_argument("--ignore-localizer", help='ignore the scan if it is localizer', action='store_true')
+    niiall.add_argument("-o", "--output", help=output_dir_str, type=str, default='Data')
+    niiall.add_argument("-b", "--bids", help=bids_opt, action=argparse.BooleanOptionalAction,
+                        default=False)
+    niiall.add_argument("-t", "--subjecttype", help=subjtype_opt, type=str, default=None)
+    niiall.add_argument("-p", "--position", help=position_opt, type=str, default=None)
+    niiall.add_argument("--ignore-slope", help=slope_opt, action=argparse.BooleanOptionalAction,
+                        default=False)
+    niiall.add_argument("--ignore-offset", help=offset_opt, action=argparse.BooleanOptionalAction,
+                        default=False)
+    niiall.add_argument("--ignore-rescale", help=rescale_opt,
+                        action=argparse.BooleanOptionalAction, default=False)
+    niiall.add_argument("--ignore-localizer", help=localizer_opt,
+                        action=argparse.BooleanOptionalAction, default=True)
 
     # bids_helper
     bids_helper.add_argument("input", help=input_dir_str, type=str)
     bids_helper.add_argument("output", help="output BIDS datasheet filename", type=str)
-    bids_helper.add_argument("-f", "--format", help="file format of BIDS datasheets. Use this option if you did not specify the extension on output. The available options are (csv/tsv) (default: csv)", type=str, default='csv')
-    bids_helper.add_argument("-j", "--json", help="create JSON syntax template for "
-                                                  "parsing metadata from the header", action='store_true')
-    bids_helper.add_argument("-s", "--subj", help="switch subject and study IDs", action='store_true')
-    bids_helper.add_argument("-t", "--sess", help="switch session and study ID", action='store_true')
+    bids_helper.add_argument("-f", "--format", help="file format of BIDS datasheets. Use this "
+                                                    "option if you did not specify the extension "
+                                                    "on output (default: csv)",
+                             type=str, choices=('csv', 'tsv'), default='csv')
+    bids_helper.add_argument("-j", "--json", help="create JSON syntax template for parsing "
+                                                  "metadata from the header "
+                                                  "(default: no template)",
+                             action=argparse.BooleanOptionalAction, default=False)
+    # Long-only on purpose: -s and -t mean --scanid and --subjecttype in the converting
+    # sub-commands, and one letter must not mean two things.
+    bids_helper.add_argument("--subj", help="switch subject and study IDs "
+                                            "(default: keep the recorded subject ID)",
+                             action=argparse.BooleanOptionalAction, default=False)
+    bids_helper.add_argument("--sess", help="switch session and study ID "
+                                            "(default: keep the recorded session ID)",
+                             action=argparse.BooleanOptionalAction, default=False)
 
     # bids_convert
     bids_convert.add_argument("input", help=input_dir_str, type=str)
     bids_convert.add_argument("datasheet", help="input BIDS datahseet filename", type=str)
-    bids_convert.add_argument("-j", "--json", help="input JSON syntax template filename", type=str, default=False)
-    bids_convert.add_argument("-o", "--output", help=output_dir_str, type=str, default=False)
-    bids_convert.add_argument("-t", "--subjecttype", help="override subject type in case the original setting was not properly set." + \
-                     "available options are (Biped, Quadruped, Phantom, Other, OtherAnimal)", type=str, default=None)
-    bids_convert.add_argument("-p", "--position", help="override position information in case the original setting was not properly input." + \
-                     "the position variable can be defiend as <BodyPart>_<Side>, " + \
-                     "available BodyParts are (Head, Foot, Tail) and sides are (Supine, Prone, Left, Right). (e.g. Head_Supine)", type=str, default=None)
-    bids_convert.add_argument("--ignore-slope", help='remove slope value from header', action='store_true')
-    bids_convert.add_argument("--ignore-offset", help='remove offset value from header', action='store_true')
-    bids_convert.add_argument("--ignore-rescale", help='remove slope and offset values from header',
-                              action='store_true')
+    bids_convert.add_argument("-j", "--json", help="input JSON syntax template filename "
+                                                   "(default: none, the sidecars carry only what "
+                                                   "the converter derives)", type=str, default=None)
+    bids_convert.add_argument("-o", "--output", help=output_dir_str, type=str, default='Data')
+    bids_convert.add_argument("-t", "--subjecttype", help=subjtype_opt, type=str, default=None)
+    bids_convert.add_argument("-p", "--position", help=position_opt, type=str, default=None)
+    bids_convert.add_argument("--ignore-slope", help=slope_opt,
+                              action=argparse.BooleanOptionalAction, default=False)
+    bids_convert.add_argument("--ignore-offset", help=offset_opt,
+                              action=argparse.BooleanOptionalAction, default=False)
+    bids_convert.add_argument("--ignore-rescale", help=rescale_opt,
+                              action=argparse.BooleanOptionalAction, default=False)
 
     args = parser.parse_args()
 
@@ -187,8 +225,6 @@ def main():
             raise InvalidApproach(invalid_error_message)
 
         base_path = args.output
-        if not base_path:
-            base_path = 'Data'
         mkdir(base_path)
         for raw in list_of_raw:
             sub_path = os.path.join(path, raw)
@@ -391,13 +427,9 @@ def main():
                                 df = pd.concat([df, pd.DataFrame([item])], ignore_index=True)
                             else:
                                 df = pd.concat([df, pd.DataFrame([item])], ignore_index=True)
-        if 'csv' in ds_format:
-            df.to_csv(output, index=None, sep=',')
-        elif 'tsv' in ds_format:
-            df.to_csv(output, index=None, sep='\t')
-        else:
-            print(f'[{ds_format}] is not supported.')
-            raise InvalidApproach('Invalid input for datasheet!')
+        # -f is restricted to csv/tsv by argparse, and the extension branch above only
+        # ever sets one of the two, so there is no third case to reject here.
+        df.to_csv(output, index=None, sep=',' if ds_format == 'csv' else '\t')
 
         if make_json:
             # Imported here rather than at module scope: loading the BIDS schema costs a
@@ -433,7 +465,7 @@ def main():
         pd.options.mode.chained_assignment = None
         path = args.input
         datasheet = args.datasheet
-        output = args.output
+        root_path = args.output
         datasheet_ext = os.path.splitext(datasheet)[-1]
 
         # [220202] make compatible with csv and tsv
@@ -455,11 +487,6 @@ def main():
         else:
             # if SessionID appears in datasheet, then by default session appears.
             include_session = True
-
-        if not output:
-            root_path = os.path.abspath(os.path.join(os.path.curdir, 'Data'))
-        else:
-            root_path = output
 
         mkdir(root_path)
 
