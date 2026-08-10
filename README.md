@@ -95,14 +95,19 @@ Convert a single study to NIfTI. Without `-s` every scan/reconstruction is conve
 
 ```bash
 uv run brkraw-legacy tonii <input>                       # convert all scans
-uv run brkraw-legacy tonii <input> -s 2 -r 1 -o out      # only ScanID 2, RecoID 1 -> out.nii.gz
+uv run brkraw-legacy tonii <input> -s 2 -r 1 -o out      # only ScanID 2, RecoID 1
+uv run brkraw-legacy tonii <input> -s 2,3,7 -r 1,2       # several scans, several recos
 ```
+
+Each file is named `<output>-<ScanID>-<RecoID>-<ProtocolName>.nii.gz`, so `-o` sets the
+prefix rather than the whole filename — one scan can write several files (a multi-echo
+or multi-slicepack reconstruction writes one per echo or pack).
 
 | Option | Description | Default |
 |--------|-------------|---------|
 | `-o, --output <name>` | Output filename (without extension) / prefix | `<SubjID>_<StudyID>`, or the input folder name when the dataset has no subject file |
-| `-s, --scanid <id>` | Convert a single scan | every scan |
-| `-r, --recoid <id>` | Reconstruction id; only read together with `-s`, since without it every reconstruction is converted | `1` |
+| `-s, --scanid <id[,id...]>` | Convert only the listed scans | every scan |
+| `-r, --recoid <id[,id...]>` | Reconstruction ids; only read together with `-s`, since without it every reconstruction is converted | `1` |
 | `-b, --bids` | Also write a JSON sidecar of BIDS-recommended metadata | off |
 | `-t, --subjecttype <T>` | Override subject type (`Biped`, `Quadruped`, `Phantom`, `Other`, `OtherAnimal`) | the recorded subject type |
 | `-p, --position <P>` | Override position, `<BodyPart>_<Side>` (e.g. `Head_Supine`) | the recorded position |

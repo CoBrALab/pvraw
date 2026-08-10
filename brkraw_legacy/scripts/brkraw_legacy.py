@@ -63,13 +63,17 @@ def main():
     nii.add_argument("-b", "--bids", help=bids_opt, action=argparse.BooleanOptionalAction,
                      default=False)
     nii.add_argument("-o", "--output", help=output_fnm_str, type=str, default=None)
-    nii.add_argument("-s", "--scanid", help="Scan ID, option to specify a particular scan to "
-                                            "convert (default: convert every scan)", type=str)
-    nii.add_argument("-r", "--recoid", help="RECO ID, option to specify a particular "
-                                            "reconstruction id to convert; only read together "
-                                            "with -s, since without it every reconstruction of "
-                                            "every scan is converted (default: 1)",
-                     type=int, default=1)
+    nii.add_argument("-s", "--scanid", help="Scan ID, option to specify particular scans to "
+                                            "convert; one id or a comma-separated list of them, "
+                                            "e.g. -s 3 or -s 3,4,7 "
+                                            "(default: convert every scan)",
+                     type=id_list, metavar='ID[,ID...]')
+    nii.add_argument("-r", "--recoid", help="RECO ID, option to specify particular "
+                                            "reconstruction ids to convert, as one id or a "
+                                            "comma-separated list; only read together with -s, "
+                                            "since without it every reconstruction of every scan "
+                                            "is converted (default: 1)",
+                     type=id_list, default=[1], metavar='ID[,ID...]')
     nii.add_argument("-t", "--subjecttype", help=subjtype_opt, type=str, default=None)
     nii.add_argument("-p", "--position", help=position_opt, type=str, default=None)
     nii.add_argument("--ignore-slope", help=slope_opt, action=argparse.BooleanOptionalAction,
@@ -151,13 +155,11 @@ def main():
 
     elif args.function == 'tonii':
         path     = args.input
-        scan_id  = args.scanid
-        reco_id  = args.recoid
         study    = BrukerLoader(path)
         scale_mode = set_rescale(args)
         ignore_localizer = args.ignore_localizer
         study = override_header(study, args.subjecttype, args.position)
-        
+
         if study.is_pvdataset:
             if args.output:
                 output = args.output
@@ -166,37 +168,31 @@ def main():
             else:
                 # standalone scan without a subject file: name after the input dir
                 output = os.path.basename(os.path.normpath(path))
-            if scan_id:
-                scanname = str(get_value(study.get_acqp(int(scan_id)), 'ACQ_scan_name'))
+            # -s and -r each take a list. Without -s the study is converted whole, and
+            # -r is not read: one reco id means nothing across scans that do not share it.
+            for scan_id in (args.scanid or list(study.avail_reco_id)):
+                if scan_id not in study.avail_reco_id:
+                    print(f'No ScanID:{scan_id} in this study, available are '
+                          f'{list(study.avail_reco_id)}; skipping.')
+                    continue
+                avail = study.avail_reco_id[scan_id]
+                scanname = str(get_value(study.get_acqp(scan_id), 'ACQ_scan_name'))
                 scanname = scanname.replace(' ','-')
-                output_fname = f'{output}-{scan_id}-{reco_id}-{scanname}'
-                scan_id = int(scan_id)
-                reco_id = int(reco_id)
-                
-                if ignore_localizer and is_localizer(study, scan_id, reco_id):
+                if ignore_localizer and is_localizer(study, scan_id, avail[0]):
                     print(f'Identified a localizer, the file will not be converted: ScanID:{scan_id!s}')
-                else:
+                    continue
+                for reco_id in (args.recoid if args.scanid else avail):
+                    if reco_id not in avail:
+                        print(f'No RecoID:{reco_id} for ScanID:{scan_id}, available are '
+                              f'{avail}; skipping.')
+                        continue
+                    output_fname = f'{output}-{str(scan_id).zfill(2)}-{reco_id}-{scanname}'
                     try:
                         study.save_as(scan_id, reco_id, output_fname, scale_mode=scale_mode)
                         save_meta_files(study, args, scan_id, reco_id, output_fname)
                         print(f'NifTi file is generated... [{output_fname}]')
                     except Exception as e:
                         report_conversion_error(scan_id, reco_id, e)
-            else:
-                for scan_id, recos in study.avail_reco_id.items():
-                    scanname = str(get_value(study.get_acqp(int(scan_id)), 'ACQ_scan_name'))
-                    scanname = scanname.replace(' ','-')
-                    if ignore_localizer and is_localizer(study, scan_id, recos[0]):
-                        print(f'Identified a localizer, the file will not be converted: ScanID:{scan_id!s}')
-                    else:
-                        for reco_id in recos:
-                            output_fname = f'{output}-{str(scan_id).zfill(2)}-{reco_id}-{scanname}'
-                            try:
-                                study.save_as(scan_id, reco_id, output_fname, scale_mode=scale_mode)
-                                save_meta_files(study, args, scan_id, reco_id, output_fname)
-                                print(f'NifTi file is generated... [{output_fname}]')
-                            except Exception as e:
-                                report_conversion_error(scan_id, reco_id, e)
         else:
             print(f'{path} is not PvDataset.')
 
@@ -601,6 +597,22 @@ def main():
         writeParticipantTables(root_path, participant_rows, session_rows, scan_rows)
     else:
         parser.print_help()
+
+
+def id_list(text):
+    """A scan/reco id, or a comma-separated list of them: ``3`` or ``3,4,7``.
+
+    One option that takes a list, rather than a repeatable option or a
+    space-separated one: ``-s`` sits next to a positional input path, and a
+    greedy ``nargs='+'`` would swallow it.
+    """
+    try:
+        ids = [int(value) for value in text.split(',') if value.strip()]
+    except ValueError:
+        raise argparse.ArgumentTypeError(f'not a whole number: {text!r}') from None
+    if not ids:
+        raise argparse.ArgumentTypeError(f'no id given: {text!r}')
+    return ids
 
 
 def report_conversion_error(scan_id, reco_id, error):
