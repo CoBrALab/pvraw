@@ -95,6 +95,67 @@ def test_bids_version_comes_from_the_schema_not_a_literal():
     assert DATASET_DESC_REF['BIDSVersion'] == ''
 
 
+# --------------------------------------------------------------------------- #
+# Sidecar value checking (offline: no sample data, no validator binary)
+# --------------------------------------------------------------------------- #
+
+def test_value_problem_accepts_valid_values():
+    for field, value in [('RepetitionTime', 2.0), ('PhaseEncodingDirection', 'j'),
+                         ('SliceTiming', [0.0, 0.1, 0.2]), ('EchoTime', 0.03),
+                         ('EchoTime', [0.01, 0.02]), ('MRAcquisitionType', '2D'),
+                         ('FlipAngle', 30), ('Units', 'Hz'), ('M0Type', 'Absent')]:
+        assert bids.value_problem(field, value) is None, (field, value)
+
+
+@pytest.mark.parametrize(('field', 'value'), [
+    ('SoftwareVersions', 6.0),            # Bruker <6.0> parses to a float, not a string
+    ('InversionTime', [0.5, 1.0]),        # multi-TI array where BIDS wants one number
+    ('FlipAngle', 0),                     # must be > 0
+    ('PhaseEncodingDirection', 'col_dir'),  # raw PV5.1 code reaching the sidecar
+    ('MRAcquisitionType', '2'),           # enum is 1D/2D/3D
+    ('RepetitionTime', -1.0),             # must be > 0
+    ('SliceTiming', [0.0, 'x']),          # array items must be numbers
+    ('M0Type', 'absent'),                 # enum is case-sensitive
+    ('IntendedFor', '*_bold.nii.gz'),     # a glob is not a valid BIDS path
+])
+def test_value_problem_catches_every_historical_bug_class(field, value):
+    """Each case here was a real sidecar bug found and fixed by hand.
+
+    They are all type/unit/enum errors, which is exactly what the schema's
+    ``objects/metadata`` definitions constrain -- so a value check would have caught
+    the lot without a dataset or a validator run.
+    """
+    assert bids.value_problem(field, value) is not None
+
+
+def test_value_problem_ignores_names_the_schema_does_not_define():
+    """A sidecar may carry non-BIDS keys; judging those is not this check's business.
+
+    ``CoilConfigName`` is one we emit on purpose (see lib/reference.py).
+    """
+    assert bids.value_problem('CoilConfigName', 'anything') is None
+
+
+def test_invalid_value_is_demoted_rather_than_written_or_dropped():
+    """An invalid value must not reach its BIDS key, and must not vanish either.
+
+    Writing it earns a JSON_SCHEMA_VALIDATION_ERROR (severity error); dropping it
+    loses a real Bruker reading. It is kept under a name that is honestly not BIDS.
+    """
+    import warnings
+
+    from brkraw_legacy.lib.loader import _demote_schema_invalid
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter('always')
+        out = _demote_schema_invalid(
+            {'RepetitionTime': 2.0, 'FlipAngle': 0, 'CoilConfigName': 'x'}, 'demo')
+
+    assert out == {'RepetitionTime': 2.0, 'FlipAngleRaw': 0, 'CoilConfigName': 'x'}
+    assert 'FlipAngle' not in out                      # not written under the BIDS key
+    assert any('FlipAngle' in str(w.message) for w in caught)
+
+
 def test_subject_session_id_sanitized_to_valid_bids_label():
     """A subject/session ID must become an alphanumeric BIDS label. Regression:
     a version-derived id like PV360's ``std_PV360_3.7`` kept its '.', which is

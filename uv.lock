@@ -85,6 +85,7 @@ source = { editable = "." }
 dependencies = [
     { name = "bidsschematools" },
     { name = "brukerapi" },
+    { name = "jsonschema" },
     { name = "nibabel" },
     { name = "numpy" },
     { name = "pandas" },
@@ -107,6 +108,7 @@ requires-dist = [
     { name = "bids-validator-deno", marker = "extra == 'dev'" },
     { name = "bidsschematools", specifier = ">=1.2" },
     { name = "brukerapi", specifier = ">=0.4.4" },
+    { name = "jsonschema", specifier = ">=4.0" },
     { name = "nbmake", marker = "extra == 'dev'" },
     { name = "nibabel", specifier = ">=3.2.1" },
     { name = "numpy", specifier = ">=1.23.2" },
