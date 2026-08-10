@@ -350,6 +350,33 @@ def build_bids_json(dset, row, fname, json_path, scale_mode='header', intended_f
                                metadata=ref, condition=['me', echo], task_name=task_name,
                                num_slices=nslices,
                                repetition_time=func_volume_tr(dset, row, nvol))
+    elif re.fullmatch(r'T[12]map', str(row.modality)):
+        # A parametric map is one volume of an ISA fit, not the whole stack, and
+        # BIDS states T1map/T2map "In seconds (s)" while ParaVision fits in ms.
+        # Both the element and the scale come from lib/derived.
+        import nibabel as nib
+
+        from . import derived
+
+        visu_pars = dset.get_visu_pars(row.ScanID, row.RecoID)
+        found = derived.isa_map(visu_pars)
+        if found is None:
+            raise InvalidValueInField(
+                f'ScanID:[{row.ScanID}] RecoID:[{row.RecoID}] is labelled '
+                f'{row.modality} but carries no recognisable ISA relaxation map.')
+        index, _, scale = found
+        stack = dset.get_niftiobj(row.ScanID, row.RecoID, crop=crop, scale_mode=scale_mode)
+        stack = stack[0] if isinstance(stack, list) else stack
+        volume = np.asarray(stack.dataobj)[..., index] * scale
+        nii = nib.Nifti1Image(volume, stack.affine, stack.header)
+        nii.header.set_data_dtype(volume.dtype)
+        current = f'{fname}_{row.modality}'
+        nii.to_filename(os.path.join(row.Dir, f'{current}.nii.gz'))
+        written.append(os.path.join(row.Dir, f'{current}.nii.gz'))
+        if json_path:
+            ref = get_bids_ref_obj(json_path, row)
+            dset.save_json(row.ScanID, row.RecoID, current, dir=row.Dir, metadata=ref,
+                           num_slices=volume.shape[2] if volume.ndim >= 3 else 1)
     else:
         niiobj = dset.get_niftiobj(row.ScanID, row.RecoID, crop=crop, scale_mode=scale_mode)
         # A multi-slicepack acquisition reconstructs to several images. Give each a

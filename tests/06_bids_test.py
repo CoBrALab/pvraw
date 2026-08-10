@@ -612,14 +612,21 @@ def test_multiecho_gets_echo_entity(lego_study, tmp_path):
     assert niis == [f'sub-001_echo-{i + 1}_T2starw.nii.gz' for i in range(n_echo)]
 
 
-def test_derived_reconstructions_not_auto_classified(h2_study, tmp_path):
-    """ISA parametric maps and generated DTI tensor images are BIDS derivatives;
-    bids_helper must leave them 'etc', not label them anat/MESE or dwi -- which
-    produced a single-frame "MESE" with no echo-/EchoTime and a "dwi" whose
-    bval/bvec length did not match the volumes."""
+def test_derived_reconstructions_classified_by_what_they_contain(h2_study, tmp_path):
+    """A derived reconstruction is a stack, and only some of it is raw BIDS.
+
+    An ISA fit holds one volume BIDS has a suffix for -- the relaxation time -- so
+    it is labelled T1map/T2map and the converter extracts that element. Everything
+    else derived (tensor stacks, unrecognised fits) stays 'etc'.
+
+    What must never happen is the whole stack being labelled by its acquisition
+    method: that produced a single-frame "MESE" with no echo-/EchoTime and a "dwi"
+    whose bval/bvec length did not match the volumes.
+    """
     import pandas as pd
 
     from brkraw_legacy import BrukerLoader
+    from brkraw_legacy.lib import derived
 
     sample = tmp_path / 'sample'
     sample.mkdir()
@@ -631,12 +638,56 @@ def test_derived_reconstructions_not_auto_classified(h2_study, tmp_path):
     d = BrukerLoader(str(h2_study))
     n_derived = 0
     for _, row in df.iterrows():
-        groups = [name for name, _ in d.get_frame_groups(int(row.ScanID), int(row.RecoID))]
-        if any(g in ('isa', 'dti') for g in groups):
-            n_derived += 1
+        scan_id, reco_id = int(row.ScanID), int(row.RecoID)
+        if not derived.is_derived(d.get_frame_groups(scan_id, reco_id)):
+            continue
+        n_derived += 1
+        found = derived.isa_map(d.get_visu_pars(scan_id, reco_id))
+        if found:
+            assert row.DataType == 'anat' and row.modality == found[1], \
+                f'ISA map {scan_id}/{reco_id} should be anat/{found[1]}'
+        else:
             assert row.DataType == 'etc', \
-                f'derived reco {row.ScanID}/{row.RecoID} classified as {row.DataType}'
+                f'derived reco {scan_id}/{reco_id} classified as {row.DataType}'
     assert n_derived, 'expected at least one derived (FG_ISA/FG_DTI) reconstruction'
+
+
+def test_unvalidated_scans_are_kept_outside_the_validated_tree(h2_study, tmp_path):
+    """A scan with no valid BIDS suffix must be kept, not dropped.
+
+    Two destinations, because they are two different things: a ParaVision-computed
+    stack with no single suffix is a derivative, while a scan we could not classify
+    is source data we are declining to interpret. Both are ignored by the validator
+    by definition, so nothing lands in the validated tree.
+    """
+    import json
+
+    sample = tmp_path / 'sample'
+    sample.mkdir()
+    (sample / h2_study.name).symlink_to(h2_study.resolve())
+    sheet = tmp_path / 'map'
+    out = tmp_path / 'out'
+    subprocess.check_call(['brkraw-legacy', 'bids_helper', str(sample), str(sheet), '-j'])
+    subprocess.check_call(['brkraw-legacy', 'bids_convert', str(sample),
+                           str(sheet) + '.csv', '-j', str(sheet) + '.json',
+                           '--output', str(out)])
+
+    derivatives = out / 'derivatives' / 'brkraw-legacy'
+    kept = list((out / 'sourcedata').rglob('*.nii.gz')) + list(derivatives.rglob('*.nii.gz'))
+    assert kept, 'expected unclassified or derived scans to be kept, not dropped'
+
+    if list(derivatives.rglob('*.nii.gz')):
+        # A derivatives directory has to stand on its own.
+        desc = json.loads((derivatives / 'dataset_description.json').read_text())
+        assert desc['DatasetType'] == 'derivative'
+        assert desc['BIDSVersion'] == bids.BIDS_VERSION
+
+    # Neither tree may leak into a datatype directory.
+    for path in kept:
+        assert 'sourcedata' in path.parts or 'derivatives' in path.parts
+    for datatype in ('anat', 'func', 'dwi', 'fmap'):
+        for path in out.rglob(f'sub-*/**/{datatype}/*.nii.gz'):
+            assert 'sourcedata' not in path.parts and 'derivatives' not in path.parts
 
 
 def test_multislicepack_uses_chunk_entity(h2_study, tmp_path):
@@ -654,8 +705,11 @@ def test_multislicepack_uses_chunk_entity(h2_study, tmp_path):
     subprocess.check_call(['brkraw-legacy', 'bids_convert', str(sample),
                            str(sheet) + '.csv', '-j', str(sheet) + '.json',
                            '--output', str(out)])
-    niis = list(out.rglob('*.nii.gz'))
-    bad = [p.name for p in niis if re.search(r'-\d{2}\.nii\.gz$', p.name)]
+    # The validated tree only: sourcedata/ and derivatives/ are outside BIDS
+    # filename rules, and their chunk-NN spelling is not what this guards against.
+    niis = [p for p in out.rglob('*.nii.gz')
+            if 'sourcedata' not in p.parts and 'derivatives' not in p.parts]
+    bad = [p.name for p in niis if re.search(r'(?<!chunk)-\d{2}\.nii\.gz$', p.name)]
     assert not bad, f'invalid -NN split filenames: {bad}'
     chunked = [p for p in niis if '_chunk-' in p.name]
     assert chunked, 'expected chunk- split outputs (0.2H2 fieldmap)'
