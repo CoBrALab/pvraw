@@ -26,8 +26,30 @@ logging.disable(logging.CRITICAL)  # silence brkraw's own logging noise
 from brkraw_legacy import BrukerLoader
 
 _REPO = Path(__file__).resolve().parent.parent
-_ARGV = [a for a in sys.argv[1:] if not a.startswith('--')]
-_COMPARE = next((a.split('=', 1)[1] for a in sys.argv[1:] if a.startswith('--compare=')), None)
+def _parse_argv(argv):
+    """``(positional, compare)`` accepting ``--compare=X`` and ``--compare X``.
+
+    Both spellings, because only the first used to work: the space form left
+    ``--compare`` dropped as an option and its VALUE standing as a positional, which
+    made the baseline you asked to compare against the output path instead -- the
+    tool overwrote the goldens it was meant to check. The docstring showed that form.
+    """
+    positional, compare, expecting = [], None, False
+    for arg in argv:
+        if expecting:
+            compare, expecting = arg, False
+        elif arg.startswith('--compare='):
+            compare = arg.split('=', 1)[1]
+        elif arg == '--compare':
+            expecting = True
+        elif not arg.startswith('--'):
+            positional.append(arg)
+    if expecting:
+        raise SystemExit('--compare needs a path, e.g. --compare earlier.json')
+    return positional, compare
+
+
+_ARGV, _COMPARE = _parse_argv(sys.argv[1:])
 TESTDATA = Path(_ARGV[0]) if _ARGV else _REPO / 'resources' / 'testdata'
 OUT = Path(_ARGV[1] if len(_ARGV) > 1 else 'sweep_nifti_results.json')
 
