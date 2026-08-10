@@ -158,6 +158,83 @@ def test_invalid_value_is_demoted_rather_than_written_or_dropped():
 
 
 # --------------------------------------------------------------------------- #
+# Fieldmap pairing
+# --------------------------------------------------------------------------- #
+
+def _row(name, time, group=None):
+    return {'filename': name, 'acq_time': time, 'b0group': group}
+
+
+def test_fieldmap_claims_only_what_follows_it():
+    """A fieldmap corrects what comes after it, not the whole session.
+
+    Taken from the PV6 corpus study, where three dwi runs precede the fieldmap by
+    about an hour and one follows it. Claiming every dwi in the session -- the
+    obvious rule -- would wrongly attach a fieldmap to scans acquired before it
+    was measured.
+    """
+    rows = [
+        _row('dwi/sub-01_run-01_dwi.nii.gz', '2020-06-12T11:12:52'),
+        _row('dwi/sub-01_run-02_dwi.nii.gz', '2020-06-12T11:26:35'),
+        _row('dwi/sub-01_run-03_dwi.nii.gz', '2020-06-12T11:40:17'),
+        _row('fmap/sub-01_fieldmap.nii.gz', '2020-06-12T12:28:15'),
+        _row('dwi/sub-01_run-04_dwi.nii.gz', '2020-06-12T13:38:22'),
+    ]
+    assert bids.pair_fieldmaps(rows) == {
+        'fmap/sub-01_fieldmap.nii.gz': ['dwi/sub-01_run-04_dwi.nii.gz'],
+    }
+
+
+def test_each_fieldmap_claims_its_own_window():
+    """The normal case a session-wide rule gets wrong: two fieldmaps."""
+    rows = [
+        _row('fmap/sub-01_run-01_fieldmap.nii.gz', '2020-01-01T10:00:00'),
+        _row('func/sub-01_task-a_bold.nii.gz', '2020-01-01T10:10:00'),
+        _row('fmap/sub-01_run-02_fieldmap.nii.gz', '2020-01-01T11:00:00'),
+        _row('func/sub-01_task-b_bold.nii.gz', '2020-01-01T11:10:00'),
+    ]
+    assert bids.pair_fieldmaps(rows) == {
+        'fmap/sub-01_run-01_fieldmap.nii.gz': ['func/sub-01_task-a_bold.nii.gz'],
+        'fmap/sub-01_run-02_fieldmap.nii.gz': ['func/sub-01_task-b_bold.nii.gz'],
+    }
+
+
+def test_anatomical_scans_are_never_claimed():
+    """Anat is not an EPI readout; naming it would claim a correction nobody applies."""
+    rows = [
+        _row('fmap/sub-01_fieldmap.nii.gz', '2020-01-01T10:00:00'),
+        _row('anat/sub-01_T2w.nii.gz', '2020-01-01T10:10:00'),
+        _row('anat/sub-01_T1map.nii.gz', '2020-01-01T10:20:00'),
+    ]
+    assert bids.pair_fieldmaps(rows) == {'fmap/sub-01_fieldmap.nii.gz': []}
+
+
+def test_datasheet_label_overrides_acquisition_order():
+    """The operator knows what the fieldmap was for; the clock does not.
+
+    Here the label deliberately pairs the fieldmap with a scan acquired BEFORE it,
+    which the time rule would never do.
+    """
+    rows = [
+        _row('dwi/sub-01_run-01_dwi.nii.gz', '2020-01-01T10:00:00', group='pair1'),
+        _row('fmap/sub-01_fieldmap.nii.gz', '2020-01-01T11:00:00', group='pair1'),
+        _row('dwi/sub-01_run-02_dwi.nii.gz', '2020-01-01T12:00:00'),
+    ]
+    assert bids.pair_fieldmaps(rows) == {
+        'fmap/sub-01_fieldmap.nii.gz': ['dwi/sub-01_run-01_dwi.nii.gz'],
+    }
+
+
+@pytest.mark.parametrize(('filename', 'expected'), [
+    ('anat/sub-01_ses-2_run-01_T2w.nii.gz', 'T2w'),
+    ('fmap/sub-01_fieldmap.nii.gz', 'fieldmap'),
+    ('dwi/sub-01_run-04_dwi.nii.gz', 'dwi'),
+])
+def test_suffix_of(filename, expected):
+    assert bids.suffix_of(filename) == expected
+
+
+# --------------------------------------------------------------------------- #
 # The verdict table: every schema field is accounted for
 # --------------------------------------------------------------------------- #
 
