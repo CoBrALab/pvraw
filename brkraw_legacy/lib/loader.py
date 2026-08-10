@@ -463,17 +463,23 @@ class BrukerLoader:
         acqp = parameters['acqp']
         method = parameters['method']
         visu_pars = parameters['visu_pars']
+        # Listed last so acqp/method/visu_pars keep priority. `reco` is the
+        # reconstruction-side parameter file (pdata/N/reco); it is the only place
+        # `RecoCombineMode` lives, and brukerapi loads it as an optional file, so it
+        # is absent for some exports.
+        reco = parameters.get('reco')
 
         json_obj = {}
-        # Axis only (i/j/k); the polarity sign (i-/j-/k-) is intentionally not
-        # emitted -- see the PhaseEncodingDirection note in lib/reference.py.
+        # Resolves the phase-encode AXIS. It is emitted as `PhaseEncodingAxis`, a
+        # non-BIDS key, because BIDS `PhaseEncodingDirection` has no unsigned value:
+        # a bare 'j' asserts positive polarity. See the note in lib/reference.py.
         encdir_dic = {0: 'i', 1: 'j', 2: 'k'}
 
         if metadata is None:
             metadata = COMMON_META_REF.copy()
         for k, v in metadata.items():
-            val = meta_get_value(v, acqp, method, visu_pars)
-            if k == 'PhaseEncodingDirection' and val is not None:
+            val = meta_get_value(v, acqp, method, visu_pars, reco)
+            if k == 'PhaseEncodingAxis' and val is not None:
                 # Convert the encoding direction meta data into BIDS format
                 # (SliceEncodingDirection is resolved directly to 'k'/None by its
                 # mapping and needs no code-to-axis conversion.)

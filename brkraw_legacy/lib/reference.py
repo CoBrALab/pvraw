@@ -20,66 +20,6 @@ ERROR_MESSAGES = {
     'NotIntegrated': 'not integrated method, please contact developer.',
 }
 
-# BIDS v1.10.0
-# Below is the list of METADATA keywords that BIDS recommended
-COMMON_METADATA_FIELD = {
-    'Recommended': [  # SCANNER_HARDWARE
-        'Manufacturer',
-        'ManufacturersModelName',
-        'DeviceSerialNumber',
-        'StationName',
-        'SoftwareVersions',
-        'MagneticFieldStrength',
-        'ReceiveCoilName',
-        'ReceiveCoilActiveElements',
-        'NumberReceiveCoilActiveElements',
-        'GradientSetType',
-        'MRTransmitCoilSequence',
-        'MatrixCoilMode',
-        'CoilCombinationMethod',
-        # SEQUENCE_SPECIFIC
-        'MRAcquisitionType',
-        'PulseSequenceType',
-        'ScanningSequence',
-        'SequenceVariant',
-        'ScanOptions',
-        'SequenceName',
-        'PulseSequenceDetails',
-        'NonlinearGradientCorrection',
-        # IN_PLANE_SPATIAL_ENCODING
-        'NumberShots',
-        'ParallelReductionFactorInPlane',
-        'ParallelAcquisitionTechnique',
-        'PartialFourier',
-        'PartialFourierDirection',
-        'PhaseEncodingDirection',
-        'EffectiveEchoSpacing',
-        'TotalReadoutTime',
-        # TIMING_PARAMETERS
-        'EchoTime',
-        'InversionTime',
-        'SliceTiming',
-        'SliceEncodingDirection',
-        'DwellTime',
-        # RF_AND_CONTRAST, SLICE_ACCELERATION
-        'FlipAngle',
-        'MultibandAccelerationFactor',
-        'AnatomicalLandmarkCoordinates',
-        # INSTITUTION_INFORMATION
-        'InstitutionName',
-        'InstitutionAddress',
-        'InstitutionalDepartmentName',
-    ],
-    'Optional': [  # RF_AND_CONTRAST
-        'NegativeContrast',
-        # ACQUISITION_SPECIFIC
-        'ContrastBolusIngredient',
-    ],
-    'Deprecated': [  # SCANNER_HARDWARE
-        'HardcopyDeviceSoftwareVersion'
-    ],
-}
-
 # Matadata Field Mapping for Bruker PvDataset
 # BIDS Meta data will be automatically created according to below reference.
 # If list is entered as value, each parameter will be tested and the first available value will be returned.
@@ -100,21 +40,16 @@ COMMON_META_REF = {
     'SoftwareVersions': ['VisuAcqSoftwareVersion', 'ACQ_sw_version'],
     'MagneticFieldStrength': {'Freq': 'VisuAcqImagingFrequency', 'Equation': 'Freq / 42.576'},
     'ReceiveCoilName': 'VisuCoilReceiveName',
-    # VisuCoilReceiveType is the coil geometry KIND (VOLUME_COIL/SURFACE_COIL/
-    # ...), not the set of active receive elements the BIDS field asks for.
-    'ReceiveCoilActiveElements': None,
     'NumberReceiveCoilActiveElements': 'PVM_EncNReceivers',  # BIDS type: integer
-    # ACQ_status is an acquisition-status code (e.g. 'S116'), unrelated to the
-    # gradient coil/set; no Bruker parameter encodes a gradient set type.
-    'GradientSetType': None,
     # BIDS type: string (DICOM 0018,9049). Emit the transmit coil name only; a
     # nested object is a schema type error.
     'MRTransmitCoilSequence': 'VisuCoilTransmitName',
-    'CoilConfigName': 'ACQ_coil_config_file',  # if Transmit and Receive coil info in None
-    # ACQ_experiment_mode is single-vs-parallel/multiple-receiver EXPERIMENT
-    # mode, not the analog array-coil combination mode BIDS means.
-    'MatrixCoilMode': None,
-    'CoilCombinationMethod': None,
+    # NOT a BIDS field -- see NON_SCHEMA_KEYS below.
+    'CoilConfigName': 'ACQ_coil_config_file',
+    # RecoCombineMode lives in pdata/N/reco, reachable since `reco` became a
+    # parameter source. Its enum is verbatim BIDS-usable free text:
+    # SumOfSquares / ShuffleImages / AddImages.
+    'CoilCombinationMethod': 'RecoCombineMode',
     # SEQUENCE_SPECIFIC
     'PulseSequenceType': 'PULPROG',  # 'VisuAcqEchoSequenceType'
     'ScanningSequence': 'VisuAcqSequenceName',
@@ -122,14 +57,8 @@ COMMON_META_REF = {
     # BIDS: '2D' or '3D'. PVM_SpatDimEnum is '2D'/'3D' on PV6+; fall back to
     # VisuCoreDim (2/3) -> '2D'/'3D' for PV5.1.
     'MRAcquisitionType': ['PVM_SpatDimEnum', {'Dim': 'VisuCoreDim', 'Equation': "str(int(Dim)) + 'D'"}],
-    # BIDS ScanOptions is an array of DICOM scan-option codes; the Bruker
-    # flags below do not map cleanly to that type, so it is left unset.
-    'ScanOptions': None,
     'SequenceName': ['VisuAcquisitionProtocol', 'ACQ_protocol_name'],  # if first component are None
     'PulseSequenceDetails': 'ACQ_scan_name',
-    # BIDS type: boolean. Bruker VisuAcqKSpaceTraversal is a string, not a
-    # gradient-nonlinearity-correction flag, so it is left unset.
-    'NonlinearGradientCorrection': None,
     # IN_PLANE_SPATIAL_ENCODING
     # True shot count of a (segmented) EPI; VisuAcqKSpaceTrajectoryCnt was the
     # trajectory count and returned 1 for every scan.
@@ -137,7 +66,6 @@ COMMON_META_REF = {
     # PPI (parallel-imaging) acceleration; ACQ_phase_factor was the RARE/EPI
     # echo-train (segmentation) factor -- not the acceleration.
     'ParallelReductionFactorInPlane': ['PVM_EncPpiAccel1', {'key': 'PVM_EncPpi', 'idx': 1}],
-    'ParallelAcquisitionTechnique': None,
     # Phase-axis partial-Fourier fraction = 1/accel: Bruker PVM_EncPft[1] /
     # PVM_EncPftAccel1 is an acceleration factor (>= 1), emitted only when the
     # phase axis is actually under-sampled (accel > 1).
@@ -149,17 +77,27 @@ COMMON_META_REF = {
         {'PFT': 'PVM_EncPftAccel1', 'Equation': '"phase" if PFT>1 else None'},
         {'PFT': {'key': 'PVM_EncPft', 'idx': 1}, 'Equation': '"phase" if PFT>1 else None'},
     ],
-    # Resolves only the phase-encode AXIS (i/j/k), not the polarity sign
-    # (i-/j-/k-). The sign depends on the PE gradient polarity, k-space
-    # traversal, and reconstruction flips relative to the written voxel
-    # frame; it cannot be derived reliably from these parameters alone, and a
-    # WRONG sign makes susceptibility distortion correction worse. It is left
-    # unsigned -- validate/set it per acquisition (e.g. with a reversed-PE
-    # fieldmap) before using it for TOPUP/SDC.
-    'PhaseEncodingDirection': [
+    # Resolves the phase-encode AXIS (i/j/k) only, and is therefore NOT emitted as
+    # BIDS `PhaseEncodingDirection`. That field has no unsigned value: the schema
+    # says "the polarity is assumed to go from zero index to maximum index unless
+    # `-` is present", so writing a bare 'j' asserts POSITIVE polarity rather than
+    # abstaining -- which is what this code did for years while its comment claimed
+    # otherwise.
+    #
+    # The sign is the product of three terms: the axis (derivable here), the k-space
+    # traversal direction (derivable from PVM_EncSteps1), and the mapping from sorted
+    # k-space row to image index that ParaVision's own reconstruction establishes.
+    # That third term is written nowhere, so the sign is a coin flip per ParaVision
+    # generation -- and a WRONG sign makes distortion correction worse than none.
+    #
+    # So the axis ships under a deliberately non-BIDS key (see NON_SCHEMA_KEYS),
+    # which is also what dcm2niix emits when it cannot determine polarity. Set the
+    # signed field yourself, from a reversed-PE acquisition, before using it for
+    # TOPUP/SDC.
+    'PhaseEncodingAxis': [
         {'key': 'VisuAcqGradEncoding', 'where': 'phase_enc'},
         'VisuAcqImagePhaseEncDir',
-    ],  # Deprecated
+    ],
     # EPI echo spacing (seconds), reduced by the in-plane parallel factor.
     # PVM_EpiEchoSpacing (ms) is Bruker's console echo spacing; it is absent
     # for non-EPI sequences, so this field is emitted only where it applies
@@ -188,7 +126,20 @@ COMMON_META_REF = {
     # for every scan. It used to live only in FMRI_META_REF, so the one-shot
     # conversion path (save_json with metadata=None) produced func sidecars
     # missing this required field.
-    'RepetitionTime': {'TR': 'VisuAcqRepetitionTime', 'Equation': 'TR/1000'},
+    #
+    # BIDS wants ONE number. Variable-TR sequences (RAREVTR) return an array, e.g.
+    # [5.5, 3.0, 1.5, 0.8, 0.4, 0.2] -- the same trap InversionTime already guards
+    # against. Emitting the array is invalid, and the reference validator does not
+    # catch it: RepetitionTime is named only in the func/bold and mrs rule groups,
+    # so on an anat file no rule applies and the value is never type-checked.
+    'RepetitionTime': {'TR': 'VisuAcqRepetitionTime',
+                       'Equation': 'TR/1000 if np.ndim(TR) == 0 else None'},
+    # Wall-clock duration of the acquisition, in seconds. PVM_ScanTime does not
+    # exist on PV5.1 (only the display string PVM_ScanTimeStr), so the previous
+    # mapping silently emitted nothing there; VisuAcqScanTime is written by every
+    # ParaVision version and is identical where both exist. Deprecated by BIDS for
+    # func -- dropped in the func merge, see lib/utils.get_bids_ref_obj.
+    'AcquisitionDuration': {'T': 'VisuAcqScanTime', 'Equation': 'T/1000'},
     # One acquisition time per reconstructed slice (seconds). ACQ_obj_order is
     # the slice acquisition order; argsort inverts it to each slice's time.
     # Emit only when the order length equals the multi-slice count (NSLICES);
@@ -213,12 +164,8 @@ COMMON_META_REF = {
     # RF_AND_CONTRAST, SLICE_ACCELERATION
     # BIDS requires FlipAngle > 0; drop non-positive values.
     'FlipAngle': {'FA': 'VisuAcqFlipAngle', 'Equation': 'FA if np.all(np.asarray(FA) > 0) else None'},
-    'MultibandAccelerationFactor': None,  # no Bruker SMS/multiband parameter on PV5/6/7
-    'AnatomicalLandmarkCoordinates': None,
     # INSTITUTION_INFORMATION
     'InstitutionName': 'VisuInstitution',
-    'InstitutionAddress': None,
-    'InstitutionalDepartmentName': None,
 }
 
 
@@ -230,25 +177,140 @@ FMRI_META_REF = {  # RepetitionTime now lives in COMMON_META_REF (emitted for ev
         'NR': 'PVM_NRepetitions',
         'Equation': '(np.arange(NR)*(TR/1000)).tolist()',
     },
-    'TaskName': None,
-    # RECOMMENDED
-    # - timing parameters
-    'NumberOfVolumesDiscardedByScanner': 'PVM_DummyScans',
-    'NumberOfVolumesDiscardedByUser': None,
-    'DelayTime': None,
-    'AcquisitionDuration': {'TR': "PVM_ScanTime", 'Equation': "TR/1000"},
-    'DelayAfterTrigger': None,
-    # - fMRI task information
-    'Instructions': None,
-    'TaskDescription': None,
-    'CogAtlasID': None,  # user-fillable; omitted when unset
-    'CogPOID': None,  # user-fillable; omitted when unset
+    # Dummy/steady-state scans discarded by the scanner. PVM_DummyScans does not
+    # exist on PV5.1 (the EPI method declares NDummyScans locally), and it counts
+    # TR PERIODS rather than volumes -- PVM_DummyScansDur = PVM_DummyScans *
+    # PVM_RepetitionTime, so a single-slice scan can report 226. The two coincide
+    # only where one TR is one volume, i.e. EPI, which is exactly where this key is
+    # merged (bold/cbv/epi), so the value is meaningful here and nowhere else.
+    'NumberOfVolumesDiscardedByScanner': ['PVM_DummyScans', 'NDummyScans'],
 }
 
 
-FIELDMAP_META_REF = {
-    'IntendedFor': '',
+#: Merged for fieldmap modalities. `IntendedFor` is deliberately absent: it names
+#: the images a fieldmap corrects, which no Bruker parameter records. It is set by
+#: the converter instead (save_json's `intended_for` argument). It used to sit here
+#: as `''`, which survived the None-strip and wrote an empty string into every
+#: fieldmap sidecar.
+FIELDMAP_META_REF = {}
+
+#: BIDS fields this converter fills in code rather than from a mapping table,
+#: because they need something the resolver above cannot see -- the datasheet, the
+#: written NIfTI, or the caller's intent. Value is where it happens.
+COMPUTED_AT_WRITE = {
+    'TaskName': 'save_json(task_name=...), from the datasheet task- entity',
+    'IntendedFor': 'save_json(intended_for=...); no Bruker parameter records intent',
+    'Units': "save_json's fieldmap branch, via _bids_fieldmap_units(VisuCoreDataUnits)",
 }
+
+#: Fields with a real Bruker source that is not wired up yet, and the parameter that
+#: would supply it. This is the gap list: emptying it is how "extract everything
+#: Bruker records" gets done, and the guard test below keeps it honest.
+UNMAPPED_WITH_SOURCE = {
+    'MTState': 'PVM_MagTransOnOff (OnOff); PV360 PVM_SatTransOnOff',
+    'MTOffsetFrequency': 'PVM_MagTransOffset (Hz)',
+    'MTPulseBandwidth': 'PVM_MagTransPulse1[1] (.Bandwidth, Hz)',
+    'MTNumberOfPulses': 'PVM_MagTransPulsNumb',
+    'MTPulseDuration': 'PVM_MagTransPulse1[0] (.Length, ms -> s)',
+    'MTPulseShape': 'PVM_MagTransPulse1Enum; only bp/gauss/sinc reach a BIDS enum value',
+    'SpoilingState': 'VisuAcqSpoiling == NotSpoiled (PV6+)',
+    'SpoilingType': 'VisuAcqSpoiling; enum maps 1:1 onto RF/GRADIENT/COMBINED (PV6+)',
+    'SpoilingGradientDuration': 'PVM_SPOILER_TYPE .dur (ms -> s); PV5.1 *SpoilerDuration',
+    'SpoilingGradientMoment': 'derived: (ampl/100) * Gmax * dur, Gmax from PVM_GradCalConst',
+    'SpoilingRFPhaseIncrement': 'constant 117 deg, gated on RFSpoiling/RFSpoilerOnOff',
+    'EchoTime1': 'EffectiveTE[0] (ms -> s); NOT PVM_EchoTime, which is echo spacing here',
+    'EchoTime2': 'EffectiveTE[1] (ms -> s)',
+    'RepetitionTimeExcitation': 'PVM_RepetitionTime (ms -> s); EchoRepTime for MDEFT',
+    'RepetitionTimePreparation': 'SegmRepTime (ms -> s); PV6 ZTE PVM_SegmentationDur',
+    'ParallelReductionFactorOutOfPlane': 'PVM_EncPpi[2]; PV5.1 PVM_EncPpiAccel2',
+    'ParallelAcquisitionTechnique': "'GRAPPA' when max(PVM_EncPpi) > 1 -- Bruker has no "
+                                    'image-domain PPI, so never SENSE',
+    'MultibandAccelerationFactor': 'PVM_MbEncAccelFactor -- PV7/PV360 only, absent from '
+                                   'PV5.1 and PV6 headers',
+    'ScanOptions': 'PV6+ only, composed from VisuAcqSaturation / VisuAcqPartialFourier / '
+                   'VisuAcqSpectralSuppression / VisuAcqFlowCompensation / '
+                   'VisuCardiacSynchUsed / VisuRespSynchUsed',
+    'WaterSuppression': 'PVM_WsOnOff (OnOff)',
+    'WaterSuppressionTechnique': 'PVM_WsMode (NO_SUPPRESSION/CHESS/VAPOR)',
+    'B0ShimmingTechnique': 'compose PVM_ReqShimEnum + PVM_MapShimUseShims',
+    'B1ShimmingTechnique': 'PVM_TxCoilScMode1 + PVM_TxCoilAmpScaling1 -- pTx systems only',
+    'ContrastBolusIngredient': 'VisuContrastIngredients -- PV360 only; the PV6 header '
+                               'defines the enum but no parameter binds it',
+    'DelayTime': 'PackDel (ms -> s), the EPI inter-volume delay; its floor of 0.001 ms '
+                 'means "none"',
+    'DelayAfterTrigger': 'PVM_TriggerDelay (ms -> s), gated on PVM_TriggerModule == On',
+}
+
+#: Fields with no Bruker source, and why. Searched across the PV5.1 and PV6.0.1
+#: installs, the manuals, and the corpus. Recording the reason is the point: it is
+#: what stops the next person repeating the search, and several of these entries
+#: replace comments that asserted "no source" wrongly.
+NO_BRUKER_SOURCE = {
+    'PhaseEncodingDirection': 'no source for the field as BIDS defines it. The AXIS is '
+                              'derivable (VisuAcqGradEncoding) and so is the k-space '
+                              'traversal direction (PVM_EncSteps1), but the third term -- '
+                              "the map from sorted k-space row to image index that "
+                              "ParaVision's reconstruction fixes -- is written nowhere. "
+                              'BIDS has no unsigned value, so the axis alone ships as '
+                              'PhaseEncodingAxis (see NON_SCHEMA_KEYS) rather than as a '
+                              'polarity claim we cannot support',
+    'ReceiveCoilActiveElements': 'VisuCoilReceiveType is the coil geometry KIND '
+                                 '(VOLUME_COIL/SURFACE_COIL), not the active element set',
+    'NumberTransmitCoilActiveElements': 'no parameter enumerates transmit elements',
+    'GradientSetType': 'CONFIG_SCAN_gradient_system in the `configscan` file does carry it '
+                       "(e.g. 'B-GA12SHP FOR BC70/20 TYP 2'), but brukerapi does not load "
+                       'that file and reading it here would undo ADR 0002. Upstream issue '
+                       'filed; revisit when brukerapi exposes it',
+    'MatrixCoilMode': 'no DICOM 0018,9008 equivalent. PVM_EncNReceivers/PVM_EncActReceivers '
+                      'describe receiver count, not the analog combination mode',
+    'NonlinearGradientCorrection': 'PV5.1/PV6 perform no gradient-nonlinearity unwarping; '
+                                   'zero hits for nonlinear/gradwarp/unwarp in either install',
+    'AnatomicalLandmarkCoordinates': 'zero hits for "landmark" in either install; no AC/PC '
+                                     'or named-fiducial parameter exists',
+    'InstitutionAddress': 'VisuInstitution is the only institution parameter; DICOM '
+                          '(0008,0081) is absent from the conformance statement',
+    'InstitutionalDepartmentName': 'DICOM (0008,1040) absent from the conformance statement',
+    'B0FieldIdentifier': 'a BIDS organisational label, not a measurement; synthesised by '
+                         'the converter when fieldmap pairing lands',
+    'B0FieldSource': 'as B0FieldIdentifier',
+    'TablePosition': 'ACQ_position_X/Y/Z are hard-assigned 0 in every method; no table '
+                     'position is recorded',
+    'FrameAcquisitionDuration': 'VisuAcqFrameTime is declared in PV6 but written to zero '
+                                'real visu_pars files across PV5/6/7/360',
+    'NumberOfVolumesDiscardedByUser': 'post-hoc by definition; nothing on the scanner knows',
+    'NegativeContrast': 'no parameter',
+    'MixingTime': 'StTM exists but is STEAM single-voxel MRS; BIDS requires MixingTime for '
+                  'the TB1EPI suffix, which Bruker has no equivalent of',
+    'MultipartID': 'a curator-chosen grouping key',
+    'BodyPart': 'zero hits; DICOM (0018,0015) is not exported',
+    'BodyPartDetails': 'as BodyPart',
+    'BodyPartDetailsOntology': 'as BodyPart',
+    'DeidentificationMethod': 'PV360 has only the boolean VisuInstanceDeIdentified, not the '
+                              'array of objects BIDS defines',
+    'DeidentificationMethodCodeSequence': 'as DeidentificationMethod',
+    'Resolution': 'a derivatives entity descriptor, not an acquisition property',
+    'Density': 'as Resolution',
+    'SampleStaining': 'microscopy only',
+    'SamplePrimaryAntibody': 'microscopy only',
+    'SampleSecondaryAntibody': 'microscopy only',
+    'HardcopyDeviceSoftwareVersion': 'deprecated by BIDS; never emit',
+    'Instructions': 'user-supplied; describes the session, not the scan',
+    'TaskDescription': 'user-supplied',
+    'CogAtlasID': 'user-supplied',
+    'CogPOID': 'user-supplied',
+}
+
+#: Keys we emit that BIDS does not define. Legal -- a sidecar may carry extra keys --
+#: but recorded here so they are distinguishable from a typo'd real field, and so the
+#: guard test below can tell "deliberate" from "unaccounted for".
+NON_SCHEMA_KEYS = {
+    'CoilConfigName': 'ACQ_coil_config_file; useful provenance with no BIDS equivalent',
+    'PhaseEncodingAxis': 'the PE axis without a polarity claim. BIDS '
+                         'PhaseEncodingDirection has no unsigned value, so a bare "j" '
+                         'would assert positive polarity we cannot prove. Same key '
+                         'dcm2niix emits when it cannot determine the sign',
+}
+
 
 DATASET_DESC_REF = {
     'Name': 'Untitled',

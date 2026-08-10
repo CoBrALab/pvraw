@@ -225,7 +225,7 @@ def test_common_and_fmri_refs_do_not_share_keys():
     assert set(COMMON_META_REF) & set(FMRI_META_REF) == set()
 
 
-# --- PhaseEncodingDirection axis (M2) ---------------------------------------
+# --- PhaseEncodingAxis (M2) --------------------------------------------------
 
 @pytest.mark.parametrize('grad_encoding, axis_index', [
     (['phase_enc', 'read_enc'], 0),                       # -> 'i' after loader conversion
@@ -233,10 +233,53 @@ def test_common_and_fmri_refs_do_not_share_keys():
     (['read_enc', 'phase_enc', 'slice_enc'], 1),          # -> 'j' (3D)
 ])
 def test_phase_encoding_resolves_axis_index_only(grad_encoding, axis_index):
-    """PhaseEncodingDirection resolves the PE axis index (loader maps it to i/j/k).
+    """The mapping resolves the PE axis index (the loader turns it into i/j/k).
 
-    The polarity sign (i-/j-/k-) is intentionally NOT emitted: it cannot be
-    derived reliably from Bruker parameters and a wrong sign harms distortion
-    correction (M2).
+    It is emitted as the non-BIDS key ``PhaseEncodingAxis``, never as BIDS
+    ``PhaseEncodingDirection``: that field has no unsigned value, so a bare 'j'
+    would assert positive polarity. The sign cannot be derived from Bruker
+    parameters alone, and a wrong one harms distortion correction (M2).
     """
-    assert _resolve('PhaseEncodingDirection', visu=_p(VisuAcqGradEncoding=grad_encoding)) == axis_index
+    assert _resolve('PhaseEncodingAxis', visu=_p(VisuAcqGradEncoding=grad_encoding)) == axis_index
+
+
+# --- dummy scans, across ParaVision versions ---------------------------------
+
+@pytest.mark.parametrize(('params', 'expected'), [
+    ({'PVM_DummyScans': 4}, 4),      # PV6/PV7/PV360
+    ({'NDummyScans': 2}, 2),         # PV5.1: the EPI method declares it locally
+    ({'PVM_DummyScans': 4, 'NDummyScans': 2}, 4),   # prefer the PVM_ form
+    ({}, None),
+])
+def test_discarded_volumes_falls_back_to_the_pv51_parameter(params, expected):
+    """PVM_DummyScans does not exist on PV5.1, where the name is NDummyScans.
+
+    Covered here because no study in the corpus converts a func scan, so the
+    end-to-end runs never reach this key: it is merged for bold/cbv/epi only.
+    """
+    assert meta_get_value(FMRI_META_REF['NumberOfVolumesDiscardedByScanner'],
+                          _p(), _p(**params), _p()) == expected
+
+
+# --- deprecated-for-func handling -------------------------------------------
+
+@pytest.mark.parametrize(('modality', 'expected'), [
+    ('bold', False), ('cbv', False), ('epi', False),   # deprecated for func
+    ('T2w', True), ('dwi', True),                      # still optional elsewhere
+])
+def test_acquisition_duration_dropped_only_for_func(modality, expected, tmp_path):
+    """BIDS deprecates AcquisitionDuration for func, and only for func.
+
+    The corpus studies convert no func scans, so nothing else covers this.
+    """
+    import json
+
+    from brkraw_legacy.lib.utils import get_bids_ref_obj
+
+    template = tmp_path / 'ref.json'
+    template.write_text(json.dumps({
+        'common': {'AcquisitionDuration': {'T': 'VisuAcqScanTime', 'Equation': 'T/1000'}},
+        'func': {'VolumeTiming': None},
+    }))
+    ref = get_bids_ref_obj(str(template), SimpleNamespace(modality=modality))
+    assert ('AcquisitionDuration' in ref) is expected
