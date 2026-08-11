@@ -14,7 +14,6 @@ of brkraw-legacy addresses by ``scan_id``/``reco_id``.
 
 from __future__ import annotations
 
-import importlib.util
 import os
 import warnings
 import zipfile
@@ -31,7 +30,7 @@ from brukerapi.jcampdx import JCAMPDX
 from reshipe import RecipeParser
 
 from brkraw_legacy.api.analyzer.base import BaseAnalyzer
-from brkraw_legacy.lib.errors import FileNotValidError, InvalidApproach
+from brkraw_legacy.lib.errors import FileNotValidError
 from brkraw_legacy.lib.utils import get_value
 
 from .scan import Scan
@@ -60,21 +59,6 @@ class RecoHeader:
     header: dict
 
 
-def _require_archive_support():
-    """Fail with the reason when the installed `brukerapi` is path-only.
-
-    Archives are read in place, which needs the pathlib read protocol
-    `brukerapi` gained in 0.4. An older release coerces every path with
-    ``Path()`` and dies on a ``zipfile.Path`` with a TypeError about os.PathLike
-    -- which reads like a corrupt dataset rather than a dependency to upgrade.
-    """
-    if not importlib.util.find_spec('brukerapi.paths'):
-        raise InvalidApproach(
-            'Reading a .zip/.PvDatasets archive needs brukerapi>=0.4 (the '
-            'pathlib path protocol); the installed version can only read a '
-            'directory. Upgrade brukerapi, or extract the archive first.')
-
-
 def _archive_root(path: Path):
     """The study directory inside an archive, as a ``zipfile.Path``.
 
@@ -83,7 +67,6 @@ def _archive_root(path: Path):
     reads through the pathlib protocol, so the member path is handed over
     directly rather than extracting the archive.
     """
-    _require_archive_support()
     root = zipfile.Path(zipfile.ZipFile(path))
     directories = [child for child in root.iterdir() if child.is_dir()]
     if len(directories) != 1:
@@ -92,13 +75,17 @@ def _archive_root(path: Path):
 
 
 def _open_container(path: Path):
-    """Open `path` as a `brukerapi` folder, or return None if it is no PvDataset.
+    """Open `path` as a `brukerapi` folder.
 
     A study is recognised by its ``subject`` file and an individually exported
-    scan by an ``acqp`` at its root -- a directory holding neither is a
-    collection of datasets, not one dataset, and yields no scans. Inside an
-    archive the ``subject`` file is optional: partial exports omit it and are
-    still addressed by their numbered scan directories.
+    scan by an ``acqp`` at its root. Anything else is a plain ``Folder``, whose
+    numbered scan directories -- a partial export omits the ``subject`` file --
+    are what ``_scan_index`` addresses; a directory that is no PvDataset at all
+    simply indexes no scans. An archive takes the same fallbacks as the
+    directory it extracts to: the two forms are the same PvDataset, so which
+    one the user hands over must not change what converts (issue #62 -- the
+    directory branch used to reject the partial exports the archive branch
+    accepted).
     """
     if not path.exists():
         raise FileNotValidError(str(path), 'PvDataset')
@@ -106,11 +93,7 @@ def _open_container(path: Path):
     if path.is_file():
         if not zipfile.is_zipfile(path):
             raise FileNotValidError(str(path), 'PvDataset')
-        root = _archive_root(path)
-        try:
-            return BrukerapiStudy(root, dataset_state=UNLOADED)
-        except NotStudyFolder:
-            return Folder(root, dataset_state=UNLOADED)
+        path = _archive_root(path)
 
     try:
         return BrukerapiStudy(path, dataset_state=UNLOADED)
@@ -119,7 +102,7 @@ def _open_container(path: Path):
     try:
         return Experiment(path, dataset_state=UNLOADED)
     except NotExperimentFolder:
-        return None
+        return Folder(path, dataset_state=UNLOADED)
 
 
 def _scan_index(container) -> dict:
@@ -129,8 +112,6 @@ def _scan_index(container) -> dict:
     studies are separate PvDatasets and are not folded in here. An individually
     exported scan is its own container and is addressed as scan 1.
     """
-    if container is None:
-        return {}
     if isinstance(container, Experiment):
         return {1: container}
     scans = {}
@@ -164,7 +145,7 @@ class Study(BaseAnalyzer):
 
     def _load_subject(self) -> JCAMPDX | None:
         """The study-level ``subject`` file, or None when the export omits it."""
-        if self._container is None or isinstance(self._container, Experiment):
+        if isinstance(self._container, Experiment):
             return None
         subject = self._container.path / 'subject'
         if not subject.exists():

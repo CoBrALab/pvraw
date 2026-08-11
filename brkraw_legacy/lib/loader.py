@@ -174,12 +174,9 @@ class BrukerLoader:
     @property
     def path(self):
         """The dataset's name, as recorded in a BIDS datasheet's ``RawData``."""
-        container = self._study.pvobj
-        if container is None:
-            return os.path.basename(str(self._path))
         if pathlib.Path(str(self._path)).is_dir():
             return os.path.basename(os.path.normpath(str(self._path)))
-        return container.path.name           # the study directory inside an archive
+        return self._study.pvobj.path.name   # the study directory inside an archive
 
     def _scan_bridge(self, scan_id, reco_id=None):
         """The ScanToNifti for one scan.
