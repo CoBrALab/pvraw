@@ -133,18 +133,14 @@ which emits a bare `NoneType: None` when raised outside an `except` block.
 ### `ruff --fix` is not safe unattended here
 
 Run the tests after any `--fix`, and never take `--unsafe-fixes` without
-reading the diff. Reading is delegated to `brukerapi`, whose types only look
-dict-like: several define `__getitem__` without `__iter__`, so bare iteration
-falls back to `__getitem__(0)` and raises `KeyError` against a name-keyed
-store instead of a clear `TypeError`. `Dataset`, `Folder`, `Study`,
-`Experiment` and `Processing` are all still like this as of `brukerapi` 0.4.4
--- do not write `for x in <one of those>`.
-
-`JCAMPDX` was the same until 0.4.4, which is how this was found: `SIM118`
-rewrote `for k in pars.keys()` to `for k in pars` and broke 21 tests. Reported
-as isi-nmr/brukerapi-python#184 and fixed upstream by adding `__iter__` and
-`__len__` -- which is why the floor is now `>=0.4.4` and the two `noqa`s it
-needed are gone. Iterating a `JCAMPDX` directly is correct.
+reading the diff. The canonical example: `brukerapi`'s containers used to
+define `__getitem__` without `__iter__`, so when `SIM118` rewrote
+`for k in pars.keys()` to `for k in pars` it broke 21 tests -- bare iteration
+fell back to `__getitem__(0)` and raised `KeyError` against a name-keyed
+store. Fixed upstream over #184 (`JCAMPDX`, 0.4.4) and #187/#188
+(`Folder`/`Dataset` and their subclasses, 0.4.5), which is why the floor is
+`>=0.4.5`: every container is now genuinely iterable and the hazard is gone,
+but a lint rewrite can surface exactly this class of look-alike API anywhere.
 
 Because `--fix` rewrites in bulk, verify behaviour rather than assuming: run
 `uv run pytest`, and for anything touching geometry or sidecars use
