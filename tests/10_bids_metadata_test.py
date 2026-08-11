@@ -59,6 +59,21 @@ def test_equation_field_omitted_when_input_missing():
     assert _resolve('DeviceSerialNumber', visu=_p()) is None
 
 
+def test_gradient_set_type_extracts_the_bis_name():
+    """GradientSetType is the '#$Name,' component of the BIS hardware string
+    (FILE_FORMAT.md 4.2), not the whole blob of serial numbers and per-coil
+    calibration. Reachable since brukerapi 0.4.5 loads `configscan`."""
+    bis = ('$Bis,1,20070906,2048,GRADSYS,1#$Production,W3307165,0082,00,08,BFR,'
+           '20130829#$Name,B-GA12SHP FOR BC70/20 TYP 2#$GradSystem,1.0,27,S116,0,,1')
+    ref = COMMON_META_REF['GradientSetType']
+    assert meta_get_value(ref, _p(CONFIG_SCAN_gradient_system=bis)) == \
+        'B-GA12SHP FOR BC70/20 TYP 2'
+    # A nameless BIS string omits the field rather than emitting the blob.
+    assert meta_get_value(ref, _p(CONFIG_SCAN_gradient_system='$Bis,1')) is None
+    # No configscan at all (PV5.1, or an export without one) omits the field.
+    assert meta_get_value(ref, _p()) is None
+
+
 def test_unused_declared_variable_does_not_suppress_field():
     """A declared-but-unused missing variable must not omit the field.
 
