@@ -131,16 +131,19 @@ def meta_check_where(value, *sources):
 
 def meta_check_index(value, *sources):
     val = meta_get_value(value['key'], *sources)
-    if val is not None:
-        if isinstance(value['idx'], int):
-            return val[value['idx']]
-        else:
-            idx = meta_get_value(value['idx'], *sources)
-        if idx is not None:
-            return val[idx]
-        else:
-            return None
-    else:
+    if val is None:
+        return None
+    idx = value['idx'] if isinstance(value['idx'], int) \
+        else meta_get_value(value['idx'], *sources)
+    if idx is None:
+        return None
+    try:
+        return val[idx]
+    except (IndexError, KeyError, TypeError):
+        # The index misses the parameter's shape -- a 2-element PVM_Matrix
+        # indexed at the slice axis, or a scalar that is not subscriptable at
+        # all. An unresolvable field is omitted, not fatal: raising here killed
+        # the whole sidecar of four lego_phantom scans (#80).
         return None
 
 
