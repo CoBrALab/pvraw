@@ -74,6 +74,32 @@ def test_gradient_set_type_extracts_the_bis_name():
     assert meta_get_value(ref, _p()) is None
 
 
+def test_index_that_misses_the_parameter_shape_omits_the_field():
+    """An index mapping whose index misses the value omits the field (#80).
+
+    Both real failure modes from lego_phantom: TotalReadoutTime's NPE indexes
+    PVM_Matrix at the phase-encode position, which VisuAcqGradEncoding can
+    place at 2 while PVM_Matrix has 2 elements (scans 30/34); and a
+    scalar-valued parameter is not subscriptable at all (scans 35/39). Either
+    used to raise out of _parse_json and kill the whole sidecar.
+    """
+    from brkraw_legacy.lib.utils import meta_check_index
+
+    # index out of range: phase_enc resolves to position 2, val has 2 elements
+    out_of_range = {'key': 'PVM_Matrix',
+                    'idx': {'key': 'VisuAcqGradEncoding', 'where': 'phase_enc'}}
+    params = _p(PVM_Matrix=[128, 128],
+                VisuAcqGradEncoding=['read_enc', 'slice_enc', 'phase_enc'])
+    assert meta_check_index(out_of_range, params) is None
+
+    # scalar value: not subscriptable
+    assert meta_check_index({'key': 'PVM_Matrix', 'idx': 1}, _p(PVM_Matrix=128)) is None
+
+    # the guard must not eat the working case
+    assert meta_check_index({'key': 'PVM_Matrix', 'idx': 1},
+                            _p(PVM_Matrix=[128, 96])) == 96
+
+
 def test_unused_declared_variable_does_not_suppress_field():
     """A declared-but-unused missing variable must not omit the field.
 
