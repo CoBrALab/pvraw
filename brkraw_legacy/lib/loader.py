@@ -469,9 +469,11 @@ class BrukerLoader:
         visu_pars = parameters['visu_pars']
         # Listed last so acqp/method/visu_pars keep priority. `reco` is the
         # reconstruction-side parameter file (pdata/N/reco); it is the only place
-        # `RecoCombineMode` lives, and brukerapi loads it as an optional file, so it
-        # is absent for some exports.
+        # `RecoCombineMode` lives. `configscan` is the scan-level configuration,
+        # the only place `CONFIG_SCAN_gradient_system` lives. brukerapi loads
+        # both as optional files, so either can be absent for some exports.
         reco = parameters.get('reco')
+        configscan = parameters.get('configscan')
 
         json_obj = {}
         # Resolves the phase-encode AXIS. It is emitted as `PhaseEncodingAxis`, a
@@ -482,7 +484,7 @@ class BrukerLoader:
         if metadata is None:
             metadata = COMMON_META_REF.copy()
         for k, v in metadata.items():
-            val = meta_get_value(v, acqp, method, visu_pars, reco)
+            val = meta_get_value(v, acqp, method, visu_pars, reco, configscan)
             if k == 'PhaseEncodingAxis' and val is not None:
                 # Convert the encoding direction meta data into BIDS format
                 # (SliceEncodingDirection is resolved directly to 'k'/None by its

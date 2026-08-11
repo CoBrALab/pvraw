@@ -1,21 +1,7 @@
-SLICE_ORIENT = {
-    0: {1: 'L->R', 3: 'R->L'},
-    1: {1: 'P->A', 3: 'A->P'},
-    2: {1: 'F->H', 3: 'F->H'},
-}
-
-ISSUE_REPORT = (
-    'Please report the issue at (https://github.com/dvm-shlee/bruker/issues) with the error message.'
-)
-
+# The other seven keys this table used to hold belonged to the pre-ADR-0002
+# reading stack, which validated VisuCoreOrientation/VisuCorePosition/
+# SlicePacks itself; that validation now lives upstream in brukerapi.
 ERROR_MESSAGES = {
-    'ImportError': '[{}] is not recognized as ParavisionDataset.',
-    'NoSlicePacksDef': 'NoneType VisuCoreSlicePacksDef.',
-    'SliceDistDatatype': 'unexpected datatype of VisuCoreSliceDist.',
-    'SlicePacksSlices': 'unexpected datatype of VisuCoreSlicePacksSlices',
-    'DimType': 'non compatible dimension type.',
-    'NumOrientMatrix': 'unexpected number of element in VisuCoreOrientation.',
-    'NumSlicePosition': 'unexpected number of element in VisuCorePosition.',
     'PhaseEncDir': 'unexpected phase encoding direction.',
     'NotIntegrated': 'not integrated method, please contact developer.',
 }
@@ -39,6 +25,17 @@ COMMON_META_REF = {
     # field. ACQ_sw_version is the PV5.1 fallback.
     'SoftwareVersions': ['VisuAcqSoftwareVersion', 'ACQ_sw_version'],
     'MagneticFieldStrength': {'Freq': 'VisuAcqImagingFrequency', 'Equation': 'Freq / 42.576'},
+    # The scan-level `configscan` file is the only record of the gradient set;
+    # brukerapi loads it as an optional parameter file since 0.4.5
+    # (isi-nmr/brukerapi-python#190), so absence -- PV5.1 has no configscan --
+    # omits the field. The value is a BIS hardware-description string
+    # (FILE_FORMAT.md 4.2): '$Bis,...#$Name,B-GA12SHP FOR BC70/20 TYP 2#...',
+    # and the '#$Name,' component is the gradient set specification BIDS asks
+    # for; the rest is serial numbers and per-coil calibration.
+    'GradientSetType': {
+        'GS': 'CONFIG_SCAN_gradient_system',
+        'Equation': "GS.split('#$Name,')[1].split('#')[0] if '#$Name,' in str(GS) else None",
+    },
     'ReceiveCoilName': 'VisuCoilReceiveName',
     'NumberReceiveCoilActiveElements': 'PVM_EncNReceivers',  # BIDS type: integer
     # BIDS type: string (DICOM 0018,9049). Emit the transmit coil name only; a
@@ -379,10 +376,6 @@ NO_BRUKER_SOURCE = {
     'ReceiveCoilActiveElements': 'VisuCoilReceiveType is the coil geometry KIND '
                                  '(VOLUME_COIL/SURFACE_COIL), not the active element set',
     'NumberTransmitCoilActiveElements': 'no parameter enumerates transmit elements',
-    'GradientSetType': 'CONFIG_SCAN_gradient_system in the `configscan` file does carry it '
-                       "(e.g. 'B-GA12SHP FOR BC70/20 TYP 2'), but brukerapi does not load "
-                       'that file and reading it here would undo ADR 0002. Upstream issue '
-                       'filed; revisit when brukerapi exposes it',
     'MatrixCoilMode': 'no DICOM 0018,9008 equivalent. PVM_EncNReceivers/PVM_EncActReceivers '
                       'describe receiver count, not the analog combination mode',
     'NonlinearGradientCorrection': 'PV5.1/PV6 perform no gradient-nonlinearity unwarping; '
