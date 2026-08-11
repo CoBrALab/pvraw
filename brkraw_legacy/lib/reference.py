@@ -1,21 +1,7 @@
-SLICE_ORIENT = {
-    0: {1: 'L->R', 3: 'R->L'},
-    1: {1: 'P->A', 3: 'A->P'},
-    2: {1: 'F->H', 3: 'F->H'},
-}
-
-ISSUE_REPORT = (
-    'Please report the issue at (https://github.com/dvm-shlee/bruker/issues) with the error message.'
-)
-
+# The other seven keys this table used to hold belonged to the pre-ADR-0002
+# reading stack, which validated VisuCoreOrientation/VisuCorePosition/
+# SlicePacks itself; that validation now lives upstream in brukerapi.
 ERROR_MESSAGES = {
-    'ImportError': '[{}] is not recognized as ParavisionDataset.',
-    'NoSlicePacksDef': 'NoneType VisuCoreSlicePacksDef.',
-    'SliceDistDatatype': 'unexpected datatype of VisuCoreSliceDist.',
-    'SlicePacksSlices': 'unexpected datatype of VisuCoreSlicePacksSlices',
-    'DimType': 'non compatible dimension type.',
-    'NumOrientMatrix': 'unexpected number of element in VisuCoreOrientation.',
-    'NumSlicePosition': 'unexpected number of element in VisuCorePosition.',
     'PhaseEncDir': 'unexpected phase encoding direction.',
     'NotIntegrated': 'not integrated method, please contact developer.',
 }
