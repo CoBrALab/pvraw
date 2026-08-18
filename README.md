@@ -145,7 +145,7 @@ and `--subjecttype` elsewhere.
 Step 2 is where the work is: what to put in the datasheet, what to do about scans
 marked `etc`, how to name a task, how to link a fieldmap to the images it corrects, and
 what the validator warnings mean are all covered in
-**[How to convert Bruker studies to BIDS](docs/how-to-convert-to-bids.md)**.
+**[How to convert Bruker studies to BIDS](https://github.com/gdevenyi/pvraw/blob/main/docs/how-to-convert-to-bids.md)**.
 
 The output is validator-clean: correct filenames and entity ordering, JSON sidecars,
 `dataset_description.json`, `participants.tsv`/`.json`, `<subject>_sessions.tsv`,
@@ -284,7 +284,7 @@ ruff or pytest release cannot break an unrelated change. `--locked` also fails i
 
 #### Conversion reliability
 
-![Robust Orientation](imgs/bruker2nifti_qa.png)
+![Robust Orientation](https://raw.githubusercontent.com/gdevenyi/pvraw/main/imgs/bruker2nifti_qa.png)
 
 Geometry and orientation are checked against the
 [Bruker2Nifti_QA](https://gitlab.com/naveau/bruker2nifti_qa) sample datasets, which all convert

@@ -37,6 +37,31 @@ Anything that could move geometry or change sidecars also needs a
 data, not against recorded output. The README's Development section is the reference
 for the full test suite, the sample-data cache and the sweep tools.
 
+## Releasing
+
+Releases are published to PyPI by CI (`.github/workflows/release.yml`) when a version
+tag is pushed:
+
+1. Set `__version__` in `pvraw/__init__.py` and commit. (`uv.lock` does not record the
+   project's own version, so no re-lock is needed for a version bump alone.)
+2. Tag and push the tag:
+
+   ```bash
+   git tag v<X.Y.Z>
+   git push origin v<X.Y.Z>
+   ```
+
+   The tag must match `__version__` — the workflow fails when they differ.
+3. CI builds the sdist and wheel and publishes them with
+   [PyPI trusted publishing](https://docs.pypi.org/trusted-publishers/); there is no
+   API token to manage.
+
+**One-time setup, before the first release:** on pypi.org, under *Your account →
+Publishing*, add a *pending publisher* with project name `pvraw`, owner `gdevenyi`,
+repository `pvraw`, workflow `release.yml`, environment `pypi`. The first tag push then
+creates the PyPI project. The `pypi` GitHub environment is created automatically on
+first use; optionally add a required reviewer to it for a manual approval gate.
+
 ## Before you start
 
 Check the open issues to see whether your question has already been answered or the feature

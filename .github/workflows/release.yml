@@ -1,0 +1,42 @@
+name: release
+
+# Publishes to PyPI via trusted publishing when a version tag is pushed.
+# See CONTRIBUTING.md "Releasing" for the procedure and the one-time
+# PyPI-side setup.
+
+on:
+  push:
+    tags: ['v*']
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+
+      - name: Build sdist and wheel
+        run: uv build
+
+      - name: Check the tag matches the package version
+        run: ls "dist/pvraw-${GITHUB_REF_NAME#v}.tar.gz"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+      - uses: pypa/gh-action-pypi-publish@release/v1
