@@ -6,7 +6,7 @@ scan is written as a conventional 3D NIfTI volume rather than a 2D image.
 """
 import numpy as np
 
-from brkraw_legacy.app.tonifti.base import BaseMethods
+from pvraw.app.tonifti.base import BaseMethods
 
 
 def test_single_slice_2d_gains_a_size1_slice_axis():

@@ -23,7 +23,7 @@ dependencies = [
     # definitions, which are valid JSON Schema (lib/bids.py::value_problem).
     'jsonschema>=4.0',
 ]
-description = "Bruker PvDataset Loader (maintained fork of the BrkRaw 0.3.x/0.4 line)"
+description = "Read raw Bruker ParaVision MRI data and convert it to NIfTI or BIDS"
 license = {text = "GPL-3.0-or-later"}
 dynamic = ["version"]
 authors = [
@@ -36,7 +36,7 @@ authors = [
 maintainers = [
     {name = "Gabriel A. Devenyi", email = 'gdevenyi@gmail.com'}
 ]
-name = "brkraw-legacy"
+name = "pvraw"
 readme = "README.md"
 requires-python = ">=3.11"
 keywords = [
@@ -48,9 +48,9 @@ keywords = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/gdevenyi/brkraw-legacy"
-Repository = "https://github.com/gdevenyi/brkraw-legacy"
-Issues = "https://github.com/gdevenyi/brkraw-legacy/issues"
+Homepage = "https://github.com/gdevenyi/pvraw"
+Repository = "https://github.com/gdevenyi/pvraw"
+Issues = "https://github.com/gdevenyi/pvraw/issues"
 
 [project.optional-dependencies]
 dev = [
@@ -61,14 +61,14 @@ dev = [
 ]
 
 [tool.hatch.version]
-path = "brkraw_legacy/__init__.py"
+path = "pvraw/__init__.py"
 style = "pep440"
 
 [tool.hatch.build.targets.wheel]
-packages = ["brkraw_legacy"]
+packages = ["pvraw"]
 
 [project.scripts]
-brkraw-legacy = "brkraw_legacy.scripts.brkraw_legacy:main"
+pvraw = "pvraw.scripts.pvraw:main"
 
 [tool.pytest.ini_options]
 log_cli = true

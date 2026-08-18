@@ -9,7 +9,7 @@ import warnings
 
 import pytest
 
-from brkraw_legacy import BrukerLoader
+from pvraw import BrukerLoader
 
 
 def _has_real_2dseq(loader, scan_id, reco_id, min_bytes=1024):

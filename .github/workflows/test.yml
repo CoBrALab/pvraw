@@ -47,8 +47,8 @@ jobs:
 
     - name: Version and help
       run: |
-        brkraw-legacy --version
-        brkraw-legacy --help
+        pvraw --version
+        pvraw --help
 
 
   test_unit:
@@ -105,10 +105,10 @@ jobs:
     - name: Cache sample datasets
       uses: actions/cache@v4
       with:
-        path: ${{ runner.temp }}/brkraw_test_data
-        key: brkraw-sample-data-v1
+        path: ${{ runner.temp }}/pvraw_test_data
+        key: pvraw-sample-data-v1
 
     - name: Run data-dependent tests
       env:
-        BRKRAW_TEST_DATA_DIR: ${{ runner.temp }}/brkraw_test_data
+        PVRAW_TEST_DATA_DIR: ${{ runner.temp }}/pvraw_test_data
       run: uv run --no-sync pytest -m data

@@ -13,7 +13,7 @@ import sys
 import tempfile
 from pathlib import Path
 
-from brkraw_legacy.lib.bids import BIDS_VERSION
+from pvraw.lib.bids import BIDS_VERSION
 
 _REPO = Path(__file__).resolve().parent.parent
 TESTDATA = Path(sys.argv[1]) if len(sys.argv) > 1 else _REPO / 'resources' / 'testdata'
@@ -57,7 +57,7 @@ def sweep_unit(label, path, kind):
         (parent / path.name).symlink_to(path.resolve())
         sheet = tmp / 'map'
         out = tmp / 'raw'
-        rc, _so, se = run(['brkraw-legacy', 'bids_helper', str(parent), str(sheet), '-j'], 240)
+        rc, _so, se = run(['pvraw', 'bids_helper', str(parent), str(sheet), '-j'], 240)
         rec['helper_rc'] = rc
         if rc != 0:
             rec['error'] = 'bids_helper failed: ' + se[-400:]
@@ -66,7 +66,7 @@ def sweep_unit(label, path, kind):
         if not csv.exists():
             rec['error'] = 'no sheet produced'
             return rec
-        rc, _so, se = run(['brkraw-legacy', 'bids_convert', str(parent),
+        rc, _so, se = run(['pvraw', 'bids_convert', str(parent),
                            str(sheet) + '.csv', '-j', str(sheet) + '.json',
                            '--output', str(out)], 600)
         rec['convert_rc'] = rc

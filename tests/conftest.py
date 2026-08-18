@@ -8,7 +8,7 @@ files -- so the suite is reproducible on any checkout:
 * PV7.0.0 LEGO_PHANTOM_API_TEST  -- zenodo.org/records/4522220
 * PV360 v3.6 std data            -- github.com/cecilyen/PV360_StdData
 
-Datasets are cached under ``$BRKRAW_TEST_DATA_DIR`` (default: a temp dir) so a
+Datasets are cached under ``$PVRAW_TEST_DATA_DIR`` (default: a temp dir) so a
 CI job can restore them from cache and skip re-downloading. A dataset that
 cannot be fetched (no network, server error) makes its dependent tests *skip*,
 never error. Any test that requests one of these fixtures is auto-tagged with
@@ -27,7 +27,7 @@ from urllib.request import urlopen
 import pytest
 import yaml
 
-from brkraw_legacy.api.data import Study
+from pvraw.api.data import Study
 
 
 def pytest_configure(config):
@@ -50,8 +50,8 @@ def pytest_collection_modifyitems(config, items):
 # --------------------------------------------------------------------------- #
 
 def _data_dir():
-    root = os.environ.get('BRKRAW_TEST_DATA_DIR')
-    root = Path(root) if root else Path(tempfile.gettempdir()) / 'brkraw_legacy_test_data'
+    root = os.environ.get('PVRAW_TEST_DATA_DIR')
+    root = Path(root) if root else Path(tempfile.gettempdir()) / 'pvraw_test_data'
     root.mkdir(parents=True, exist_ok=True)
     return root
 

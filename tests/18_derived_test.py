@@ -5,7 +5,7 @@ Pure-unit (offline): the module reads element labels off a visu_pars stub.
 import numpy as np
 import pytest
 
-from brkraw_legacy.lib import derived
+from pvraw.lib import derived
 
 
 class _p(dict):

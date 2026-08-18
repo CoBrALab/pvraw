@@ -24,52 +24,52 @@ Requires Python >= 3.11. Everything here uses [uv](https://docs.astral.sh/uv/), 
 manages the interpreter and the dependencies for you — there is no separate virtualenv
 to create or activate.
 
-**As a command-line tool.** Installs `brkraw-legacy` onto your `PATH`, isolated from
+**As a command-line tool.** Installs `pvraw` onto your `PATH`, isolated from
 your other environments:
 
 ```bash
-uv tool install git+https://github.com/gdevenyi/brkraw-legacy.git
-uv tool upgrade brkraw-legacy      # later, to update
+uv tool install git+https://github.com/gdevenyi/pvraw.git
+uv tool upgrade pvraw      # later, to update
 ```
 
 **As a dependency of your own project**, for the Python API:
 
 ```bash
-uv add git+https://github.com/gdevenyi/brkraw-legacy.git
+uv add git+https://github.com/gdevenyi/pvraw.git
 ```
 
 **From source**, for development or to run an unreleased change:
 
 ```bash
-git clone https://github.com/gdevenyi/brkraw-legacy.git
-cd brkraw-legacy
+git clone https://github.com/gdevenyi/pvraw.git
+cd pvraw
 uv sync                       # runtime deps, editable install
 uv sync --extra dev           # also pytest, ruff and bids-validator
 ```
 
-One command-line tool is installed: **`brkraw-legacy`** (inspection/conversion).
+One command-line tool is installed: **`pvraw`** (inspection/conversion).
 
-> The examples below are written as `uv run brkraw-legacy ...`, which works from a
+> The examples below are written as `uv run pvraw ...`, which works from a
 > source checkout. If you installed with `uv tool install`, drop the `uv run` prefix.
 
 ---
 
 ## Command-line usage
 
-### Inspect a dataset — `brkraw-legacy info`
+### Inspect a dataset — `pvraw info`
 Print study/subject info and a table of scans, reconstructions, dimensions and resolutions.
 
 ```bash
-uv run brkraw-legacy info <input>           # <input> = study dir or .zip
+uv run pvraw info <input>           # <input> = study dir or .zip
 ```
 
-### Convert one study — `brkraw-legacy tonii`
+### Convert one study — `pvraw tonii`
 Convert a single study to NIfTI. Without `-s` every scan/reconstruction is converted.
 
 ```bash
-uv run brkraw-legacy tonii <input>                       # convert all scans
-uv run brkraw-legacy tonii <input> -s 2 -r 1 -o out      # only ScanID 2, RecoID 1
-uv run brkraw-legacy tonii <input> -s 2,3,7 -r 1,2       # several scans, several recos
+uv run pvraw tonii <input>                       # convert all scans
+uv run pvraw tonii <input> -s 2 -r 1 -o out      # only ScanID 2, RecoID 1
+uv run pvraw tonii <input> -s 2,3,7 -r 1,2       # several scans, several recos
 ```
 
 Each file is named `<output>-<ScanID>-<RecoID>-<ProtocolName>.nii.gz`, so `-o` sets the
@@ -93,27 +93,27 @@ Every on/off option also has a `--no-` form — `--no-bids`, `--no-ignore-locali
 Non-image scans (spectroscopy, etc.) and unclassifiable scans are skipped with a clear message
 rather than producing invalid output. Diffusion scans also emit FSL-style `.bval`/`.bvec`.
 
-### Batch convert — `brkraw-legacy tonii_all`
+### Batch convert — `pvraw tonii_all`
 Convert **every** study under a parent directory into a simple
 `sub-<id>/ses-<id>/<datatype>/` tree (`anat`/`func`/`dwi`/`etc`).
 
 ```bash
-uv run brkraw-legacy tonii_all <parent_dir> -o <output_dir>
+uv run pvraw tonii_all <parent_dir> -o <output_dir>
 ```
 
 Accepts the same `-b/-t/-p/--ignore-*` options as `tonii`, with the same defaults.
 Without `-o` the tree is written to `Data` in the current directory.
 
-### Convert to BIDS — `brkraw-legacy bids_helper` + `bids_convert`
+### Convert to BIDS — `pvraw bids_helper` + `bids_convert`
 Produce a spec-compliant [BIDS](https://bids.neuroimaging.io) dataset in two steps:
 
 ```bash
 # 1. Generate an editable datasheet (+ JSON metadata template with -j)
-uv run brkraw-legacy bids_helper <parent_dir> bids_map -j
+uv run pvraw bids_helper <parent_dir> bids_map -j
 
 # 2. Review/fill bids_map.csv (subject, session, datatype, suffix, task, acq, run, ...),
 #    then convert using the datasheet and metadata template
-uv run brkraw-legacy bids_convert <parent_dir> bids_map.csv -j bids_map.json -o <bids_output>
+uv run pvraw bids_convert <parent_dir> bids_map.csv -j bids_map.json -o <bids_output>
 ```
 
 `bids_helper` options: `-f csv|tsv` (datasheet format, default `csv`, ignored when
@@ -141,7 +141,7 @@ can never disagree. Validate with the official
 [bids-validator](https://github.com/bids-standard/bids-validator).
 
 Nothing is silently dropped. A ParaVision-computed stack with no single BIDS suffix (a
-DTI tensor reconstruction) goes to `derivatives/brkraw-legacy/`, and a scan that cannot
+DTI tensor reconstruction) goes to `derivatives/pvraw/`, and a scan that cannot
 be classified goes to `sourcedata/` — both outside the validated tree, so the data is
 kept without costing an error.
 
@@ -155,22 +155,22 @@ kept without costing an error.
 > `brukerapi` folder rather than a `PvDataset`, the scan/reco listings and subject fields
 > moved onto the loader itself, parameter files are `brukerapi` `JCAMPDX` objects, and
 > `get_dataobj` returns an array with one named axis per Frame Group -- which is also the
-> shape `brkraw-legacy info` prints, where it used to print a collapsed matrix size.
+> shape `pvraw info` prints, where it used to print a collapsed matrix size.
 >
-> Requires `brukerapi>=0.4.3`, which supplies the voxel-to-patient affine
+> Requires `brukerapi>=0.4.5`, which supplies the voxel-to-patient affine
 > (`affine_of_package`), the slice-package division and the slice spacing
 > (`slice_distance`), and which returns JCAMP-DX string values without their
 > `<...>` delimiters. Earlier releases either lack those or place volumes
 > wrongly.
 
 ```python
-import brkraw_legacy
+import pvraw
 
-study = brkraw_legacy.load('path/to/study_or_archive.zip')   # == BrukerLoader(path)
+study = pvraw.load('path/to/study_or_archive.zip')   # == BrukerLoader(path)
 
 study.is_pvdataset          # True if a valid PvDataset
 study.num_scans             # number of scans
-study.info()                # print the same summary as `brkraw-legacy info`
+study.info()                # print the same summary as `pvraw info`
 
 study.avail_scan_id         # e.g. [1, 2, 3, ...]
 study.avail_reco_id         # {scan_id: [reco_id, ...]}
@@ -202,7 +202,7 @@ multi-echo scans return a **list** of images; `save_nifti` writes them as
 
 ### Parameters (low-level)
 ```python
-from brkraw_legacy.lib.utils import get_value
+from pvraw.lib.utils import get_value
 
 method = study.get_method(2)            # method file  (a brukerapi JCAMPDX)
 acqp   = study.get_acqp(2)              # acqp file
@@ -244,10 +244,10 @@ uv run ruff check . --fix            # safe fixes only -- then re-run the tests
 ```
 
 Data-dependent tests download public sample studies (Zenodo, GitHub) and cache them under
-`$BRKRAW_TEST_DATA_DIR`. Set it to keep the cache between runs:
+`$PVRAW_TEST_DATA_DIR`. Set it to keep the cache between runs:
 
 ```bash
-BRKRAW_TEST_DATA_DIR=~/.cache/brkraw-test-data uv run pytest -m data
+PVRAW_TEST_DATA_DIR=~/.cache/pvraw-test-data uv run pytest -m data
 ```
 
 Two sweep tools compare a whole corpus before and after a change, which is how geometry and
@@ -292,13 +292,14 @@ delegated to [`brukerapi`](https://github.com/isi-nmr/brukerapi-python) (see
 `docs/adr/0002-delegate-bruker-reading-to-brukerapi.md`). What remains here is how the subject was
 framed, the NIfTI headers, and BIDS.
 
-**Naming.** Everything up to and including version 0.5.0 was distributed as `brkraw-legacy` and
-signed its output that way: NIfTI files carry `brkraw-legacy` in the header `descrip` field, BIDS
-`dataset_description.json` names `BrkRaw-legacy` under `GeneratedBy`, and derived reconstructions
-were written to `derivatives/brkraw-legacy/`. From 0.6.0 all three say `pvraw`. If you hold a
-dataset converted with an older version, that is why its provenance strings differ.
+**Naming.** Everything up to and including version 0.5.0 was distributed as `brkraw-legacy`
+and signed its output that way: NIfTI files carry `brkraw-legacy` in the header `descrip`
+field, BIDS `dataset_description.json` names `BrkRaw-legacy` under `GeneratedBy`, and derived
+reconstructions were written to `derivatives/brkraw-legacy/`. From 0.6.0 all three say
+`pvraw`. If you hold a dataset converted with an older version, that is why its provenance
+strings differ.
 
-**The original BrkRaw authors**, whose work this is built on:
+**The original pvraw authors**, whose work this is built on:
 
 - SungHo Lee (shlee@unc.edu) — main developer
 - Woomi Ban (banwoomi@unc.edu) — tested and refined the module structure

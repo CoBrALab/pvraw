@@ -5,7 +5,7 @@ parameters it omits from the scan's primary reconstruction, and nothing else.
 """
 from types import SimpleNamespace
 
-from brkraw_legacy.api.analyzer.scaninfo import ScanInfoAnalyzer
+from pvraw.api.analyzer.scaninfo import ScanInfoAnalyzer
 
 
 class _Params(dict):

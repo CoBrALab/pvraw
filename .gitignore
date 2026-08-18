@@ -14,13 +14,13 @@ build
 .mypy_cache
 .pytest_cache
 
-tests/.brkraw_legacy
 tests/_*.ipynb
 tests/tutorials
 tests/_datasets
 
 .python-version
 .vscode
-brkraw-legacy.log
+pvraw.log
 resources/
 sweep_*_results.json
+.tmpdirs.txt

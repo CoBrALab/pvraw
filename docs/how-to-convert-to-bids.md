@@ -6,9 +6,9 @@ what BIDS is and what you want your dataset to look like.
 Conversion is two commands with your judgement in between:
 
 ```bash
-uv run brkraw-legacy bids_helper <parent_dir> bids_map -j    # 1. propose a datasheet
+uv run pvraw bids_helper <parent_dir> bids_map -j    # 1. propose a datasheet
 #                                                              2. edit bids_map.csv
-uv run brkraw-legacy bids_convert <parent_dir> bids_map.csv -j bids_map.json -o <output>
+uv run pvraw bids_convert <parent_dir> bids_map.csv -j bids_map.json -o <output>
 ```
 
 `<parent_dir>` holds one or more study directories or `.zip`/`.PvDatasets` archives.
@@ -135,7 +135,7 @@ If the operator set the subject type or position wrongly at the scanner, the aff
 will be wrong. Override at conversion time rather than editing files:
 
 ```bash
-uv run brkraw-legacy bids_convert ... -t Quadruped -p Head_Prone
+uv run pvraw bids_convert ... -t Quadruped -p Head_Prone
 ```
 
 `-t` takes `Biped`, `Quadruped`, `Phantom`, `Other` or `OtherAnimal`. `-p` takes
@@ -171,7 +171,7 @@ asking for fields Bruker does not record — `InstitutionAddress`, `ReceiveCoilN
 Nothing is dropped. Anything outside the validated tree is in one of two places:
 
 - `sourcedata/` — scans that could not be classified.
-- `derivatives/brkraw-legacy/` — ParaVision-computed stacks with no single BIDS suffix,
+- `derivatives/pvraw/` — ParaVision-computed stacks with no single BIDS suffix,
   such as DTI tensor reconstructions.
 
 Both are named `sub-<id>[_ses-<id>]_scan-<n>_reco-<n>.nii.gz`, so a file traces back to
@@ -186,8 +186,8 @@ datasheet and convert again.
 If you want NIfTI files and no BIDS structure:
 
 ```bash
-uv run brkraw-legacy tonii <study>                    # one study
-uv run brkraw-legacy tonii_all <parent_dir> -o <out>  # every study beneath a directory
+uv run pvraw tonii <study>                    # one study
+uv run pvraw tonii_all <parent_dir> -o <out>  # every study beneath a directory
 ```
 
 `tonii_all` writes a plain `sub-<id>/ses-<id>/<datatype>/` tree with no sidecars,

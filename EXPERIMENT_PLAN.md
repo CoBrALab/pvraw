@@ -6,15 +6,15 @@ tags: [orientation, brukerapi, decision]
 # Does `RECO_transposition` belong to the data or to the reader?
 
 `brukerapi` 0.4 started applying `RECO_transposition` / `VisuCoreTransposition`
-to `dataset.data`. brkraw-legacy never did. Both cannot be right, and the
+to `dataset.data`. pvraw never did. Both cannot be right, and the
 difference is a transposed image — the failure mode that stays invisible until
 someone registers two datasets and they don't line up.
 
 **Answered, on data already in `resources/testdata`. The reconstruction has
 already applied the transposition; a reader must not apply it again.
-brkraw-legacy's behaviour is correct and `brukerapi` 0.4.0 was a regression.**
+pvraw's behaviour is correct and `brukerapi` 0.4.0 was a regression.**
 
-**Resolved upstream, and the geometry question with it.** brkraw-legacy no
+**Resolved upstream, and the geometry question with it.** pvraw no
 longer derives an affine at all: `brukerapi` 0.4.2 supplies it, and the
 disk-slice-order convention below is settled by taking its array and its affine
 together (ADR 0002, amended). The reasoning is kept because the method is what
@@ -24,7 +24,7 @@ nothing else had.
 **Transposition, resolved upstream.** Reported as isi-nmr/brukerapi-python#153 (with #154 for
 the shape inconsistency it caused); `_apply_transposition` was removed in full
 and released as **0.4.1**. 0.4.0 is on PyPI and carries the regression, which is
-part of why brkraw-legacy floors above it (the floor is now 0.4.2, for the
+part of why pvraw floors above it (the floor is now 0.4.2, for the
 affine). Against 0.4.1 every golden matched its pre-migration value again —
 `tests/goldens/` has since been dropped, for the reason recorded in ADR 0002.
 
@@ -41,7 +41,7 @@ it; the parameter *records what was done*. A reader that transposes again
 produces a transposed image.
 
 **H<sub>pending</sub>** — the frame is stored in acquisition (read, phase) order
-and the parameter *instructs the reader*. Then brkraw-legacy has been writing
+and the parameter *instructs the reader*. Then pvraw has been writing
 transposed images for years, and must also swap the first two columns of the
 affine to match.
 
@@ -163,7 +163,7 @@ reconstruction does it.
 
 ## What follows
 
-1. **brkraw-legacy needed no change.** Its output was right, and matched its
+1. **pvraw needed no change.** Its output was right, and matched its
    pre-migration goldens again on 0.4.1.
 2. **Floor above `brukerapi==0.4.0`**, which is on PyPI and silently transposes
    73% of reconstructions. The floor is now `>=0.4.2`, raised again for the
@@ -226,7 +226,7 @@ Roughly 16 short acquisitions, one phantom, one session.
 uv run --no-sync python - <<'PY'
 import warnings, numpy as np
 warnings.simplefilter('ignore')
-from brkraw_legacy import BrukerLoader
+from pvraw import BrukerLoader
 
 STUDIES = {
     'resources/testdata/new-orientation/20201230_101610_CIC_LRMousePhantom_1_1':

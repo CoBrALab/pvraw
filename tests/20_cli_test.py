@@ -1,4 +1,4 @@
-"""Tests for the command-line interface (scripts/brkraw_legacy.py).
+"""Tests for the command-line interface (scripts/pvraw.py).
 
 The id-list parsing is pure-unit (offline). The selection test runs the real
 ``tonii`` against a public sample study, so it carries the ``data`` marker
@@ -9,8 +9,8 @@ import subprocess
 
 import pytest
 
-from brkraw_legacy import BrukerLoader
-from brkraw_legacy.scripts.brkraw_legacy import id_list
+from pvraw import BrukerLoader
+from pvraw.scripts.pvraw import id_list
 
 
 @pytest.mark.parametrize(('text', 'expected'), [
@@ -34,12 +34,12 @@ def test_tonii_converts_every_listed_scan(h2_study, tmp_path):
     """-s takes a list: each named scan is converted, and nothing else is."""
     study = BrukerLoader(str(h2_study))
     # Two convertible, non-localizer scans of the sample study.
-    from brkraw_legacy.scripts.brkraw_legacy import is_localizer
+    from pvraw.scripts.pvraw import is_localizer
     wanted = [sid for sid, recos in study.avail_reco_id.items()
               if not is_localizer(study, sid, recos[0])][:2]
     assert len(wanted) == 2
 
-    subprocess.check_call(['brkraw-legacy', 'tonii', str(h2_study),
+    subprocess.check_call(['pvraw', 'tonii', str(h2_study),
                            '-s', ','.join(map(str, wanted)),
                            '-o', str(tmp_path / 'out')])
 
@@ -53,12 +53,12 @@ def test_tonii_reports_an_id_the_study_does_not_have(h2_study, tmp_path):
     """A bad id in the list is reported and skipped, not a traceback, and the
     good ids in the same list still convert."""
     study = BrukerLoader(str(h2_study))
-    from brkraw_legacy.scripts.brkraw_legacy import is_localizer
+    from pvraw.scripts.pvraw import is_localizer
     good = next(sid for sid, recos in study.avail_reco_id.items()
                 if not is_localizer(study, sid, recos[0]))
     missing = max(study.avail_reco_id) + 1
 
-    out = subprocess.run(['brkraw-legacy', 'tonii', str(h2_study),
+    out = subprocess.run(['pvraw', 'tonii', str(h2_study),
                           '-s', f'{good},{missing}', '-r', '1,99',
                           '-o', str(tmp_path / 'out')],
                          capture_output=True, text=True, check=True)

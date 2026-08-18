@@ -62,7 +62,7 @@ wheels = [
 ]
 
 [[package]]
-name = "brkraw-legacy"
+name = "pvraw"
 source = { editable = "." }
 dependencies = [
     { name = "bidsschematools" },
