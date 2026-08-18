@@ -13,7 +13,6 @@ dependencies = [
     'brukerapi>=0.4.5',
     'pyyaml>=6.0.1',
     'numpy>=1.23.2',
-    'xnippet>=0.1.1',
     'reshipe>=0.1.0',
     'nibabel>=3.2.1',
     'pandas>=1.5.0',
@@ -57,7 +56,6 @@ Issues = "https://github.com/gdevenyi/brkraw-legacy/issues"
 dev = [
     "ruff>=0.16.0",
     "pytest",
-    "nbmake",
     "types-PyYAML",
     "bids-validator-deno",
 ]

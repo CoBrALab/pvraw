@@ -1,38 +1,36 @@
 ---
 name: Bug report
-about: Create a report to help us improve
+about: Report something pvraw gets wrong
 title: ''
-labels: ''
+labels: needs-triage
 assignees: ''
 
 ---
 
-**Describe the bug**
-A clear and concise description of what the bug is.
+**What happened, and what did you expect instead?**
 
-**To Reproduce**
-Steps to reproduce the behavior:
-1. Go to '...'
-2. Click on '....'
-3. Scroll down to '....'
-4. See error
+**The command or code that triggered it**
 
-**Expected behavior**
-A clear and concise description of what you expected to happen.
+```
+```
 
-**Screenshots**
-If applicable, add screenshots to help explain your problem.
+**The full error, if there was one**
 
-**Desktop (please complete the following information):**
- - OS: [e.g. iOS]
- - Browser [e.g. chrome, safari]
- - Version [e.g. 22]
+```
+```
 
-**Smartphone (please complete the following information):**
- - Device: [e.g. iPhone6]
- - OS: [e.g. iOS8.1]
- - Browser [e.g. stock browser, safari]
- - Version [e.g. 22]
+**The data**
 
-**Additional context**
-Add any other context about the problem here.
+- ParaVision version:
+- pvraw version (`pvraw --version`):
+- Scan / reco ids involved:
+- Study supplied as a directory or an archive (`.zip` / `.PvDatasets`):
+
+**Output of `pvraw info <study>`**
+
+```
+```
+
+**Can you share the data?** Many conversion bugs cannot be fixed without a study that
+reproduces them. If the data cannot be shared, say so — a `method`, `acqp` and `visu_pars`
+file from the affected scan is often enough.

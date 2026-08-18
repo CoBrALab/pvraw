@@ -5,9 +5,7 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 from nibabel.nifti1 import Nifti1Image
-from xnippet.snippet import PlugInSnippet
 
-from brkraw_legacy import config
 from brkraw_legacy.api.data import Scan
 from brkraw_legacy.api.helper import axis_labels
 from brkraw_legacy.api.helper.base import collapse_scale, normalized_axes
@@ -20,12 +18,9 @@ if TYPE_CHECKING:
     from typing import Literal
 
     from numpy.typing import NDArray
-    from xnippet.types import XnippetManagerType
 
 
 class BaseMethods:
-    config: XnippetManagerType = config
-
     def set_scale_mode(self, 
                        scale_mode: Literal['header', 'apply'] | None = None):
         self.scale_mode = scale_mode or 'header'
@@ -172,75 +167,29 @@ class BaseMethods:
                         reco_id: int | None = None, 
                         scale_mode: Literal['header', 'apply'] | None = None,
                         subj_type: str | None = None, 
-                        subj_position: str | None = None,
-                        plugin: PlugInSnippet | str | None = None, 
-                        plugin_kws: dict | None = None) -> Nifti1Image | list[Nifti1Image] | None:
-        if plugin:
-            if nifti1image := BaseMethods._bypass_method_via_plugin(scanobj=scanobj,
-                                                                    subj_type=subj_type, subj_position=subj_position,
-                                                                    plugin=plugin, plugin_kws=plugin_kws):
-                return nifti1image
-            else:
-                return None
-        else:
-            scale_mode = scale_mode or 'header'
-            # Fetch the data dict once (a 2dseq load is not cached) so we get the
-            # axis labels alongside the array; the labels drive multi-volume
-            # grouping in _assemble_nifti1image.
-            data_dict = BaseMethods.get_data_dict(scanobj, reco_id)
-            dataobj = data_dict['data_array']
-            slope, offset = data_dict['data_slope'], data_dict['data_offset']
-            # Bake scaling into the data when asked ('apply') or when the factors
-            # are per-frame arrays a scalar NIfTI header cannot hold; scalar
-            # 'header' scaling is left for update_nifti1header to write. 'none'
-            # writes the stored values with no scaling at all.
-            header_scale_mode = scale_mode
-            if scale_mode != 'none' and (scale_mode == 'apply' or np.ndim(slope) or np.ndim(offset)):
-                dataobj = BaseMethods._apply_scale(dataobj, slope, offset)
-                header_scale_mode = 'apply'
-            affine = BaseMethods.get_affine(scanobj=scanobj,
-                                            reco_id=reco_id,
-                                            subj_type=subj_type,
-                                            subj_position=subj_position)
-            return BaseMethods._assemble_nifti1image(scanobj, dataobj, affine, header_scale_mode,
-                                                     axis_labels=data_dict['axis_labels'])
+                        subj_position: str | None = None) -> Nifti1Image | list[Nifti1Image] | None:
+        scale_mode = scale_mode or 'header'
+        # Fetch the data dict once (a 2dseq load is not cached) so we get the
+        # axis labels alongside the array; the labels drive multi-volume
+        # grouping in _assemble_nifti1image.
+        data_dict = BaseMethods.get_data_dict(scanobj, reco_id)
+        dataobj = data_dict['data_array']
+        slope, offset = data_dict['data_slope'], data_dict['data_offset']
+        # Bake scaling into the data when asked ('apply') or when the factors
+        # are per-frame arrays a scalar NIfTI header cannot hold; scalar
+        # 'header' scaling is left for update_nifti1header to write. 'none'
+        # writes the stored values with no scaling at all.
+        header_scale_mode = scale_mode
+        if scale_mode != 'none' and (scale_mode == 'apply' or np.ndim(slope) or np.ndim(offset)):
+            dataobj = BaseMethods._apply_scale(dataobj, slope, offset)
+            header_scale_mode = 'apply'
+        affine = BaseMethods.get_affine(scanobj=scanobj,
+                                        reco_id=reco_id,
+                                        subj_type=subj_type,
+                                        subj_position=subj_position)
+        return BaseMethods._assemble_nifti1image(scanobj, dataobj, affine, header_scale_mode,
+                                                 axis_labels=data_dict['axis_labels'])
         
-    @staticmethod
-    def _bypass_method_via_plugin(scanobj: Scan, 
-                                  subj_type: str | None = None, 
-                                  subj_position: str | None = None,
-                                  plugin: PlugInSnippet | str | None = None, 
-                                  plugin_kws: dict | None = None) -> Nifti1Image | None:
-        if isinstance(plugin, str):
-            plugin = BaseMethods._get_plugin_snippets_by_name(plugin)
-        if isinstance(plugin, PlugInSnippet) and 'brkraw' in plugin._manifest['package']:  # TODO: need to have better tool to check version compatibility as well.
-            print(f'++ Installed PlugIn: {plugin}')
-            with plugin.run(pvobj=scanobj.pvobj, **plugin_kws) as p:
-                nifti1image = p.get_nifti1image(subj_type=subj_type, subj_position=subj_position)
-            return nifti1image
-        else:
-            warnings.warn("Failed. Given plugin not available, "
-                          "please install local plugin or use from available on "
-                          f"remote repository. -> {[p.name for p in config.avail]}",
-                          UserWarning)
-            return None
-    
-    @staticmethod
-    def _get_plugin_snippets_by_name(plugin: str):
-        fetcher = config._fetcher
-        if not fetcher.is_cache:
-            plugin = BaseMethods._filter_snippets_by_name(plugin, fetcher.local)
-        if fetcher.is_cache or not isinstance(plugin, PlugInSnippet):
-            plugin = BaseMethods._filter_snippets_by_name(plugin, fetcher.remote)
-        return plugin
-    
-    @staticmethod
-    def _filter_snippets_by_name(name:str, snippets: list):
-        if filtered := [s for s in snippets if s.name == name]:
-            return filtered[0]
-        else:
-            return name
-            
     @staticmethod
     def _warn_if_complex(axis_labels):
         """Warn that COMPLEX_IMAGE data is not split into BIDS part- entities.
@@ -326,8 +275,3 @@ class BaseMethods:
             end = start + num_slices_each_pack[i]
             niis.append(Nifti1Image(dataobj=dataobj[:, :, start:end, ...], affine=aff))
         return niis
-    
-    def list_plugin(self):
-        avail_dict = self.config.avail('plugin')
-        return {'local': [s for s in avail_dict['local'] if s.type == 'tonifti'],
-                'remote': [s for s in avail_dict['remote'] if s.type == 'tonifti']}

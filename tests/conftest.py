@@ -15,6 +15,7 @@ never error. Any test that requests one of these fixtures is auto-tagged with
 the ``data`` marker, so ``pytest -m "not data"`` runs the pure-unit suite with
 no downloads.
 """
+import logging.config
 import os
 import shutil
 import subprocess
@@ -24,13 +25,13 @@ from pathlib import Path
 from urllib.request import urlopen
 
 import pytest
+import yaml
 
-from brkraw_legacy import setup_logging
 from brkraw_legacy.api.data import Study
 
 
 def pytest_configure(config):
-    setup_logging(path=Path(__file__).parent / 'logging.yaml')
+    logging.config.dictConfig(yaml.safe_load((Path(__file__).parent / 'logging.yaml').read_text()))
 
 
 #: Tests requesting any of these fixtures are network-bound; auto-mark them.

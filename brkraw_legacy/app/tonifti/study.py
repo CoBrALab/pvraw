@@ -14,8 +14,6 @@ if TYPE_CHECKING:
 
     from nibabel.nifti1 import Nifti1Header
 
-    from brkraw_legacy.api import PlugInSnippet
-
 
 class StudyToNifti(Study, BaseMethods):
     """public class docstring."""
@@ -98,9 +96,7 @@ class StudyToNifti(Study, BaseMethods):
                         reco_id: int | None = None, 
                         scale_mode: Literal['header', 'apply'] | None = None,
                         subj_type: str | None = None, 
-                        subj_position: str | None = None,
-                        plugin: PlugInSnippet | str | None = None, 
-                        plugin_kws: dict | None = None):
+                        subj_position: str | None = None):
         scale_mode = scale_mode or self.scale_mode
         scanobj = self.get_scan(scan_id=scan_id,
                                 reco_id=reco_id)
@@ -108,9 +104,7 @@ class StudyToNifti(Study, BaseMethods):
                                        reco_id=reco_id,
                                        scale_mode=scale_mode,
                                        subj_type=subj_type, 
-                                       subj_position=subj_position, 
-                                       plugin=plugin, 
-                                       plugin_kws=plugin_kws)
+                                       subj_position=subj_position)
         
     @property
     def info(self):

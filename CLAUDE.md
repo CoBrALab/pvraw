@@ -95,7 +95,8 @@ crashes on PV5.1".
 Tests are numbered by layer: `02_api_analyzer`, `04_api_data`, `05_app_tonifti`,
 `06_bids`, `07_conversion`, `08_orientation`, `09_nifti_header`,
 `10_bids_metadata`, `11_diffusion`, `12_complex_warning`, `13_slice_axis`,
-`14_slice_distance`, `15_pv_version`. Data-dependent tests are marked `data` and fetch
+`14_slice_distance`, `15_pv_version`, `16_parameter_value`, `17_tabular`,
+`18_derived`, `19_asl`, `20_cli`, `20_sweep_tools`, `21_archive`. Data-dependent tests are marked `data` and fetch
 public sample data from the network (Zenodo / GitHub), cached under
 `$BRKRAW_TEST_DATA_DIR`; `pytest -m "not data"` runs only the offline unit
 tests. CI runs the unit suite on Python 3.11–3.14 across Ubuntu/Windows/macOS
@@ -110,8 +111,7 @@ see `EXPERIMENT_PLAN.md`.
 
 ## Linting
 
-Ruff, configured in `pyproject.toml` under `[tool.ruff.lint]`. Type checking
-config in `mypy.ini`.
+Ruff, configured in `pyproject.toml` under `[tool.ruff.lint]`.
 
 The rule set is ruff's defaults minus what this project deliberately does not
 follow, so a finding is a real one rather than noise. Each exemption is
