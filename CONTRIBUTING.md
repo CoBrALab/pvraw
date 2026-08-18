@@ -5,7 +5,7 @@ improvements are all welcome.
 
 ## Reporting issues
 
-Use the [Issues](https://github.com/gdevenyi/pvraw/issues) section of this repository. For a bug,
+Use the [Issues](https://github.com/CoBrALab/pvraw/issues) section of this repository. For a bug,
 the things that actually help are: your ParaVision version, the `pvraw` version, the scan and
 reco ids involved, and the output of `pvraw info` on the study.
 
@@ -57,7 +57,7 @@ tag is pushed:
    API token to manage.
 
 **One-time setup, before the first release:** on pypi.org, under *Your account →
-Publishing*, add a *pending publisher* with project name `pvraw`, owner `gdevenyi`,
+Publishing*, add a *pending publisher* with project name `pvraw`, owner `CoBrALab`,
 repository `pvraw`, workflow `release.yml`, environment `pypi`. The first tag push then
 creates the PyPI project. The `pypi` GitHub environment is created automatically on
 first use; optionally add a required reviewer to it for a manual approval gate.

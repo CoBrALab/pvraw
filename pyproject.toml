@@ -59,9 +59,9 @@ keywords = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/gdevenyi/pvraw"
-Repository = "https://github.com/gdevenyi/pvraw"
-Issues = "https://github.com/gdevenyi/pvraw/issues"
+Homepage = "https://github.com/CoBrALab/pvraw"
+Repository = "https://github.com/CoBrALab/pvraw"
+Issues = "https://github.com/CoBrALab/pvraw/issues"
 
 [project.optional-dependencies]
 dev = [
@@ -88,7 +88,6 @@ only-include = [
     "tools",
     "docs",
     "FILE_FORMAT.md",
-    "CITATION.cff",
     "DATASETS.md",
 ]
 

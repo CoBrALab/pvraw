@@ -14,10 +14,10 @@ It has three parts:
   the affine already correct, so there is no conversion step;
 - a **low-level Python API** for reading Bruker parameter and binary files as plain Python types.
 
-New to pvraw? Start with **[Tutorial: your first conversion](https://github.com/gdevenyi/pvraw/blob/main/docs/tutorial-first-conversion.md)**,
+New to pvraw? Start with **[Tutorial: your first conversion](https://github.com/CoBrALab/pvraw/blob/main/docs/tutorial-first-conversion.md)**,
 which takes a public sample study to a validated BIDS dataset end to end.
 
-Report issues at [gdevenyi/pvraw](https://github.com/gdevenyi/pvraw/issues).
+Report issues at [CoBrALab/pvraw](https://github.com/CoBrALab/pvraw/issues).
 
 ---
 
@@ -31,20 +31,20 @@ to create or activate.
 your other environments:
 
 ```bash
-uv tool install git+https://github.com/gdevenyi/pvraw.git
+uv tool install git+https://github.com/CoBrALab/pvraw.git
 uv tool upgrade pvraw      # later, to update
 ```
 
 **As a dependency of your own project**, for the Python API:
 
 ```bash
-uv add git+https://github.com/gdevenyi/pvraw.git
+uv add git+https://github.com/CoBrALab/pvraw.git
 ```
 
 **From source**, for development or to run an unreleased change:
 
 ```bash
-git clone https://github.com/gdevenyi/pvraw.git
+git clone https://github.com/CoBrALab/pvraw.git
 cd pvraw
 uv sync                       # runtime deps, editable install
 uv sync --extra dev           # also pytest, ruff and bids-validator
@@ -145,7 +145,7 @@ and `--subjecttype` elsewhere.
 Step 2 is where the work is: what to put in the datasheet, what to do about scans
 marked `etc`, how to name a task, how to link a fieldmap to the images it corrects, and
 what the validator warnings mean are all covered in
-**[How to convert Bruker studies to BIDS](https://github.com/gdevenyi/pvraw/blob/main/docs/how-to-convert-to-bids.md)**.
+**[How to convert Bruker studies to BIDS](https://github.com/CoBrALab/pvraw/blob/main/docs/how-to-convert-to-bids.md)**.
 
 The output is validator-clean: correct filenames and entity ordering, JSON sidecars,
 `dataset_description.json`, `participants.tsv`/`.json`, `<subject>_sessions.tsv`,
@@ -282,16 +282,6 @@ ruff or pytest release cannot break an unrelated change. `--locked` also fails i
 
 ---
 
-#### Conversion reliability
-
-![Robust Orientation](https://raw.githubusercontent.com/gdevenyi/pvraw/main/imgs/bruker2nifti_qa.png)
-
-Geometry and orientation are checked against the
-[Bruker2Nifti_QA](https://gitlab.com/naveau/bruker2nifti_qa) sample datasets, which all convert
-with correct geometry. Datasets that expose an orientation problem are welcome — open an issue.
-
----
-
 ## License
 
 GNU General Public License v3.0.
@@ -328,27 +318,5 @@ provenance strings differ.
 **Also acknowledged by the original project:** Chris Rorden and Sebastiano Ferraris, whose
 [dcm2niix](https://github.com/rordenlab/dcm2niix) and
 [bruker2nifti](https://github.com/SebastianoF/bruker2nifti) inspired it; and Mikael Naveau, who
-published [bruker2nifti_qa](https://gitlab.com/naveau/bruker2nifti_qa), the benchmark data still
-used above.
-
-**Citing.** If you use this software, please cite the original BrkRaw work:
-
-[![DOI](https://zenodo.org/badge/245546149.svg)](https://zenodo.org/badge/latestdoi/245546149)
-
-Lee, Sung-Ho, Ban, Woomi, & Shih, Yen-Yu Ian. (2020, June 4). BrkRaw/bruker: BrkRaw v0.3.3
-(Version 0.3.3). Zenodo. http://doi.org/10.5281/zenodo.3877179
-
-```bibtex
-@software{lee_sung_ho_2020_3907018,
-  author       = {Lee, Sung-Ho and
-                  Ban, Woomi and
-                  Shih, Yen-Yu Ian},
-  title        = {BrkRaw/bruker: BrkRaw v0.3.4},
-  month        = jun,
-  year         = 2020,
-  publisher    = {Zenodo},
-  version      = {0.3.4},
-  doi          = {10.5281/zenodo.3907018},
-  url          = {https://doi.org/10.5281/zenodo.3907018}
-}
-```
+published [bruker2nifti_qa](https://gitlab.com/naveau/bruker2nifti_qa), benchmark data still
+used for validation (see `DATASETS.md`).

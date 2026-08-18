@@ -793,7 +793,7 @@ def generateModalityAgnosticFiles(root_path, json_fname):
         # Record pvraw as the generator (BIDS recommended provenance).
         desc['GeneratedBy'] = [{'Name': 'pvraw',
                                     'Version': __version__,
-                                    'CodeURL': 'https://github.com/gdevenyi/pvraw'}]
+                                    'CodeURL': 'https://github.com/CoBrALab/pvraw'}]
         # Drop empty placeholders so the sidecar only ships meaningful values.
         desc = {k: v for k, v in desc.items() if v not in ('', [], {})}
         with open(data_des, 'w') as f:
@@ -881,7 +881,7 @@ def writeDerivativesDescription(base):
             'BIDSVersion': BIDS_VERSION,
             'DatasetType': 'derivative',
             'GeneratedBy': [{'Name': 'pvraw', 'Version': __version__,
-                             'CodeURL': 'https://github.com/gdevenyi/pvraw'}],
+                             'CodeURL': 'https://github.com/CoBrALab/pvraw'}],
         }, f, indent=4)
 
 
