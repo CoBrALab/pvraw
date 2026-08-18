@@ -2,7 +2,7 @@ cff-version: 1.2.0
 
 title: "pvraw"
 
-version: "0.6.0"
+version: "1.0.0"
 
 abstract: Bruker PvDataset Loader (maintained fork of the pvraw 0.3.x/0.4 line)
 

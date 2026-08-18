@@ -5,7 +5,7 @@
 - Date: 2026-07-21
 
 > **Naming.** This ADR predates the rename of the project from `brkraw-legacy` to
-> `pvraw` (0.6.0). It is left in its original words as a dated record; `brkraw`,
+> `pvraw` (1.0.0). It is left in its original words as a dated record; `brkraw`,
 > `brkraw-legacy` and `brkraw_legacy` below all refer to what is now `pvraw`.
 
 ## Context

@@ -24,8 +24,8 @@ nothing else had.
 **Transposition, resolved upstream.** Reported as isi-nmr/brukerapi-python#153 (with #154 for
 the shape inconsistency it caused); `_apply_transposition` was removed in full
 and released as **0.4.1**. 0.4.0 is on PyPI and carries the regression, which is
-part of why pvraw floors above it (the floor is now 0.4.2, for the
-affine). Against 0.4.1 every golden matched its pre-migration value again —
+part of why pvraw floors above it (the floor is now 0.4.5; see
+`pyproject.toml`). Against 0.4.1 every golden matched its pre-migration value again —
 `tests/goldens/` has since been dropped, for the reason recorded in ADR 0002.
 
 The method is written up below so it can be re-run and challenged — the question
