@@ -1,7 +1,8 @@
 # How to convert Bruker studies to BIDS
 
 Directions for the tasks that come up when converting real data. It assumes you know
-what BIDS is and what you want your dataset to look like.
+what BIDS is and what you want your dataset to look like. If you have never run a
+conversion, start with [Tutorial: your first conversion](tutorial-first-conversion.md).
 
 Conversion is two commands with your judgement in between:
 
@@ -199,6 +200,8 @@ those too — every on/off option has a `--no-` form.
 
 ## Related
 
+- [Tutorial: your first conversion](tutorial-first-conversion.md) — a first conversion
+  on a public sample study, end to end
 - [`README.md`](../README.md) — commands, options and the Python API
 - [ADR 0001](adr/0001-single-affine-implementation.md) — how orientation is derived
 - [ADR 0002](adr/0002-delegate-bruker-reading-to-brukerapi.md) — why file reading is

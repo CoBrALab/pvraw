@@ -9,11 +9,11 @@ Use the [Issues](https://github.com/gdevenyi/pvraw/issues) section of this repos
 the things that actually help are: your ParaVision version, the `pvraw` version, the scan and
 reco ids involved, and the output of `pvraw info` on the study.
 
-Note that pvraw delegates all Bruker file reading to
-[`brukerapi`](https://github.com/isi-nmr/brukerapi-python) (see
-`docs/adr/0002-delegate-bruker-reading-to-brukerapi.md`). A problem in parsing a parameter file,
-assembling an array, or the voxel-to-patient affine belongs upstream in `brukerapi`, not here.
-What this project owns is how the subject was framed, the NIfTI headers, and BIDS.
+A problem in parsing a parameter file, assembling an array, or in the voxel-to-patient
+affine belongs upstream in [`brukerapi`](https://github.com/isi-nmr/brukerapi-python),
+which does all Bruker file reading for pvraw
+([ADR 0002](docs/adr/0002-delegate-bruker-reading-to-brukerapi.md)); this project owns
+how the subject was framed, the NIfTI headers, and BIDS.
 
 If your contribution targets upstream [BrkRaw](https://github.com/BrkRaw/brkraw)'s 0.5+
 architecture, direct it there instead — pvraw is developed independently and does not merge
@@ -33,8 +33,9 @@ uv run pytest -m "not data"    # offline suite
 ```
 
 Anything that could move geometry or change sidecars also needs a
-`tools/sweep_nifti.py --compare` run against a corpus — see the Development section of the
-README. Geometry is verified against data, not against recorded output.
+`tools/sweep_nifti.py --compare` run against a corpus. Geometry is verified against
+data, not against recorded output. The README's Development section is the reference
+for the full test suite, the sample-data cache and the sweep tools.
 
 ## Before you start
 

@@ -14,6 +14,9 @@ It has three parts:
   the affine already correct, so there is no conversion step;
 - a **low-level Python API** for reading Bruker parameter and binary files as plain Python types.
 
+New to pvraw? Start with **[Tutorial: your first conversion](docs/tutorial-first-conversion.md)**,
+which takes a public sample study to a validated BIDS dataset end to end.
+
 Report issues at [gdevenyi/pvraw](https://github.com/gdevenyi/pvraw/issues).
 
 ---
@@ -116,14 +119,28 @@ uv run pvraw bids_helper <parent_dir> bids_map -j
 uv run pvraw bids_convert <parent_dir> bids_map.csv -j bids_map.json -o <bids_output>
 ```
 
-`bids_helper` options: `-f csv|tsv` (datasheet format, default `csv`, ignored when
-`output` already ends in `.csv`/`.tsv`), `-j` (also write the metadata template, default
-off), `--subj` (swap subject/study IDs, default off), `--sess` (swap session/study ID,
-default off). Those last two have no short form on purpose: `-s` and `-t` mean
-`--scanid` and `--subjecttype` elsewhere. `bids_convert` accepts `-j <template>` (default: none, so the sidecars carry only
-what the converter derives), `-o <dir>` (default: `Data`), and the same
-`-t/-p/--ignore-*` overrides as `tonii`. It converts exactly what the datasheet lists,
-so it has no `--ignore-localizer`: `bids_helper` already leaves localizers out.
+`bids_helper` options:
+
+| Option | Description | Default |
+|--------|-------------|---------|
+| `-f, --format <fmt>` | Datasheet format, `csv` or `tsv`; ignored when `output` already ends in `.csv`/`.tsv` | `csv` |
+| `-j, --json` | Also write the JSON metadata template | off |
+| `--subj` | Swap subject and study IDs | off |
+| `--sess` | Swap session and study IDs | off |
+
+`--subj` and `--sess` have no short form on purpose: `-s` and `-t` mean `--scanid`
+and `--subjecttype` elsewhere.
+
+`bids_convert` options:
+
+| Option | Description | Default |
+|--------|-------------|---------|
+| `-j, --json <template>` | Metadata template to merge into the sidecars | none — the sidecars carry only what the converter derives |
+| `-o, --output <dir>` | Output directory | `Data` |
+| `-t`, `-p`, `--ignore-*` | The same overrides as `tonii` | as in `tonii` |
+
+`bids_convert` converts exactly what the datasheet lists, so it has no
+`--ignore-localizer`: `bids_helper` already leaves localizers out.
 
 Step 2 is where the work is: what to put in the datasheet, what to do about scans
 marked `etc`, how to name a task, how to link a fieldmap to the images it corrects, and
