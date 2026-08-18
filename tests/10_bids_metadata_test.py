@@ -10,8 +10,8 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-from brkraw_legacy.lib.reference import COMMON_META_REF, FMRI_META_REF
-from brkraw_legacy.lib.utils import func_volume_tr, meta_check_express, meta_get_value
+from pvraw.lib.reference import COMMON_META_REF, FMRI_META_REF
+from pvraw.lib.utils import func_volume_tr, meta_check_express, meta_get_value
 
 
 class _p(dict):
@@ -44,7 +44,7 @@ def test_equation_fields_resolve():
     assert np.allclose(_resolve('EchoTime', visu=visu), [0.010, 0.020])
     assert _resolve('MagneticFieldStrength', visu=visu) == pytest.approx(400.0 / 42.576)
     assert _resolve('DeviceSerialNumber', visu=visu) == '12345'
-    # SliceEncodingDirection: brkraw reconstructs slices on the k axis; emit 'k' for
+    # SliceEncodingDirection: pvraw reconstructs slices on the k axis; emit 'k' for
     # multi-slice data (a BIDS string, not the integer the old mapping produced).
     assert _resolve('SliceEncodingDirection', visu=visu) == 'k'
     # single-slice -> omitted (not 'k')
@@ -83,7 +83,7 @@ def test_index_that_misses_the_parameter_shape_omits_the_field():
     scalar-valued parameter is not subscriptable at all (scans 35/39). Either
     used to raise out of _parse_json and kill the whole sidecar.
     """
-    from brkraw_legacy.lib.utils import meta_check_index
+    from pvraw.lib.utils import meta_check_index
 
     # index out of range: phase_enc resolves to position 2, val has 2 elements
     out_of_range = {'key': 'PVM_Matrix',
@@ -428,7 +428,7 @@ def test_repetition_times_of_a_prepared_sequence(params, excitation, preparation
 ])
 def test_fieldmap_echo_times(te, te1, te2):
     """EffectiveTE, not PVM_EchoTime -- the latter is echo *spacing* for FieldMap."""
-    from brkraw_legacy.lib.reference import FIELDMAP_META_REF
+    from pvraw.lib.reference import FIELDMAP_META_REF
 
     def resolve(field):
         return meta_get_value(FIELDMAP_META_REF[field], _p(),
@@ -469,7 +469,7 @@ def test_acquisition_duration_dropped_only_for_func(modality, expected, tmp_path
     """
     import json
 
-    from brkraw_legacy.lib.utils import get_bids_ref_obj
+    from pvraw.lib.utils import get_bids_ref_obj
 
     template = tmp_path / 'ref.json'
     template.write_text(json.dumps({

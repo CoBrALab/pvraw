@@ -8,8 +8,8 @@ and PV7.0.0 studies -- the point of the module is that none of them is fixed.
 import numpy as np
 import pytest
 
-from brkraw_legacy.lib import asl
-from brkraw_legacy.lib.errors import InvalidValueInField
+from pvraw.lib import asl
+from pvraw.lib.errors import InvalidValueInField
 
 
 class _p(dict):

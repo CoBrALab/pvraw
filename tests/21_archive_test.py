@@ -18,7 +18,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from brkraw_legacy import BrukerLoader
+from pvraw import BrukerLoader
 
 
 def _zip_tree(src: Path, dest: Path) -> Path:
@@ -62,7 +62,7 @@ def _sidecars(loader):
     (issue #80 tracks the failures themselves); a failure must at least be the
     same failure on both forms.
     """
-    from brkraw_legacy.lib.loader import _as_json_value
+    from pvraw.lib.loader import _as_json_value
     out = {}
     with warnings.catch_warnings():
         warnings.simplefilter('ignore')

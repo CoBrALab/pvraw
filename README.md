@@ -1,47 +1,20 @@
 [![made-with-python](https://img.shields.io/badge/Made%20with-Python-1f425f.svg)](https://www.python.org/)
 
-## BrkRaw-legacy: A comprehensive tool to access raw Bruker Biospin MRI data
-#### Version: 0.4.0
+## pvraw: read raw Bruker ParaVision MRI data
 
-### About this fork
+`pvraw` reads a Bruker Biospin preclinical MRI study — a *PvDataset*, supplied either as a study
+directory or as a `.zip`/`.PvDatasets` archive — and converts it to NIfTI or to a
+[BIDS](https://bids.neuroimaging.io) dataset, with image orientation and metadata preserved.
 
-`brkraw-legacy` is a hard fork of [BrkRaw](https://github.com/BrkRaw/brkraw) that continues the
-0.3.x/0.4 line of the project. Upstream BrkRaw has since moved on to a rewritten 0.5+ architecture;
-this fork keeps the original, battle-tested converter working on modern Python, with dependency
-modernization, BIDS spec compliance work, and bug fixes on top.
+It has three parts:
 
-It is developed independently of upstream and is **not** a drop-in replacement for it — the
-distribution, the import package and the command-line tools are all renamed so the two can be
-installed side by side:
+- a **command-line tool** for inspecting and converting studies, including batch conversion of a
+  whole corpus into a BIDS tree;
+- a **high-level Python API** that hands you [nibabel](https://nipy.org/nibabel/) objects with
+  the affine already correct, so there is no conversion step;
+- a **low-level Python API** for reading Bruker parameter and binary files as plain Python types.
 
-|                | upstream BrkRaw | this fork           |
-| -------------- | --------------- | ------------------- |
-| Distribution   | `brkraw`        | `brkraw-legacy`     |
-| Import package | `brkraw`        | `brkraw_legacy`     |
-| Conversion CLI | `brkraw`        | `brkraw-legacy`     |
-
-Please report issues with this fork to
-[gdevenyi/brkraw-legacy](https://github.com/gdevenyi/brkraw-legacy/issues), not to upstream.
-
-### Description
-
-The ‘BrkRaw-legacy’ is a python module designed to provide a comprehensive tool to access raw data acquired from 
-Bruker Biospin preclinical MRI scanner. This module is also compatible with the zip compressed data 
-to enable use of the archived data directly.  
-The module is comprised of three components, including command-line tools,
-high-level and low-level python APIs.
-- For the command-line tool, we focused on providing tools for converting, organizing, and managing data.
-The command-line tool also provides easy-to-use function to convert large set of raw data into organized structure
-according to [BIDS](https://bids.neuroimaging.io).
-- For the high-level python API, we focused on enhancing the accessibility of reconstructed image data with 
-preserved image orientation and metadata for the image analysis. 
-It compatible users' convenient objects type ([nibabel](https://nipy.org/nibabel/)) 
-without the conversion step. 
-- For the low-level python API, we focused on providing a consistent method to access raw Bruker data including 
-parameter and binary files with the python compatible datatype while keeping the sake of simplicity.
-
-A Bruker *PvDataset* can be supplied either as a study directory or as a `.zip`/`.PvDatasets`
-archive — every command and API call below accepts both.
+Report issues at [gdevenyi/pvraw](https://github.com/gdevenyi/pvraw/issues).
 
 ---
 
@@ -51,52 +24,52 @@ Requires Python >= 3.11. Everything here uses [uv](https://docs.astral.sh/uv/), 
 manages the interpreter and the dependencies for you — there is no separate virtualenv
 to create or activate.
 
-**As a command-line tool.** Installs `brkraw-legacy` onto your `PATH`, isolated from
+**As a command-line tool.** Installs `pvraw` onto your `PATH`, isolated from
 your other environments:
 
 ```bash
-uv tool install git+https://github.com/gdevenyi/brkraw-legacy.git
-uv tool upgrade brkraw-legacy      # later, to update
+uv tool install git+https://github.com/gdevenyi/pvraw.git
+uv tool upgrade pvraw      # later, to update
 ```
 
 **As a dependency of your own project**, for the Python API:
 
 ```bash
-uv add git+https://github.com/gdevenyi/brkraw-legacy.git
+uv add git+https://github.com/gdevenyi/pvraw.git
 ```
 
 **From source**, for development or to run an unreleased change:
 
 ```bash
-git clone https://github.com/gdevenyi/brkraw-legacy.git
-cd brkraw-legacy
+git clone https://github.com/gdevenyi/pvraw.git
+cd pvraw
 uv sync                       # runtime deps, editable install
 uv sync --extra dev           # also pytest, ruff and bids-validator
 ```
 
-One command-line tool is installed: **`brkraw-legacy`** (inspection/conversion).
+One command-line tool is installed: **`pvraw`** (inspection/conversion).
 
-> The examples below are written as `uv run brkraw-legacy ...`, which works from a
+> The examples below are written as `uv run pvraw ...`, which works from a
 > source checkout. If you installed with `uv tool install`, drop the `uv run` prefix.
 
 ---
 
 ## Command-line usage
 
-### Inspect a dataset — `brkraw-legacy info`
+### Inspect a dataset — `pvraw info`
 Print study/subject info and a table of scans, reconstructions, dimensions and resolutions.
 
 ```bash
-uv run brkraw-legacy info <input>           # <input> = study dir or .zip
+uv run pvraw info <input>           # <input> = study dir or .zip
 ```
 
-### Convert one study — `brkraw-legacy tonii`
+### Convert one study — `pvraw tonii`
 Convert a single study to NIfTI. Without `-s` every scan/reconstruction is converted.
 
 ```bash
-uv run brkraw-legacy tonii <input>                       # convert all scans
-uv run brkraw-legacy tonii <input> -s 2 -r 1 -o out      # only ScanID 2, RecoID 1
-uv run brkraw-legacy tonii <input> -s 2,3,7 -r 1,2       # several scans, several recos
+uv run pvraw tonii <input>                       # convert all scans
+uv run pvraw tonii <input> -s 2 -r 1 -o out      # only ScanID 2, RecoID 1
+uv run pvraw tonii <input> -s 2,3,7 -r 1,2       # several scans, several recos
 ```
 
 Each file is named `<output>-<ScanID>-<RecoID>-<ProtocolName>.nii.gz`, so `-o` sets the
@@ -120,27 +93,27 @@ Every on/off option also has a `--no-` form — `--no-bids`, `--no-ignore-locali
 Non-image scans (spectroscopy, etc.) and unclassifiable scans are skipped with a clear message
 rather than producing invalid output. Diffusion scans also emit FSL-style `.bval`/`.bvec`.
 
-### Batch convert — `brkraw-legacy tonii_all`
+### Batch convert — `pvraw tonii_all`
 Convert **every** study under a parent directory into a simple
 `sub-<id>/ses-<id>/<datatype>/` tree (`anat`/`func`/`dwi`/`etc`).
 
 ```bash
-uv run brkraw-legacy tonii_all <parent_dir> -o <output_dir>
+uv run pvraw tonii_all <parent_dir> -o <output_dir>
 ```
 
 Accepts the same `-b/-t/-p/--ignore-*` options as `tonii`, with the same defaults.
 Without `-o` the tree is written to `Data` in the current directory.
 
-### Convert to BIDS — `brkraw-legacy bids_helper` + `bids_convert`
+### Convert to BIDS — `pvraw bids_helper` + `bids_convert`
 Produce a spec-compliant [BIDS](https://bids.neuroimaging.io) dataset in two steps:
 
 ```bash
 # 1. Generate an editable datasheet (+ JSON metadata template with -j)
-uv run brkraw-legacy bids_helper <parent_dir> bids_map -j
+uv run pvraw bids_helper <parent_dir> bids_map -j
 
 # 2. Review/fill bids_map.csv (subject, session, datatype, suffix, task, acq, run, ...),
 #    then convert using the datasheet and metadata template
-uv run brkraw-legacy bids_convert <parent_dir> bids_map.csv -j bids_map.json -o <bids_output>
+uv run pvraw bids_convert <parent_dir> bids_map.csv -j bids_map.json -o <bids_output>
 ```
 
 `bids_helper` options: `-f csv|tsv` (datasheet format, default `csv`, ignored when
@@ -168,7 +141,7 @@ can never disagree. Validate with the official
 [bids-validator](https://github.com/bids-standard/bids-validator).
 
 Nothing is silently dropped. A ParaVision-computed stack with no single BIDS suffix (a
-DTI tensor reconstruction) goes to `derivatives/brkraw-legacy/`, and a scan that cannot
+DTI tensor reconstruction) goes to `derivatives/pvraw/`, and a scan that cannot
 be classified goes to `sourcedata/` — both outside the validated tree, so the data is
 kept without costing an error.
 
@@ -182,22 +155,22 @@ kept without costing an error.
 > `brukerapi` folder rather than a `PvDataset`, the scan/reco listings and subject fields
 > moved onto the loader itself, parameter files are `brukerapi` `JCAMPDX` objects, and
 > `get_dataobj` returns an array with one named axis per Frame Group -- which is also the
-> shape `brkraw-legacy info` prints, where it used to print a collapsed matrix size.
+> shape `pvraw info` prints, where it used to print a collapsed matrix size.
 >
-> Requires `brukerapi>=0.4.3`, which supplies the voxel-to-patient affine
+> Requires `brukerapi>=0.4.5`, which supplies the voxel-to-patient affine
 > (`affine_of_package`), the slice-package division and the slice spacing
 > (`slice_distance`), and which returns JCAMP-DX string values without their
 > `<...>` delimiters. Earlier releases either lack those or place volumes
 > wrongly.
 
 ```python
-import brkraw_legacy
+import pvraw
 
-study = brkraw_legacy.load('path/to/study_or_archive.zip')   # == BrukerLoader(path)
+study = pvraw.load('path/to/study_or_archive.zip')   # == BrukerLoader(path)
 
 study.is_pvdataset          # True if a valid PvDataset
 study.num_scans             # number of scans
-study.info()                # print the same summary as `brkraw-legacy info`
+study.info()                # print the same summary as `pvraw info`
 
 study.avail_scan_id         # e.g. [1, 2, 3, ...]
 study.avail_reco_id         # {scan_id: [reco_id, ...]}
@@ -229,7 +202,7 @@ multi-echo scans return a **list** of images; `save_nifti` writes them as
 
 ### Parameters (low-level)
 ```python
-from brkraw_legacy.lib.utils import get_value
+from pvraw.lib.utils import get_value
 
 method = study.get_method(2)            # method file  (a brukerapi JCAMPDX)
 acqp   = study.get_acqp(2)              # acqp file
@@ -271,10 +244,10 @@ uv run ruff check . --fix            # safe fixes only -- then re-run the tests
 ```
 
 Data-dependent tests download public sample studies (Zenodo, GitHub) and cache them under
-`$BRKRAW_TEST_DATA_DIR`. Set it to keep the cache between runs:
+`$PVRAW_TEST_DATA_DIR`. Set it to keep the cache between runs:
 
 ```bash
-BRKRAW_TEST_DATA_DIR=~/.cache/brkraw-test-data uv run pytest -m data
+PVRAW_TEST_DATA_DIR=~/.cache/pvraw-test-data uv run pytest -m data
 ```
 
 Two sweep tools compare a whole corpus before and after a change, which is how geometry and
@@ -293,59 +266,61 @@ ruff or pytest release cannot break an unrelated change. `--locked` also fails i
 ---
 
 #### Conversion reliability
+
 ![Robust Orientation](imgs/bruker2nifti_qa.png)
-We've tested our converter using the sample dataset from [Bruker2Nifti_QA](https://gitlab.com/naveau/bruker2nifti_qa) 
-and the results showed correct geometry and orientation for all datasets.
-We are still looking for more datasets showing orientation issue, 
-**if you have any shareable dataset, please contact the developer.**
 
-### Website
-The upstream documentation for the 0.3.x line still broadly applies to this fork — substitute
-`brkraw-legacy` wherever it says `brkraw`:
+Geometry and orientation are checked against the
+[Bruker2Nifti_QA](https://gitlab.com/naveau/bruker2nifti_qa) sample datasets, which all convert
+with correct geometry. Datasets that expose an orientation problem are welcome — open an issue.
 
-- [Installation](https://brkraw.github.io/docs/gs_inst.html)
-- [Command-line tool usage examples](https://brkraw.github.io/docs/gs_nii.html)
-- [Converting dataset into BIDS](https://brkraw.github.io/docs/gs_bids.html)
-- [Python API usage examples](https://brkraw.github.io/docs/ap_parent.html)
-- [Interactive Tutorial](https://mybinder.org/v2/gh/BrkRaw/tutorials/ac95b2c87b05664cb678c5dc1a930641397130ed)
+---
 
+## License
 
-### Credits:
-##### Authors of the original BrkRaw project
-- SungHo Lee (shlee@unc.edu): main developer
-- Woomi Ban (banwoomi@unc.edu): sub-developer who tested and refined the module structure
-- Jaiden Dumas: proofreading of documents and update contents for the user community.
-- Dr. Gabriel A. Devenyi: The vast contributions to refinement of module functionality and troubleshooting.
-- Yen-Yu Ian Shih (shihy@neurology.unc.edu): technical and academical advisory on this project (as well as funding)
-##### Maintainer of this fork
-- Dr. Gabriel A. Devenyi (gdevenyi@gmail.com)
-##### Contributors
-- Drs. Chris Rorden and Sebastiano Ferraris: The pioneers related this project who had been inspired the developer
- through their great tools including [dcm2niix](https://github.com/rordenlab/dcm2niix) and 
- [bruker2nifti](https://github.com/SebastianoF/bruker2nifti), as well as their comments to improve this project. 
-- Dr. Mikael Naveau: The publisher of 
-[bruker2nifti_qa](https://gitlab.com/naveau/bruker2nifti_qa), the set of data 
-to help benchmark testing of Bruker converter.
+GNU General Public License v3.0.
 
+## History and credits
 
-### License:
-GNU General Public License v3.0
+`pvraw` began life as [BrkRaw](https://github.com/BrkRaw/brkraw), and specifically as a hard fork
+of its 0.3.x/0.4 line. Upstream has since moved to a rewritten 0.5+ architecture; this project is
+developed independently of it. **If you want the 0.5+ architecture, go
+[upstream](https://github.com/BrkRaw/brkraw)** — this is not a drop-in replacement for it.
 
-### How to get Support
-If you are experiencing any problem or have questions about **this fork**, please report it through 
-[Issues](https://github.com/gdevenyi/brkraw-legacy/issues).
+Little of the original reading code survives. All Bruker file reading — directory and archive
+traversal, JCAMP-DX parsing, byte→array assembly and the voxel-to-patient affine — is now
+delegated to [`brukerapi`](https://github.com/isi-nmr/brukerapi-python) (see
+`docs/adr/0002-delegate-bruker-reading-to-brukerapi.md`). What remains here is how the subject was
+framed, the NIfTI headers, and BIDS.
 
-### Citing BrkRaw
-This fork builds on the original BrkRaw project; please cite the original work:
+**Naming.** Everything up to and including version 0.5.0 was distributed as `brkraw-legacy`
+and signed its output that way: NIfTI files carry `brkraw-legacy` in the header `descrip`
+field, BIDS `dataset_description.json` names `BrkRaw-legacy` under `GeneratedBy`, and derived
+reconstructions were written to `derivatives/brkraw-legacy/`. From 0.6.0 all three say
+`pvraw`. If you hold a dataset converted with an older version, that is why its provenance
+strings differ.
+
+**The original BrkRaw authors**, whose work this is built on:
+
+- SungHo Lee (shlee@unc.edu) — main developer
+- Woomi Ban (banwoomi@unc.edu) — tested and refined the module structure
+- Jaiden Dumas — documentation and user-community content
+- Gabriel A. Devenyi — refinement of module functionality and troubleshooting
+- Yen-Yu Ian Shih (shihy@neurology.unc.edu) — technical and academic advisory, and funding
+
+**Also acknowledged by the original project:** Chris Rorden and Sebastiano Ferraris, whose
+[dcm2niix](https://github.com/rordenlab/dcm2niix) and
+[bruker2nifti](https://github.com/SebastianoF/bruker2nifti) inspired it; and Mikael Naveau, who
+published [bruker2nifti_qa](https://gitlab.com/naveau/bruker2nifti_qa), the benchmark data still
+used above.
+
+**Citing.** If you use this software, please cite the original BrkRaw work:
 
 [![DOI](https://zenodo.org/badge/245546149.svg)](https://zenodo.org/badge/latestdoi/245546149)
 
-Lee, Sung-Ho, Ban, Woomi, & Shih, Yen-Yu Ian. (2020, June 4). BrkRaw/bruker: BrkRaw v0.3.3 (Version 0.3.3). 
-Zenodo. http://doi.org/10.5281/zenodo.3877179
+Lee, Sung-Ho, Ban, Woomi, & Shih, Yen-Yu Ian. (2020, June 4). BrkRaw/bruker: BrkRaw v0.3.3
+(Version 0.3.3). Zenodo. http://doi.org/10.5281/zenodo.3877179
 
-
-**BibTeX**
-```
+```bibtex
 @software{lee_sung_ho_2020_3907018,
   author       = {Lee, Sung-Ho and
                   Ban, Woomi and

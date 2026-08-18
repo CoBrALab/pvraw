@@ -10,7 +10,7 @@ than quoted it parses as a float (``5.1``) instead of a string.
 rather than defaulting when their conditions do not match, so the direct read
 stays as the fallback.
 """
-from brkraw_legacy.lib.loader import BrukerLoader
+from pvraw.lib.loader import BrukerLoader
 
 
 class _Params(dict):

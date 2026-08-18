@@ -1,8 +1,8 @@
-# brkraw-legacy
+# pvraw
 
 Converts raw Bruker Biospin preclinical MRI data into NIfTI and BIDS. The domain
 spans three vocabularies for the same things — Bruker's own (ParaVision manuals
-and headers), brukerapi's (TopSpin lineage), and BrkRaw's. This glossary picks
+and headers), brukerapi's (TopSpin lineage), and pvraw's. This glossary picks
 one of each and names the others so they don't drift back together.
 
 ## Dataset structure

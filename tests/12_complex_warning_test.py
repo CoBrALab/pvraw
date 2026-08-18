@@ -6,7 +6,7 @@ import warnings
 
 import pytest
 
-from brkraw_legacy.app.tonifti.base import BaseMethods
+from pvraw.app.tonifti.base import BaseMethods
 
 
 def test_complex_axis_warns():

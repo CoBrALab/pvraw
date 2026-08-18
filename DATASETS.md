@@ -1,6 +1,6 @@
 # Datasets
 
-Publicly available Bruker/ParaVision datasets used with **brkraw-legacy** — in the
+Publicly available Bruker/ParaVision datasets used with **pvraw** — in the
 automated test suite and/or for manual validation during development.
 
 None of the raw data is committed to this repository. The test suite fetches what
@@ -9,21 +9,20 @@ cached validation data lives under the git-ignored `resources/testdata/` directo
 
 > **Licensing:** always check each dataset's own license before redistributing or
 > using it commercially. Where a restriction is known it is noted below; where it
-> is blank, consult the source. brkraw-legacy does not re-host any of this data.
+> is blank, consult the source. pvraw does not re-host any of this data.
 
-## Used by the test suite & tutorials
+## Used by the test suite
 
 The `tests/conftest.py` fixtures fetch the phantom studies on demand (cached under
-`$BRKRAW_TEST_DATA_DIR`; `data`-marked tests skip if the source is unreachable).
-The tutorial notebooks (run via `nbmake`) clone the `brkraw-dataset` repo.
+`$PVRAW_TEST_DATA_DIR`; `data`-marked tests skip if the source is unreachable).
 
 | Dataset | ParaVision | Source | Notes |
 |---|---|---|---|
 | `0.2H2` | PV5.1 | [zenodo.org/records/4048286](https://zenodo.org/records/4048286) (`0.2H2.zip`) | Multi-sequence phantom study, 32 experiments. `h2_study` fixture. |
 | `lego_phantom` | PV6.0.1 | [zenodo.org/records/4048253](https://zenodo.org/records/4048253) (`20200612_094625_lego_phantom_3_1_2.zip`) | Multi-sequence phantom study, 45 experiments. `lego_study` fixture; also the loader↔API parity and handle-leak tests. |
-| `LEGO_PHANTOM_API_TEST` | PV7.0.0 | [zenodo.org/records/4522220](https://zenodo.org/records/4522220) (`20210128_122257_LEGO_PHANTOM_API_TEST_1_1.zip`, 618 MB) | Multi-sequence phantom study, 39 experiments (B1Map, CPMG, CSI, DESS, FLASH, RARE, EPI, UTE, …). `pv7_study` fixture; also `dataset[2]` in the loader sweep. Converts cleanly through brkraw-legacy: **30 image scans → NIfTI, 12 spectroscopic rejected cleanly, 0 failures**. Notes: PV7.0.0 uses `VisuVersion=3` (same as PV6); adds a `pdata/*/pvmeta` JCAMP file; the `fid.npz` files are NumPy arrays added by the BrukerAPI project, not native Bruker. |
+| `LEGO_PHANTOM_API_TEST` | PV7.0.0 | [zenodo.org/records/4522220](https://zenodo.org/records/4522220) (`20210128_122257_LEGO_PHANTOM_API_TEST_1_1.zip`, 618 MB) | Multi-sequence phantom study, 39 experiments (B1Map, CPMG, CSI, DESS, FLASH, RARE, EPI, UTE, …). `pv7_study` fixture; also `dataset[2]` in the loader sweep. Converts cleanly through pvraw: **30 image scans → NIfTI, 12 spectroscopic rejected cleanly, 0 failures**. Notes: PV7.0.0 uses `VisuVersion=3` (same as PV6); adds a `pdata/*/pvmeta` JCAMP file; the `fid.npz` files are NumPy arrays added by the BrukerAPI project, not native Bruker. |
 | `PV360_StdData` | PV360 v3.6 | [github.com/cecilyen/PV360_StdData](https://github.com/cecilyen/PV360_StdData) (git-LFS) | Loose scan collection (no `subject` file). `pv360_root` fixture; standalone-scan and non-PvDataset tests. |
-| `brkraw-dataset` (UNC) | PV5.1, PV6.0.1 | [github.com/BrkRaw/brkraw-dataset](https://github.com/BrkRaw/brkraw-dataset) (git-LFS) | brkraw's own example data: `PV5.1/UNC_PV5.1_BOLD-EPI_TurboRARE.zip`, `PV6.0.1/UNC_PV6.0.1_FLASH_TurboRARE_EPI.zip`. Used by the tutorial notebooks (`tests/tutorials/`, via `nbmake`); also cloned to `testdata/brkraw-dataset/` — both zips convert cleanly in the full sweep. |
+| `brkraw-dataset` (UNC) | PV5.1, PV6.0.1 | [github.com/BrkRaw/brkraw-dataset](https://github.com/BrkRaw/brkraw-dataset) (git-LFS) | BrkRaw's own example data: `PV5.1/UNC_PV5.1_BOLD-EPI_TurboRARE.zip`, `PV6.0.1/UNC_PV6.0.1_FLASH_TurboRARE_EPI.zip`. Cloned to `testdata/brkraw-dataset/` — both zips convert cleanly in the full sweep. |
 
 `0.2H2`, `lego_phantom` and `LEGO_PHANTOM_API_TEST` are the
 [BrukerAPI](https://github.com/isi-nmr/brukerapi-python) project's public test data. The
@@ -88,7 +87,7 @@ fixtures. The sweep surfaced several conversion bugs, each fixed in its own PR.
 From [pci-community.com](https://pci-community.com/) (Bruker Preclinical Imaging
 Community; membership/login required). Bruker sample data and community
 reconstruction repos that could extend coverage — none verified against
-brkraw-legacy yet.
+pvraw yet.
 
 | Dataset | ParaVision | Source | Access / license | Notes |
 |---|---|---|---|---|

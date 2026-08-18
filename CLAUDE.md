@@ -8,9 +8,9 @@ The ultimate source of truth for implementing this software is FILE_FORMAT.md
 
 ## Project Overview
 
-BrkRaw-legacy is a Python library for accessing and converting raw MRI data from Bruker Biospin preclinical scanners. It provides a CLI (`brkraw-legacy`) and Python API for reading Bruker PvDatasets (directory or archive), deriving their geometry, and exporting to NIfTI/BIDS formats.
+pvraw is a Python library for accessing and converting raw MRI data from Bruker Biospin preclinical scanners. It provides a CLI (`pvraw`) and Python API for reading Bruker PvDatasets (directory or archive), deriving their geometry, and exporting to NIfTI/BIDS formats.
 
-This is a hard fork of the upstream [BrkRaw](https://github.com/BrkRaw/brkraw) 0.3.x/0.4 line, developed independently of upstream 0.5+. The distribution is `brkraw-legacy`, the import package is `brkraw_legacy`. Current version: 0.5.0.
+This began as a hard fork of the upstream [BrkRaw](https://github.com/BrkRaw/brkraw) 0.3.x/0.4 line and is developed independently of upstream 0.5+. The distribution and the import package are both `pvraw`. Current version: 0.6.0.
 
 ## Build & Development Commands
 
@@ -46,7 +46,7 @@ what is delegated get fixed upstream.
 
 ```
 PvDataset (directory or .zip/.PvDatasets archive)
-  → BrukerLoader (lib/loader.py)      — entry point, also exposed as brkraw_legacy.load()
+  → BrukerLoader (lib/loader.py)      — entry point, also exposed as pvraw.load()
     → Study (api/data/study.py)       — scan_id → brukerapi Experiment; the vocabulary boundary
       → Scan (api/data/scan.py)       — reco_id → brukerapi Processing → brukerapi Dataset
         → ScanInfoAnalyzer            — derived values: image, slicepack, orientation, cycle
@@ -56,22 +56,22 @@ PvDataset (directory or .zip/.PvDatasets archive)
 
 ### Key layers
 
-- **`brkraw_legacy/lib/`** — `BrukerLoader` (loader.py), the parameter accessor and
+- **`pvraw/lib/`** — `BrukerLoader` (loader.py), the parameter accessor and
   BIDS/metadata helpers (utils.py), subject-orientation conventions
   (subject_orient.py), BIDS entity/filename rules (bids.py), BIDS metadata
   references (reference.py), custom exceptions (errors.py)
-- **`brkraw_legacy/api/data/`** — `Study` and `Scan`: the only place that maps
+- **`pvraw/api/data/`** — `Study` and `Scan`: the only place that maps
   `scan_id`/`reco_id` onto `brukerapi`'s Experiment/Processing (see `CONTEXT.md`)
-- **`brkraw_legacy/api/analyzer/`** — `ScanInfoAnalyzer` (parameters → derived
+- **`pvraw/api/analyzer/`** — `ScanInfoAnalyzer` (parameters → derived
   values), `AffineAnalyzer` (takes `brukerapi`'s affine and applies the
   subject-type/position correction — ADR 0001 as amended)
-- **`brkraw_legacy/api/helper/`** — the derivations themselves: image, slicepack,
+- **`pvraw/api/helper/`** — the derivations themselves: image, slicepack,
   orientation (subject type/position only), cycle, diffusion, protocol,
   dataarray, plus `axis_labels`/`frame_groups`, which name the axes of an
   assembled image
-- **`brkraw_legacy/app/tonifti/`** — NIfTI assembly and headers: `StudyToNifti`,
+- **`pvraw/app/tonifti/`** — NIfTI assembly and headers: `StudyToNifti`,
   `ScanToNifti`, `Header`, `ToNiftiPlugin`
-- **`brkraw_legacy/scripts/`** — CLI entry points (`brkraw_legacy.py` with subcommands: info, tonii, tonii_all, bids_helper, bids_convert)
+- **`pvraw/scripts/`** — CLI entry points (`pvraw.py` with subcommands: info, tonii, tonii_all, bids_helper, bids_convert)
 
 ### Reading parameters
 
@@ -95,9 +95,10 @@ crashes on PV5.1".
 Tests are numbered by layer: `02_api_analyzer`, `04_api_data`, `05_app_tonifti`,
 `06_bids`, `07_conversion`, `08_orientation`, `09_nifti_header`,
 `10_bids_metadata`, `11_diffusion`, `12_complex_warning`, `13_slice_axis`,
-`14_slice_distance`, `15_pv_version`. Data-dependent tests are marked `data` and fetch
+`14_slice_distance`, `15_pv_version`, `16_parameter_value`, `17_tabular`,
+`18_derived`, `19_asl`, `20_cli`, `20_sweep_tools`, `21_archive`. Data-dependent tests are marked `data` and fetch
 public sample data from the network (Zenodo / GitHub), cached under
-`$BRKRAW_TEST_DATA_DIR`; `pytest -m "not data"` runs only the offline unit
+`$PVRAW_TEST_DATA_DIR`; `pytest -m "not data"` runs only the offline unit
 tests. CI runs the unit suite on Python 3.11–3.14 across Ubuntu/Windows/macOS
 and the `data` suite once on Ubuntu.
 
@@ -110,8 +111,7 @@ see `EXPERIMENT_PLAN.md`.
 
 ## Linting
 
-Ruff, configured in `pyproject.toml` under `[tool.ruff.lint]`. Type checking
-config in `mypy.ini`.
+Ruff, configured in `pyproject.toml` under `[tool.ruff.lint]`.
 
 The rule set is ruff's defaults minus what this project deliberately does not
 follow, so a finding is a real one rather than noise. Each exemption is
@@ -151,7 +151,7 @@ and data hash and is what proves a lint sweep changed nothing.
 
 ### Issue tracker
 
-Issues live in GitHub Issues (`gdevenyi/brkraw-legacy`), via the `gh` CLI. See `docs/agents/issue-tracker.md`.
+Issues live in GitHub Issues (`gdevenyi/pvraw`), via the `gh` CLI. See `docs/agents/issue-tracker.md`.
 
 ### Triage labels
 

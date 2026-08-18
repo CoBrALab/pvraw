@@ -13,7 +13,7 @@ string whose leading zeros are part of it, and coercing ``'01'`` to ``1`` wrote
 import numpy as np
 import pytest
 
-from brkraw_legacy.lib.utils import get_value, unquote
+from pvraw.lib.utils import get_value, unquote
 
 
 class _Params(dict):

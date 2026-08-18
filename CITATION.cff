@@ -1,14 +1,14 @@
 cff-version: 1.2.0
 
-title: "brkraw-legacy"
+title: "pvraw"
 
-version: "0.4.0"
+version: "0.6.0"
 
-abstract: Bruker PvDataset Loader (maintained fork of the BrkRaw 0.3.x/0.4 line)
+abstract: Bruker PvDataset Loader (maintained fork of the pvraw 0.3.x/0.4 line)
 
 message: "If you use this software, please cite it as below, along with the original BrkRaw software listed under references."
 
-repository-code: "https://github.com/gdevenyi/brkraw-legacy"
+repository-code: "https://github.com/gdevenyi/pvraw"
 
 contact:
   - email: gdevenyi@gmail.com
@@ -59,4 +59,4 @@ references:
         given-names: Yen-Yu Ian
     repository-code: "https://github.com/BrkRaw/brkraw"
     doi: "10.5281/zenodo.3877179"
-    notes: "The original upstream project that brkraw-legacy is forked from."
+    notes: "The original upstream project that pvraw is forked from."

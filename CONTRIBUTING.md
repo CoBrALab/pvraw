@@ -1,40 +1,42 @@
-# Contributing to BrkRaw-legacy
+# Contributing to pvraw
 
-Thank you for your interest in contributing to BrkRaw-legacy! Whether you're tackling a bug, adding a new feature, or improving our documentation, every contribution is appreciated. This guide will help you get started with your contributions in the most effective way.
+Thank you for your interest in contributing. Bug fixes, new features and documentation
+improvements are all welcome.
 
-BrkRaw-legacy is an independent hard fork of the [BrkRaw](https://github.com/BrkRaw/brkraw) 0.3.x/0.4 line. Contributions here are not submitted upstream, and upstream changes are not merged in. If your contribution targets the current 0.5+ BrkRaw architecture, please direct it to the upstream project instead.
+## Reporting issues
 
-## Ways to Contribute
+Use the [Issues](https://github.com/gdevenyi/pvraw/issues) section of this repository. For a bug,
+the things that actually help are: your ParaVision version, the `pvraw` version, the scan and
+reco ids involved, and the output of `pvraw info` on the study.
 
-### Reporting Issues
+Note that pvraw delegates all Bruker file reading to
+[`brukerapi`](https://github.com/isi-nmr/brukerapi-python) (see
+`docs/adr/0002-delegate-bruker-reading-to-brukerapi.md`). A problem in parsing a parameter file,
+assembling an array, or the voxel-to-patient affine belongs upstream in `brukerapi`, not here.
+What this project owns is how the subject was framed, the NIfTI headers, and BIDS.
 
-If you encounter a bug, have a suggestion, or want to make a feature request, please use the [Issues](https://github.com/gdevenyi/brkraw-legacy/issues) section of this repository. Include as much detail as possible and label your issue appropriately.
+If your contribution targets upstream [BrkRaw](https://github.com/BrkRaw/brkraw)'s 0.5+
+architecture, direct it there instead — pvraw is developed independently and does not merge
+upstream changes.
 
-### Pull Requests
+## Pull requests
 
-We welcome pull requests with open arms! Here’s how you can make one:
+- **Code changes** — document them, particularly anything driven by a ParaVision compatibility
+  problem.
+- **New features** — include tests in `tests/`, following the existing numbered-by-layer naming.
 
-- **Code Changes**: If you are updating the BrkRaw-legacy codebase, perhaps due to a ParaVision compatibility issue or to suggest a new standard, please make sure your changes are well-documented. 
-- **New Features**: If you're introducing a new feature, ensure that you include appropriate test scripts in the `tests` directory, following our standard testing workflow. Check our documentation for more details.
+Before opening a pull request, run:
 
-Before creating a pull request, ensure that your code complies with the existing code style (`ruff check .`) and that you have tested your changes locally.
+```bash
+uv run ruff check .            # must be clean
+uv run pytest -m "not data"    # offline suite
+```
 
-### Related Upstream Repositories
+Anything that could move geometry or change sidecars also needs a
+`tools/sweep_nifti.py --compare` run against a corpus — see the Development section of the
+README. Geometry is verified against data, not against recorded output.
 
-These repositories belong to the upstream BrkRaw project. This fork still consumes their data and plugins, but contributions to them go to upstream, not here.
+## Before you start
 
-- **[plugin](https://github.com/brkraw/brkraw-plugin.git)**: New functionalities at the app level.
-- **[dataset](https://github.com/brkraw/brkraw-dataset.git)**: Datasets used to test data conversion consistency and reliability.
-- **[tutorial](https://github.com/brkraw/brkraw-tutorial.git)**: Tutorials, tutorial revisions, and user documentation.
-
-## Before You Start
-
-Please review the documentation and Q&A to see if your question has already been answered or if the feature has already been discussed. If you’re unsure about adding a feature or making a change, open an issue to discuss it first.
-
-## Contribution Guidelines
-
-- Ensure your contributions are clear and easy to understand.
-- Include any necessary tests and documentation updates.
-- Adhere to the coding standards and best practices as outlined in our project documentation.
-
-We look forward to your contributions and are excited to see what you come up with!
+Check the open issues to see whether your question has already been answered or the feature
+already discussed. If you are unsure about a change, open an issue first.

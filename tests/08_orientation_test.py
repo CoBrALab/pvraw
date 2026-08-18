@@ -15,9 +15,9 @@ see ``test_absent_subject_type_uses_rodent_frame`` for the evidence.
 import numpy as np
 import pytest
 
-from brkraw_legacy.api.analyzer.affine import AffineAnalyzer
-from brkraw_legacy.api.helper import rotate_affine
-from brkraw_legacy.lib.subject_orient import (
+from pvraw.api.analyzer.affine import AffineAnalyzer
+from pvraw.api.helper import rotate_affine
+from pvraw.lib.subject_orient import (
     SUBJECT_POSE_ROTATION,
     get_pose_rotation,
     normalize_subject_type,
@@ -151,8 +151,8 @@ def test_pv5_subject_type_not_taken_from_subject_file(h2_study):
     implementation reads VisuSubjectType per-scan (absent on PV5, FILE_FORMAT.md
     7.5), never the study subject file; this pins that.
     """
-    from brkraw_legacy import BrukerLoader
-    from brkraw_legacy.app.tonifti import StudyToNifti
+    from pvraw import BrukerLoader
+    from pvraw.app.tonifti import StudyToNifti
 
     s = BrukerLoader(str(h2_study))
     assert s.subj_type == 'Human', 'expected the PV5 subject file to say Human'
@@ -194,7 +194,7 @@ def test_unequal_slices_per_pack_converts(lego_study):
     than assuming an equal split; otherwise assembly crashes. Each pack yields a
     (4, 4) affine.
     """
-    from brkraw_legacy.app.tonifti import StudyToNifti
+    from pvraw.app.tonifti import StudyToNifti
 
     api = StudyToNifti(str(lego_study)).get_affine(8, 1)
     assert isinstance(api, list) and len(api) == 3

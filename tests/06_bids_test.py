@@ -1,6 +1,6 @@
 """BIDS path-builder and end-to-end conversion tests.
 
-The unit tests exercise ``brkraw_legacy.lib.bids`` directly and need no sample
+The unit tests exercise ``pvraw.lib.bids`` directly and need no sample
 data. The end-to-end tests convert a public sample study (lego_phantom); the
 validator check is skipped unless the ``bids-validator`` (Deno) binary is
 available.
@@ -12,9 +12,9 @@ import subprocess
 
 import pytest
 
-from brkraw_legacy.lib import bids
-from brkraw_legacy.lib.errors import InvalidApproach
-from brkraw_legacy.scripts.brkraw_legacy import scanMethod
+from pvraw.lib import bids
+from pvraw.lib.errors import InvalidApproach
+from pvraw.scripts.pvraw import scanMethod
 
 # --------------------------------------------------------------------------- #
 # Unit tests: schema-driven path builder
@@ -89,7 +89,7 @@ def test_bids_version_comes_from_the_schema_not_a_literal():
     """
     import re
 
-    from brkraw_legacy.lib.reference import DATASET_DESC_REF
+    from pvraw.lib.reference import DATASET_DESC_REF
 
     assert re.fullmatch(r'\d+\.\d+\.\d+', bids.BIDS_VERSION), bids.BIDS_VERSION
     # The template must not carry a version of its own to drift from the schema.
@@ -145,7 +145,7 @@ def test_invalid_value_is_demoted_rather_than_written_or_dropped():
     """
     import warnings
 
-    from brkraw_legacy.lib.loader import _demote_schema_invalid
+    from pvraw.lib.loader import _demote_schema_invalid
 
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter('always')
@@ -256,7 +256,7 @@ def _schema_sidecar_fields():
 
 
 def _verdicts():
-    from brkraw_legacy.lib import reference as ref
+    from pvraw.lib import reference as ref
 
     mapped = set()
     for table in (ref.COMMON_META_REF, ref.FMRI_META_REF, ref.FIELDMAP_META_REF):
@@ -295,7 +295,7 @@ def test_no_field_carries_two_verdicts():
 
 def test_keys_we_emit_are_either_bids_or_declared_non_bids():
     """A key that is neither a BIDS field nor a declared exception is a typo."""
-    from brkraw_legacy.lib import reference as ref
+    from pvraw.lib import reference as ref
 
     emitted = _verdicts()['mapped'] | set(ref.COMPUTED_AT_WRITE)
     undeclared = sorted(emitted - set(bids._SCHEMA.objects.metadata) - set(ref.NON_SCHEMA_KEYS))
@@ -326,7 +326,7 @@ def test_subject_session_id_sanitized_to_valid_bids_label():
     import re
     import warnings
 
-    from brkraw_legacy.scripts.brkraw_legacy import cleanSessionID, cleanSubjectID
+    from pvraw.scripts.pvraw import cleanSessionID, cleanSubjectID
 
     with warnings.catch_warnings():
         warnings.simplefilter('ignore')
@@ -356,7 +356,7 @@ def _prepare_anat_dataset(pvdir, tmp_path):
     """
     import pandas as pd
 
-    from brkraw_legacy import BrukerLoader
+    from pvraw import BrukerLoader
 
     # Pick scans that convert to a single 3D image, so each yields one clean
     # anat file rather than a per-slicepack _T2starw-01/-02/... split.
@@ -379,7 +379,7 @@ def _prepare_anat_dataset(pvdir, tmp_path):
     sheet = tmp_path / 'bids_map'
     out = tmp_path / 'raw'
 
-    subprocess.check_call(['brkraw-legacy', 'bids_helper', str(sample_parent),
+    subprocess.check_call(['pvraw', 'bids_helper', str(sample_parent),
                            str(sheet), '-j'])
     df = pd.read_csv(str(sheet) + '.csv')
 
@@ -394,7 +394,7 @@ def _prepare_anat_dataset(pvdir, tmp_path):
     df['acq'] = [f'scan{i}' for i in range(len(df))]
     df.to_csv(str(sheet) + '.csv', index=False)
 
-    subprocess.check_call(['brkraw-legacy', 'bids_convert', str(sample_parent),
+    subprocess.check_call(['pvraw', 'bids_convert', str(sample_parent),
                            str(sheet) + '.csv', '-j', str(sheet) + '.json',
                            '--output', str(out)])
     return out
@@ -409,7 +409,7 @@ def test_end_to_end_bids_convert(lego_study, tmp_path):
     # version the validator below is pinned to.
     assert desc['BIDSVersion'] == bids.BIDS_VERSION
     assert desc['DatasetType'] == 'raw'
-    assert any(g['Name'] == 'BrkRaw-legacy' for g in desc['GeneratedBy'])
+    assert any(g['Name'] == 'pvraw' for g in desc['GeneratedBy'])
     for typo in ('HowToAsknowledge', 'EthicApprovals', 'ReferenceAndLinks'):
         assert typo not in desc
 
@@ -442,8 +442,8 @@ def test_phase_encode_axis_emitted_without_a_polarity_claim(h2_study, tmp_path):
     (sample / h2_study.name).symlink_to(h2_study.resolve())
     sheet = tmp_path / 'map'
     out = tmp_path / 'out'
-    subprocess.check_call(['brkraw-legacy', 'bids_helper', str(sample), str(sheet), '-j'])
-    subprocess.check_call(['brkraw-legacy', 'bids_convert', str(sample),
+    subprocess.check_call(['pvraw', 'bids_helper', str(sample), str(sheet), '-j'])
+    subprocess.check_call(['pvraw', 'bids_convert', str(sample),
                            str(sheet) + '.csv', '-j', str(sheet) + '.json',
                            '--output', str(out)])
     seen = 0
@@ -482,7 +482,7 @@ def _two_small_3d_scans(study):
     Smallest first, so the sample study built from them stays a few megabytes
     and the search stops after a couple of conversions.
     """
-    from brkraw_legacy import BrukerLoader
+    from pvraw import BrukerLoader
 
     by_size = sorted(
         (sum(f.stat().st_size for f in scan.rglob('*') if f.is_file()), scan.name)
@@ -526,7 +526,7 @@ def test_bids_convert_isolates_failing_scan(h2_study, tmp_path):
 
     sheet = tmp_path / 'map'
     out = tmp_path / 'raw'
-    subprocess.check_call(['brkraw-legacy', 'bids_helper', str(sample), str(sheet), '-j'])
+    subprocess.check_call(['pvraw', 'bids_helper', str(sample), str(sheet), '-j'])
 
     df = pd.read_csv(str(sheet) + '.csv')
     df = df[df['RecoID'] == 1].copy()
@@ -541,7 +541,7 @@ def test_bids_convert_isolates_failing_scan(h2_study, tmp_path):
     (study / str(doomed) / 'pdata' / '1' / '2dseq').write_bytes(b'')
 
     # Must not raise: the crashing scan is reported and skipped, not fatal.
-    result = subprocess.run(['brkraw-legacy', 'bids_convert', str(sample),
+    result = subprocess.run(['pvraw', 'bids_convert', str(sample),
                              str(sheet) + '.csv', '-j', str(sheet) + '.json',
                              '--output', str(out)],
                             check=True, capture_output=True, text=True)
@@ -563,8 +563,8 @@ def test_method_less_scan_does_not_crash(h2_study, tmp_path):
 
     import pandas as pd
 
-    from brkraw_legacy import BrukerLoader
-    from brkraw_legacy.scripts.brkraw_legacy import is_localizer
+    from pvraw import BrukerLoader
+    from pvraw.scripts.pvraw import is_localizer
 
     d = BrukerLoader(str(h2_study))
 
@@ -605,13 +605,13 @@ def test_method_less_scan_does_not_crash(h2_study, tmp_path):
     sheet = tmp_path / 'map'
 
     # bids_helper must not raise; the method-less scan is skipped.
-    subprocess.check_call(['brkraw-legacy', 'bids_helper', str(parent), str(sheet)])
+    subprocess.check_call(['pvraw', 'bids_helper', str(parent), str(sheet)])
     listed = set(pd.read_csv(str(sheet) + '.csv')['ScanID'])
     assert methodless not in listed
     assert full in listed
 
     # tonii_all must not raise either.
-    subprocess.check_call(['brkraw-legacy', 'tonii_all', str(parent),
+    subprocess.check_call(['pvraw', 'tonii_all', str(parent),
                            '--output', str(tmp_path / 'nii')])
 
 
@@ -622,7 +622,7 @@ def test_software_versions_sidecar_is_string(lego_study, tmp_path):
     exercise the coercion."""
     import json
 
-    from brkraw_legacy import BrukerLoader
+    from pvraw import BrukerLoader
 
     d = BrukerLoader(str(lego_study))
     for sid in d.avail_scan_id:
@@ -653,15 +653,15 @@ def test_asl_scans_become_perf(lego_study, tmp_path):
     import nibabel as nib
     import pandas as pd
 
-    from brkraw_legacy import BrukerLoader
-    from brkraw_legacy.lib import asl as asl_lib
+    from pvraw import BrukerLoader
+    from pvraw.lib import asl as asl_lib
 
     sample_parent = tmp_path / 'sample'
     sample_parent.mkdir()
     (sample_parent / lego_study.name).symlink_to(lego_study.resolve())
     sheet = tmp_path / 'map'
     out = tmp_path / 'out'
-    subprocess.check_call(['brkraw-legacy', 'bids_helper', str(sample_parent), str(sheet), '-j'])
+    subprocess.check_call(['pvraw', 'bids_helper', str(sample_parent), str(sheet), '-j'])
     df = pd.read_csv(str(sheet) + '.csv')
 
     loader = BrukerLoader(str(lego_study))
@@ -672,7 +672,7 @@ def test_asl_scans_become_perf(lego_study, tmp_path):
         assigned = set(df[df['ScanID'] == s]['DataType'])
         assert assigned == {'perf'}, f'ASL scan {s} classified as {assigned}, expected perf'
 
-    subprocess.check_call(['brkraw-legacy', 'bids_convert', str(sample_parent),
+    subprocess.check_call(['pvraw', 'bids_convert', str(sample_parent),
                            str(sheet) + '.csv', '-j', str(sheet) + '.json',
                            '--output', str(out)])
     contexts = list(out.rglob('*_aslcontext.tsv'))
@@ -696,8 +696,8 @@ def test_multiecho_gets_echo_entity(lego_study, tmp_path):
     """
     import types
 
-    from brkraw_legacy import BrukerLoader
-    from brkraw_legacy.lib.utils import build_bids_json
+    from pvraw import BrukerLoader
+    from pvraw.lib.utils import build_bids_json
 
     d = BrukerLoader(str(lego_study))
     scan = next((s for s in d.avail_scan_id if d.is_multi_echo(s, 1)), None)
@@ -725,14 +725,14 @@ def test_derived_reconstructions_classified_by_what_they_contain(h2_study, tmp_p
     """
     import pandas as pd
 
-    from brkraw_legacy import BrukerLoader
-    from brkraw_legacy.lib import derived
+    from pvraw import BrukerLoader
+    from pvraw.lib import derived
 
     sample = tmp_path / 'sample'
     sample.mkdir()
     (sample / h2_study.name).symlink_to(h2_study.resolve())
     sheet = tmp_path / 'map'
-    subprocess.check_call(['brkraw-legacy', 'bids_helper', str(sample), str(sheet)])
+    subprocess.check_call(['pvraw', 'bids_helper', str(sample), str(sheet)])
     df = pd.read_csv(str(sheet) + '.csv')
 
     d = BrukerLoader(str(h2_study))
@@ -767,12 +767,12 @@ def test_unvalidated_scans_are_kept_outside_the_validated_tree(h2_study, tmp_pat
     (sample / h2_study.name).symlink_to(h2_study.resolve())
     sheet = tmp_path / 'map'
     out = tmp_path / 'out'
-    subprocess.check_call(['brkraw-legacy', 'bids_helper', str(sample), str(sheet), '-j'])
-    subprocess.check_call(['brkraw-legacy', 'bids_convert', str(sample),
+    subprocess.check_call(['pvraw', 'bids_helper', str(sample), str(sheet), '-j'])
+    subprocess.check_call(['pvraw', 'bids_convert', str(sample),
                            str(sheet) + '.csv', '-j', str(sheet) + '.json',
                            '--output', str(out)])
 
-    derivatives = out / 'derivatives' / 'brkraw-legacy'
+    derivatives = out / 'derivatives' / 'pvraw'
     kept = list((out / 'sourcedata').rglob('*.nii.gz')) + list(derivatives.rglob('*.nii.gz'))
     assert kept, 'expected unclassified or derived scans to be kept, not dropped'
 
@@ -801,8 +801,8 @@ def test_multislicepack_uses_chunk_entity(h2_study, tmp_path):
     (sample / h2_study.name).symlink_to(h2_study.resolve())
     sheet = tmp_path / 'map'
     out = tmp_path / 'out'
-    subprocess.check_call(['brkraw-legacy', 'bids_helper', str(sample), str(sheet), '-j'])
-    subprocess.check_call(['brkraw-legacy', 'bids_convert', str(sample),
+    subprocess.check_call(['pvraw', 'bids_helper', str(sample), str(sheet), '-j'])
+    subprocess.check_call(['pvraw', 'bids_convert', str(sample),
                            str(sheet) + '.csv', '-j', str(sheet) + '.json',
                            '--output', str(out)])
     # The validated tree only: sourcedata/ and derivatives/ are outside BIDS
@@ -829,8 +829,8 @@ def test_single_echo_msme_is_t2w_not_mese(h2_study, tmp_path):
 
     import pandas as pd
 
-    from brkraw_legacy import BrukerLoader
-    from brkraw_legacy.scripts.brkraw_legacy import is_localizer
+    from pvraw import BrukerLoader
+    from pvraw.scripts.pvraw import is_localizer
 
     d = BrukerLoader(str(h2_study))
     scan = next((s for s in d.avail_scan_id
@@ -852,7 +852,7 @@ def test_single_echo_msme_is_t2w_not_mese(h2_study, tmp_path):
     parent.mkdir()
     (parent / 'study').symlink_to(study.resolve())
     sheet = tmp_path / 'map'
-    subprocess.check_call(['brkraw-legacy', 'bids_helper', str(parent), str(sheet)])
+    subprocess.check_call(['pvraw', 'bids_helper', str(parent), str(sheet)])
     df = pd.read_csv(str(sheet) + '.csv')
     row = df[df['ScanID'] == scan]
     assert not row.empty and row.iloc[0]['modality'] == 'T2w', \
@@ -867,7 +867,7 @@ def test_dwi_bval_tiled_to_volume_count(h2_study, tmp_path):
     block-wise, not element-wise."""
     import numpy as np
 
-    from brkraw_legacy import BrukerLoader
+    from pvraw import BrukerLoader
 
     d = BrukerLoader(str(h2_study))
     scan = next((s for s in d.avail_scan_id

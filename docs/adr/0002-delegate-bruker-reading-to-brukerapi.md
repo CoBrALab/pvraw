@@ -4,6 +4,10 @@
   [the amendment](#amendment-2026-07-26-the-geometry-boundary-moves)
 - Date: 2026-07-23 (implementation notes added 2026-07-24)
 
+> **Naming.** This ADR predates the rename of the project from `brkraw-legacy` to
+> `pvraw` (0.6.0). It is left in its original words as a dated record; `brkraw`,
+> `brkraw-legacy` and `brkraw_legacy` below all refer to what is now `pvraw`.
+
 ## Context
 
 brkraw-legacy owns roughly 1,900 lines that read Bruker data and nothing else:

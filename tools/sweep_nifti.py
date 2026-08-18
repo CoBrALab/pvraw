@@ -21,9 +21,9 @@ from pathlib import Path
 
 import numpy as np
 
-logging.disable(logging.CRITICAL)  # silence brkraw's own logging noise
+logging.disable(logging.CRITICAL)  # silence pvraw's own logging noise
 
-from brkraw_legacy import BrukerLoader
+from pvraw import BrukerLoader
 
 _REPO = Path(__file__).resolve().parent.parent
 def _parse_argv(argv):
@@ -104,7 +104,7 @@ def excluded(p: Path) -> bool:
 def discover(root: Path):
     """Return list of (label, path, kind)."""
     units = []
-    # 1. archives brkraw reads directly
+    # 1. archives pvraw reads directly
     for pat in ('*.zip', '*.PvDatasets'):
         for p in sorted(root.rglob(pat)):
             if p.is_file() and not excluded(p):

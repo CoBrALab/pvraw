@@ -21,4 +21,12 @@ jobs:
       uses: citation-file-format/cffconvert-github-action@2.0.0
       with:
         args: --validate
+    # cffconvert validates the schema, never the values, so the version silently
+    # drifted from the package for two releases. This is the check that catches it.
+    - name: Check CITATION.cff version matches the package
+      run: |
+        cff=$(sed -n 's/^version: *"\(.*\)"/\1/p' CITATION.cff)
+        pkg=$(sed -n "s/^__version__ = '\(.*\)'/\1/p" pvraw/__init__.py)
+        echo "CITATION.cff=$cff  pvraw.__version__=$pkg"
+        test "$cff" = "$pkg"
 

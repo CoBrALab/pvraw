@@ -2,9 +2,9 @@
 import numpy as np
 import pytest
 
-from brkraw_legacy import BrukerLoader
-from brkraw_legacy.app.tonifti import StudyToNifti
-from brkraw_legacy.lib.errors import UnexpectedError
+from pvraw import BrukerLoader
+from pvraw.app.tonifti import StudyToNifti
+from pvraw.lib.errors import UnexpectedError
 
 
 def test_api_matches_loader_across_scans(lego_study):

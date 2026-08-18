@@ -9,7 +9,7 @@ import nibabel as nib
 import numpy as np
 import pytest
 
-from brkraw_legacy.app.tonifti.header import Header
+from pvraw.app.tonifti.header import Header
 
 
 def _scaninfo(slice_order_scheme='Sequential', num_cycles=1, time_step=0.0,
@@ -134,4 +134,4 @@ def test_cal_range_in_true_units_and_descrip():
     out = _make_header(_scaninfo(slope=2.0, offset=5.0), data=arr, scale_mode='header')
     assert float(out.header['cal_min']) == pytest.approx(25.0)     # 2*10 + 5
     assert float(out.header['cal_max']) == pytest.approx(405.0)    # 2*200 + 5
-    assert bytes(out.header['descrip']).rstrip(b'\x00') == b'brkraw-legacy'
+    assert bytes(out.header['descrip']).rstrip(b'\x00') == b'pvraw'

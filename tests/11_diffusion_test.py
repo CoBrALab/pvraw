@@ -5,7 +5,7 @@ no dataset is needed.
 """
 import numpy as np
 
-from brkraw_legacy.lib.loader import BrukerLoader
+from pvraw.lib.loader import BrukerLoader
 
 
 def test_reorient_bvecs_axis_aligned_is_noop():

@@ -1,6 +1,6 @@
 # BIDS conformance plan
 
-How BrkRaw-legacy gets from "zero validator errors" to "everything Bruker records,
+How pvraw gets from "zero validator errors" to "everything Bruker records,
 said in BIDS". Written 2026-08-07.
 
 ## The constraint
@@ -230,7 +230,7 @@ as `MESE`, the exact confusion this ends.
 
 Everything else derived, and everything unclassifiable, is now **kept** rather than
 dropped — 33 scans on the PV6 study. A ParaVision-computed stack with no single
-suffix goes to `derivatives/brkraw-legacy/` with its own `dataset_description.json`
+suffix goes to `derivatives/pvraw/` with its own `dataset_description.json`
 (`DatasetType: derivative`); a scan we could not classify goes to `sourcedata/`,
 since it is not derived at all, only uninterpreted. Both directories are
 validator-ignored by definition, so 33 recovered scans cost no errors and no
@@ -369,7 +369,7 @@ the sign" — has been open since 2022.
 
 ## Track 3 — FILE_FORMAT.md
 
-Completion bar: every parameter `brkraw_legacy` reads, every parameter that appears
+Completion bar: every parameter `pvraw` reads, every parameter that appears
 in real ParaVision files, **and** chapter-complete against the manuals' own Data
 Formats chapters.
 

@@ -7,7 +7,7 @@ import datetime as dt
 
 import pytest
 
-from brkraw_legacy.lib import tabular
+from pvraw.lib import tabular
 
 
 class _p(dict):
@@ -161,7 +161,7 @@ def test_rerunning_into_an_existing_tree_is_allowed(tmp_path):
     It used to call sys.exit() when participants.tsv already existed, so a subject
     could never be added to a converted dataset.
     """
-    from brkraw_legacy.scripts.brkraw_legacy import generateModalityAgnosticFiles
+    from pvraw.scripts.pvraw import generateModalityAgnosticFiles
 
     generateModalityAgnosticFiles(str(tmp_path), None)
     generateModalityAgnosticFiles(str(tmp_path), None)   # must not raise SystemExit
@@ -176,7 +176,7 @@ def test_participant_sidecar_is_not_written_without_its_table(tmp_path):
     does not exist. The full-corpus sweep caught this on 11 units, all of them
     studies where nothing reaches the validated tree.
     """
-    from brkraw_legacy.scripts.brkraw_legacy import (
+    from pvraw.scripts.pvraw import (
         generateModalityAgnosticFiles,
         writeParticipantTables,
     )

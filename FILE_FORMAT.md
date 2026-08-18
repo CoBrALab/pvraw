@@ -2944,7 +2944,7 @@ Zenodo [4522220](https://zenodo.org/records/4522220)):
 > `fid.npz` / `2dseq.npz` (NumPy reference arrays) and a few `.json` serializations
 > (`subject.json`, `<expno>/acqp.json`, …) emitted by the `brukerapi-python` library. A reader that
 > keys datasets off the filename stem (see [Section 3.5](#35-method-specific-auxiliary-files))
-> should treat `.npz`/`.json` as non-Bruker and skip them — brkraw-legacy already does, converting
+> should treat `.npz`/`.json` as non-Bruker and skip them — pvraw already does, converting
 > the PV7 study with no code changes (all 30 image scans → NIfTI, spectroscopic scans rejected
 > cleanly).
 >

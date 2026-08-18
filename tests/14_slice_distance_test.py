@@ -15,7 +15,7 @@ one, and that a reconstruction it cannot answer for still reports something.
 """
 import pytest
 
-from brkraw_legacy.api.helper.slicepack import SlicePack
+from pvraw.api.helper.slicepack import SlicePack
 
 
 class _Params(dict):
