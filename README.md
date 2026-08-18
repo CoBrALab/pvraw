@@ -14,7 +14,7 @@ It has three parts:
   the affine already correct, so there is no conversion step;
 - a **low-level Python API** for reading Bruker parameter and binary files as plain Python types.
 
-New to pvraw? Start with **[Tutorial: your first conversion](docs/tutorial-first-conversion.md)**,
+New to pvraw? Start with **[Tutorial: your first conversion](https://github.com/gdevenyi/pvraw/blob/main/docs/tutorial-first-conversion.md)**,
 which takes a public sample study to a validated BIDS dataset end to end.
 
 Report issues at [gdevenyi/pvraw](https://github.com/gdevenyi/pvraw/issues).
