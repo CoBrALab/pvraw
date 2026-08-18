@@ -299,7 +299,7 @@ reconstructions were written to `derivatives/brkraw-legacy/`. From 0.6.0 all thr
 `pvraw`. If you hold a dataset converted with an older version, that is why its provenance
 strings differ.
 
-**The original pvraw authors**, whose work this is built on:
+**The original BrkRaw authors**, whose work this is built on:
 
 - SungHo Lee (shlee@unc.edu) — main developer
 - Woomi Ban (banwoomi@unc.edu) — tested and refined the module structure

@@ -36,12 +36,6 @@ Anything that could move geometry or change sidecars also needs a
 `tools/sweep_nifti.py --compare` run against a corpus — see the Development section of the
 README. Geometry is verified against data, not against recorded output.
 
-## Related repositories
-
-- **[brkraw-dataset](https://github.com/BrkRaw/brkraw-dataset)** — upstream's example data,
-  used here as a test fixture (see `DATASETS.md`). It belongs to the upstream BrkRaw project;
-  contributions to it go there, not here.
-
 ## Before you start
 
 Check the open issues to see whether your question has already been answered or the feature
