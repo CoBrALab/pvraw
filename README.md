@@ -149,7 +149,7 @@ kept without costing an error.
 
 ## Python API
 
-> **Changed in 0.5.0.** All Bruker file reading is delegated to
+> **Changed in 1.0.** All Bruker file reading is delegated to
 > [`brukerapi`](https://github.com/isi-nmr/brukerapi-python) (see
 > `docs/adr/0002-delegate-bruker-reading-to-brukerapi.md`). `study.pvobj` is now a
 > `brukerapi` folder rather than a `PvDataset`, the scan/reco listings and subject fields
@@ -292,12 +292,13 @@ delegated to [`brukerapi`](https://github.com/isi-nmr/brukerapi-python) (see
 `docs/adr/0002-delegate-bruker-reading-to-brukerapi.md`). What remains here is how the subject was
 framed, the NIfTI headers, and BIDS.
 
-**Naming.** Everything up to and including version 0.5.0 was distributed as `brkraw-legacy`
-and signed its output that way: NIfTI files carry `brkraw-legacy` in the header `descrip`
-field, BIDS `dataset_description.json` names `BrkRaw-legacy` under `GeneratedBy`, and derived
-reconstructions were written to `derivatives/brkraw-legacy/`. From 0.6.0 all three say
-`pvraw`. If you hold a dataset converted with an older version, that is why its provenance
-strings differ.
+**Naming.** 1.0.0 is the first release under the `pvraw` name, and the first tagged release
+of this project at all — earlier work was installable only from git, under the name
+`brkraw-legacy`, and signed its output that way: NIfTI files carry `brkraw-legacy` in the
+header `descrip` field, BIDS `dataset_description.json` names `BrkRaw-legacy` under
+`GeneratedBy`, and derived reconstructions were written to `derivatives/brkraw-legacy/`. From
+1.0.0 all three say `pvraw`. If you hold a dataset converted before that, this is why its
+provenance strings differ.
 
 **The original BrkRaw authors**, whose work this is built on:
 
