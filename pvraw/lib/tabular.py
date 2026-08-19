@@ -68,14 +68,14 @@ def parse_datetime(value):
     legacy = _LEGACY_DATETIME.match(text)
     if legacy:
         hour, minute, second, date_part = legacy.groups()
-        day = _parse_date(date_part)
+        day = parse_date(date_part)
         if day is None:
             return None
         return dt.datetime.combine(day, dt.time(int(hour), int(minute), int(second)))
     return None
 
 
-def _parse_date(value):
+def parse_date(value):
     """A bare ``D Mon YYYY`` date, or None. Used for SUBJECT_dbirth."""
     if value is None:
         return None
@@ -141,7 +141,7 @@ def age_years(subject):
     for one. Emitting the birth date would be both non-conforming and careless --
     the age is the fact worth keeping, the birth date is only its source.
     """
-    born = _parse_date(get_value(subject, 'SUBJECT_dbirth'))
+    born = parse_date(get_value(subject, 'SUBJECT_dbirth'))
     scanned = parse_datetime(get_value(subject, 'SUBJECT_date')
                              or get_value(subject, 'SUBJECT_study_date'))
     if born is None or scanned is None:

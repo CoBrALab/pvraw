@@ -697,10 +697,9 @@ class BrukerLoader:
 
         ``sw_version`` becomes ``pv_version`` (brukerapi's normalisation from
         the first readable reconstruction, falling back to the subject-file
-        TITLE); the date turns ISO 8601; sex is replaced by its normalised
+        TITLE); the dates turn ISO 8601; sex is replaced by its normalised
         spelling and ``weight_kg``/``age_years`` are derived (``lib.tabular``)
-        where the raw values allow it. The raw ``dob`` and ``weight`` stay --
-        one is identity rather than a derived value, the other keeps
+        where the raw values allow it. The raw ``weight`` stays -- it keeps
         ParaVision's unset sentinel visible to QC.
         """
         sw_version = header.pop('sw_version', None)
@@ -714,6 +713,9 @@ class BrukerLoader:
         stamp = tabular.parse_datetime(header.get('date'))
         if stamp:
             header['date'] = stamp.isoformat()
+        born = tabular.parse_date(header.get('dob'))
+        if born:
+            header['dob'] = born.isoformat()
         header['sex'] = tabular.sex(self.subject) or header.get('sex')
         header['weight_kg'] = tabular.weight_kg(self.subject)
         header['age_years'] = tabular.age_years(self.subject)

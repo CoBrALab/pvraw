@@ -68,6 +68,16 @@ def test_info_json_is_parseable_and_shaped(h2_study):
     assert any(r['bids'] for r in recos)
 
 
+def test_info_json_dates_are_iso(lego_study):
+    """The study date and dob are ISO 8601, not ParaVision's spellings
+    ('28 Feb 2020'). The lego study records both; h2 (PV5.1) writes no dob."""
+    out = subprocess.run(['pvraw', 'info', '--json', str(lego_study)],
+                         capture_output=True, text=True, check=True)
+    study = json.loads(out.stdout)['study']
+    assert study['dob'] == '2020-02-28'
+    assert study['date'].startswith('2020-06-12T')
+
+
 def test_info_text_summarises_the_study(h2_study):
     out = subprocess.run(['pvraw', 'info', str(h2_study)],
                          capture_output=True, text=True, check=True)
