@@ -20,7 +20,6 @@ dependencies = [
     'brukerapi>=0.4.5',
     'pyyaml>=6.0.1',
     'numpy>=1.23.2',
-    'reshipe>=0.1.0',
     'nibabel>=3.2.1',
     'pandas>=1.5.0',
     # >=1.2 for `schema.bids_version` and the `rules.sidecars` layout the BIDS
