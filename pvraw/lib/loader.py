@@ -7,6 +7,7 @@ import warnings
 import numpy as np
 
 from ..api.helper.base import image_shape
+from . import derived, tabular
 from .errors import InvalidApproach, InvalidValueInField, UnexpectedError
 from .reference import COMMON_META_REF, ERROR_MESSAGES
 from .subject_orient import SUBJECT_POSE, SUBJECT_TYPES, normalize_subject_type
@@ -672,8 +673,124 @@ class BrukerLoader:
             tap = ''.join(['\t'] * n_tap)
             print(f'{k}:{tap}{val}', file=fobj)
 
+    def info_dict(self):
+        """The study summary as one JSON-serialisable dict.
+
+        The single source of truth for ``info()`` and ``pvraw info --json``::
+
+            {'study': {...},
+             'scans': [{'scan_id': N, ..., 'recos': [{'reco_id': N, ...}]}]}
+
+        Scans stay in acquisition order with their ids as explicit integer
+        fields. A scan or reconstruction that could not be read is kept as an
+        entry carrying only its id and an ``error`` message -- for a QC
+        consumer an unreadable scan is a finding, not something to omit.
+        """
+        spine = self._study.info
+        return _as_json_value({
+            'study': self._study_block(dict(spine['header'] or {})),
+            'scans': [self._scan_block(scan_id, header)
+                      for scan_id, header in spine['scans'].items()]})
+
+    def _study_block(self, header):
+        """The recipe's study header, normalised for machine consumers.
+
+        ``sw_version`` becomes ``pv_version`` (brukerapi's normalisation from
+        the first readable reconstruction, falling back to the subject-file
+        TITLE); the dates turn ISO 8601; sex is replaced by its normalised
+        spelling and ``weight_kg``/``age_years`` are derived (``lib.tabular``)
+        where the raw values allow it. The raw ``weight`` stays -- it keeps
+        ParaVision's unset sentinel visible to QC.
+        """
+        sw_version = header.pop('sw_version', None)
+        header['pv_version'] = self._first_pv_version() or sw_version
+        # PV360 records the position in one parameter; older versions split it
+        # over entry/position, which subj_entry/subj_pose already resolve.
+        position = self._subject_value('SUBJECT_study_instrument_position')
+        if position is None and self.subj_entry and self.subj_pose:
+            position = f'{self.subj_entry}_{self.subj_pose}'
+        header['position'] = position
+        stamp = tabular.parse_datetime(header.get('date'))
+        if stamp:
+            header['date'] = stamp.isoformat()
+        born = tabular.parse_date(header.get('dob'))
+        if born:
+            header['dob'] = born.isoformat()
+        header['sex'] = tabular.sex(self.subject) or header.get('sex')
+        header['weight_kg'] = tabular.weight_kg(self.subject)
+        header['age_years'] = tabular.age_years(self.subject)
+        return header
+
+    def _first_pv_version(self):
+        """`brukerapi`'s ParaVision version, from the first readable reco."""
+        for scan_id, recos in self.avail_reco_id.items():
+            try:
+                dataset = self._study.get_scan(scan_id).get_dataset(recos[0])
+                version = self._pv_version(dataset, self._get_visu_pars(scan_id, recos[0]))
+            except Exception:
+                version = None
+            if version is not None:
+                return version
+        return None
+
+    def _scan_block(self, scan_id, header):
+        entry = {'scan_id': scan_id,
+                 **{k: v for k, v in header.items() if k != 'recos'}}
+        if 'error' in header:
+            entry['recos'] = []
+            return entry
+        entry['diffusion'] = self._diffusion_summary(scan_id)
+        entry['recos'] = [self._reco_block(scan_id, reco_id, reco_header)
+                          for reco_id, reco_header in (header.get('recos') or {}).items()]
+        return entry
+
+    def _diffusion_summary(self, scan_id):
+        """``{'num_bvals', 'num_directions'}``, or None without diffusion parameters."""
+        method = self.get_method(scan_id)
+        bvals = get_value(method, 'PVM_DwEffBval')
+        bvecs = get_value(method, 'PVM_DwGradVec')
+        if bvals is None and bvecs is None:
+            return None
+        return {'num_bvals': int(np.size(bvals)) if bvals is not None else 0,
+                'num_directions': len(bvecs) if bvecs is not None else 0}
+
+    def _reco_block(self, scan_id, reco_id, header):
+        if 'error' in header:
+            return {'reco_id': reco_id, 'error': header['error']}
+        entry = {'reco_id': reco_id, **header}
+        # The recipe dicts are cached on the Study; never append into them.
+        entry['warns'] = list(header.get('warns') or [])
+        try:
+            self._enrich_reco(entry, scan_id, reco_id)
+        except Exception as error:
+            entry['warns'].append(
+                f'Could not derive the assembled-image fields ({error}).')
+        return entry
+
+    def _enrich_reco(self, entry, scan_id, reco_id):
+        """The fields derived from the assembled image rather than the recipe."""
+        from . import bids  # deferred: importing bids loads the BIDS schema
+
+        visu_pars = self._get_visu_pars(scan_id, reco_id)
+        groups = self.get_frame_groups(scan_id, reco_id)
+        _, dim_class = self._get_dim_info(visu_pars)
+        entry['dim_class'] = dim_class
+        spatial = dim_class == 'spatial_only'
+        entry['shape'] = (image_shape(self._study.get_scan(scan_id).get_dataset(reco_id))
+                          if spatial else None)
+        volumes = [size for name, size in groups
+                   if not re.search('slice', name, re.IGNORECASE)]
+        entry['num_volumes'] = int(np.prod(volumes or [1]))
+        scan_time = entry.get('scan_time_ms')
+        entry['temporal_resolution_ms'] = (scan_time / entry['num_volumes']
+                                           if scan_time else None)
+        entry['frame_groups'] = [[name, int(size)] for name, size in groups]
+        entry['derived'] = derived.is_derived(groups)
+        entry['bids'] = bids.predict_conversion(self.get_method(scan_id), visu_pars, groups)
+
     def info(self, io_handler=None):
-        """ Prints out the information of the internal contents in Bruker raw data
+        """Print the study summary -- the text rendering of ``info_dict``.
+
         Args:
             io_handler: IO handler where to print out
         """
@@ -686,36 +803,7 @@ class BrukerLoader:
                              "(no subject file or no scans found).\n")
             return
 
-        lines = []
-        for i, (scan_id, recos) in enumerate(self.avail_reco_id.items()):
-            for j, reco_id in enumerate(recos):
-                visu_pars = self._get_visu_pars(scan_id, reco_id)
-                if i == 0 and j == 0:
-                    lines.extend(self._info_header(
-                        self._study.get_scan(scan_id).get_dataset(reco_id), visu_pars))
-                tr = get_value(visu_pars, 'VisuAcqRepetitionTime')
-                tr = ','.join(map(str, tr)) if isinstance(tr, (list, np.ndarray)) else tr
-                te = get_value(visu_pars, 'VisuAcqEchoTime')
-                te = 0 if te is None else te
-                te = ','.join(map(str, te)) if isinstance(te, (list, np.ndarray)) else te
-                pixel_bw = get_value(visu_pars, 'VisuAcqPixelBandwidth')
-                flip_angle = get_value(visu_pars, 'VisuAcqFlipAngle')
-                scanname = get_value(self.get_acqp(scan_id), 'ACQ_scan_name')
-                param_values = [tr, te, pixel_bw, flip_angle]
-                for k, v in enumerate(param_values):
-                    if v is None:
-                        param_values[k] = ''
-                    if isinstance(v, float):
-                        param_values[k] = f'{v:.2f}'
-                if j == 0:
-                    params = "[ TR: {} ms, TE: {} ms, pixelBW: {} Hz, FlipAngle: {} degree]".format(
-                        *param_values)
-                    protocol_name = get_value(visu_pars, 'VisuAcquisitionProtocol')
-                    sequence_name = get_value(visu_pars, 'VisuAcqSequenceName')
-                    lines.append(f'[{str(scan_id).zfill(3)}]\t{sequence_name}::{protocol_name}::{scanname}\n\t{params}')
-                lines.append(self._info_reco(scan_id, reco_id, visu_pars))
-        lines.append('\n')
-        print('\n'.join(lines), file=io_handler)
+        print('\n'.join(self._render_info(self.info_dict())), file=io_handler)
 
     @staticmethod
     def _pv_version(dataset, visu_pars):
@@ -728,49 +816,90 @@ class BrukerLoader:
         version = dataset.get('pv_version')
         return str(version) if version is not None else get_value(visu_pars, 'VisuCreatorVersion')
 
-    def _info_header(self, dataset, visu_pars):
-        """The study-level block of ``info``."""
-        title = f'Paravision {self._pv_version(dataset, visu_pars)}'
+    @classmethod
+    def _render_info(cls, info):
+        """``info_dict``'s content as the lines ``info`` prints."""
+        study = info['study']
+        title = f"Paravision {study.get('pv_version')}"
         lines = [title, '-' * len(title)]
-        try:
-            datetime = self.get_scan_time()
-        except Exception:
-            datetime = {'date': 'None'}
-        lines.append(f'UserAccount:\t{self.user_account}')
-        lines.append('Date:\t\t{}'.format(datetime['date']))
-        lines.append(f'Researcher:\t{self.user_name}')
-        lines.append(f'Subject ID:\t{self.subj_id}')
-        lines.append(f'Session ID:\t{self.session_id}')
-        lines.append(f'Study ID:\t{self.study_id}')
-        lines.append(f'Date of Birth:\t{self.subj_dob}')
-        lines.append(f'Sex:\t\t{self.subj_sex}')
-        lines.append(f'Weight:\t\t{self.subj_weight} kg')
-        lines.append(f'Subject Type:\t{self.subj_type}')
-        lines.append(f'Position:\t{self.subj_pose}\t\tEntry:\t{self.subj_entry}')
-        lines.append('\n[ScanID]\tSequence::Protocol::[Parameters]')
+        weight_kg = study.get('weight_kg')
+        age = study.get('age_years')
+        rows = [('UserAccount', study.get('operator')),
+                ('Date', study.get('date')),
+                ('Researcher', study.get('name')),
+                ('Subject ID', study.get('id')),
+                ('Session ID', study.get('study_nr')),
+                ('Study ID', study.get('study_name')),
+                ('Date of Birth', study.get('dob')),
+                ('Sex', study.get('sex')),
+                ('Age', f'{age} years' if age is not None else None),
+                ('Weight', f'{weight_kg} kg' if weight_kg is not None
+                           else study.get('weight')),
+                ('Subject Type', study.get('type')),
+                ('Position', study.get('position'))]
+        lines.extend(f'{label + ":":<15}{value}' for label, value in rows
+                     if value is not None)
+        lines.append('\n[ScanID]  Sequence::Protocol::ScanName')
+        for scan in info['scans']:
+            lines.extend(cls._render_scan(scan))
+        lines.append('')
         return lines
 
-    def _info_reco(self, scan_id, reco_id, visu_pars):
-        """The per-reconstruction line of ``info``."""
-        dim, cls = self._get_dim_info(visu_pars)
-        if cls != 'spatial_only':
-            return f'    [{str(reco_id).zfill(2)}] dim: {dim}, {cls}'
-        scanobj = self._study.get_scan(scan_id)
-        info = scanobj.get_scaninfo(reco_id)
-        size = ' x '.join(map(str, image_shape(scanobj.get_dataset(reco_id))))
-        fov_size = ' x '.join(map(str, info.image['field_of_view']))
-        resol = list(info.image['resolution'])
-        if len(resol) == 2:
-            resol = resol + [info.slicepack['slice_distances_each_pack'][0]]
-        s_resol = ' x '.join([f'{r:.3f}' for r in resol])
-        volumes = [size for name, size in self.get_frame_groups(scan_id, reco_id)
-                   if not re.search('slice', name, re.IGNORECASE)]
-        num_volumes = int(np.prod(volumes or [1]))
-        t_resol = '{:.3f}'.format(info.cycle['scan_time'] / num_volumes)
-        return ('    [{}] dim: {}D, matrix_size: {}, fov_size: {} (unit:mm)\n'
-                '         spatial_resol: {} (unit:{}), temporal_resol: {} (unit:{})'.format(
-                    str(reco_id).zfill(2), dim, size, fov_size,
-                    s_resol, info.image['unit'], t_resol, info.cycle['unit']))
+    @classmethod
+    def _render_scan(cls, scan):
+        sid = str(scan['scan_id']).zfill(3)
+        if 'error' in scan:
+            return [f'[{sid}]  ERROR: {scan["error"]}']
+        lines = [(f'[{sid}]  {scan.get("sequence")}::{scan.get("protocol")}'
+                  f'::{scan.get("scan_name")}'),
+                 '      [ TR: {} ms, TE: {} ms, pixelBW: {} Hz, FlipAngle: {} degree ]'
+                 .format(cls._fmt_num(scan.get('tr_ms')), cls._fmt_num(scan.get('te_ms')),
+                         cls._fmt_num(scan.get('pixel_bandwidth_hz')),
+                         cls._fmt_num(scan.get('flip_angle_deg')))]
+        for reco in scan.get('recos') or []:
+            lines.extend(cls._render_reco(reco))
+        return lines
+
+    @classmethod
+    def _render_reco(cls, reco):
+        rid = str(reco['reco_id']).zfill(2)
+        if 'error' in reco:
+            return [f'    [{rid}] ERROR: {reco["error"]}']
+        if reco.get('dim_class') != 'spatial_only':
+            return [f'    [{rid}] dim: {reco.get("dim")}, {reco.get("dim_class")}']
+        shape = ' x '.join(map(str, reco.get('shape') or []))
+        fov = ' x '.join(map(str, reco.get('fov_mm') or []))
+        resol = list(reco.get('resolution_mm') or [])
+        if len(resol) == 2 and reco.get('slice_distances_mm'):
+            resol = resol + [reco['slice_distances_mm'][0]]
+        s_resol = ' x '.join(f'{r:.3f}' for r in resol)
+        t_resol = reco.get('temporal_resolution_ms')
+        t_resol = f'{t_resol:.3f}' if t_resol is not None else ''
+        lines = [(f'    [{rid}] dim: {reco.get("dim")}D, matrix_size: {shape}, '
+                  f'fov_size: {fov} (unit:mm)'),
+                 (f'         spatial_resol: {s_resol} (unit:mm), '
+                  f'temporal_resol: {t_resol} (unit:ms)')]
+        tags = []
+        if reco.get('derived'):
+            tags.append('derived')
+        if reco.get('bids'):
+            tags.append('bids: ' + '/'.join(
+                filter(None, [reco['bids'].get('datatype'), reco['bids'].get('suffix')])))
+        if tags:
+            lines.append('         ' + ', '.join(tags))
+        lines.extend(f'         warning: {warn}' for warn in reco.get('warns') or [])
+        return lines
+
+    @staticmethod
+    def _fmt_num(value):
+        """Numbers as ``info`` prints them: 2 decimals, lists comma-joined."""
+        if value is None:
+            return ''
+        if isinstance(value, (list, tuple)):
+            return ','.join(BrukerLoader._fmt_num(v) for v in value)
+        if isinstance(value, float):
+            return f'{value:.2f}'
+        return str(value)
 
     # DTI
     @staticmethod

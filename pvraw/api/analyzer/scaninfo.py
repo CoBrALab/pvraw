@@ -73,6 +73,7 @@ class ScanInfoAnalyzer(BaseAnalyzer):
     def _parse_info(self):
         """Derive the values the geometry, header and BIDS layers consume."""
         self.info_dataarray = helper.DataArray(self).get_info()
+        self.info_seqparams = helper.SeqParams(self).get_info()
         self.info_image = helper.Image(self).get_info()
         self.info_slicepack = helper.SlicePack(self).get_info()
         self.info_cycle = helper.Cycle(self).get_info()

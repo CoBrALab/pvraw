@@ -1,6 +1,8 @@
 import argparse
+import json
 import os
 import re
+import sys
 import warnings
 
 from .. import BrukerLoader, __version__
@@ -49,6 +51,10 @@ def main():
 
     info = subparsers.add_parser("info", help='Prints out the information of the internal contents in Bruker raw data')
     info.add_argument("input", help=input_str, type=str)
+    info.add_argument("--json", help="print the summary as JSON on stdout; warnings go to "
+                                     "stderr so stdout stays parsable "
+                                     "(default: human-readable text)",
+                      action='store_true')
 
     nii = subparsers.add_parser("tonii", help='Convert a single raw Bruker data into NifTi file(s)')
     niiall = subparsers.add_parser("tonii_all", help="Convert All raw Bruker data located in the input directory")
@@ -140,18 +146,20 @@ def main():
     args = parser.parse_args()
 
     if args.function == 'info':
-        path = args.input
-        if any([os.path.isdir(path), ('zip' in path), ('PvDataset' in path)]):
-            study = BrukerLoader(path)
-            study.info()
+        try:
+            study = BrukerLoader(args.input)
+        except FileNotValidError as error:
+            print(error.message, file=sys.stderr)
+            sys.exit(1)
+        if not study.is_pvdataset:
+            print(f"'{args.input}' is not a valid PvDataset "
+                  "(no subject file or no scans found).", file=sys.stderr)
+            sys.exit(1)
+        if args.json:
+            json.dump(study.info_dict(), sys.stdout, indent=2)
+            print()
         else:
-            list_path = [d for d in os.listdir('.') if (any([os.path.isdir(d),
-                                                             ('zip' in d),
-                                                             ('PvDataset' in d)]) and re.search(path, d, re.IGNORECASE))]
-            for p in list_path:
-                study = BrukerLoader(p)
-                study.info()
-
+            study.info()
 
     elif args.function == 'tonii':
         path     = args.input
@@ -436,8 +444,6 @@ def main():
             print('Creating JSON syntax template for parsing the BIDS required metadata '
                   f'(BIDS v{BIDS_VERSION}): {json_fname}')
             with open(json_fname, 'w') as f:
-                import json
-
                 from ..lib.reference import (
                     COMMON_META_REF,
                     FIELDMAP_META_REF,
@@ -729,36 +735,26 @@ def numRepetitions(dset, scan_id):
 
 def assignDataType (method):
     """To assign the dataType based on method.
+
+    The rules live in ``lib.bids.datatype_of_method`` (shared with ``info``'s
+    conversion prediction); what this wrapper adds is the datasheet-editing
+    guidance for the cases the user has to decide.
+
     Args:
         method (str): the Bruker method name (see scanMethod).
     Returns:
         str: the datatype.
     """
-    if re.search('epi', method, re.IGNORECASE) and not re.search('dti', method, re.IGNORECASE):
-        #Why epi is function here? there should at lease a comment.
-        datatype = 'func'
-    elif re.search('dti', method, re.IGNORECASE):
-        datatype = 'dwi'
-    elif re.search('flash', method, re.IGNORECASE) or re.search('rare', method, re.IGNORECASE):
-        datatype = 'anat'
-    elif re.search('fieldmap', method, re.IGNORECASE):
-        datatype = 'fmap'
-    elif re.search('MSME', method, re.IGNORECASE):
-        datatype = 'anat'
+    from ..lib.bids import datatype_of_method
 
+    datatype = datatype_of_method(method)
+    if datatype == 'anat' and re.search('MSME', method, re.IGNORECASE):
         # warn user for MSME default to anat and MESE
-        import warnings
         msg = "MSME found in your scan, default to anat DataType and MESE modality, " + \
-        "please update the datasheet to indicate the proper DataType if different than default." 
+        "please update the datasheet to indicate the proper DataType if different than default."
         warnings.warn(msg)
-
-    else:
-        # what is this? seems like holding files not able to identify
-        datatype = 'etc'
-
+    elif datatype == 'etc':
         # warn user to manually update the DataType in datasheet
-        import warnings
-        
         msg = "\n \n ----- Important ----- \
         \n We do not know how to classify some of your scan and marked them as etc.\
         \n To produce valid BIDS outputs, please update the datasheet to indicate the proper DataType for them \n"
@@ -1093,12 +1089,8 @@ def completeFieldsCreateFolders (df, filtered_dset, dset, multi_session, root_pa
 
 
 def is_localizer(dset, scan_id, reco_id):
-    ac_proc = get_value(dset.get_visu_pars(scan_id, reco_id), 'VisuAcquisitionProtocol')
-    if ac_proc is None:
-        return False
-    ac_proc = str(ac_proc)
-    return bool(re.search('tripilot', ac_proc, re.IGNORECASE)
-                or re.search('localizer', ac_proc, re.IGNORECASE))
+    from ..lib.bids import is_localizer_protocol
+    return is_localizer_protocol(dset.get_visu_pars(scan_id, reco_id))
 
 
 def override_header(pvobj, subjtype, position):

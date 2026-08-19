@@ -16,7 +16,9 @@ import re
 from bidsschematools import schema as _bst_schema
 from jsonschema import Draft202012Validator, FormatChecker
 
+from . import asl, derived
 from .errors import InvalidApproach
+from .utils import get_value
 
 _SCHEMA = _bst_schema.load_schema()
 
@@ -169,6 +171,84 @@ def build_path(entities, datatype, suffix, validate=True):
 def is_valid_label(value):
     """True when ``value`` is a valid BIDS entity label/index (alphanumeric only)."""
     return bool(_LABEL_RE.match(str(value)))
+
+
+# --------------------------------------------------------------------------- #
+# Conversion prediction
+#
+# What a scan would become in BIDS, decided from its parameters alone. The
+# same rules prefill the `bids_helper` datasheet (scripts/pvraw.py adds its
+# datasheet-editing warnings on top of them).
+# --------------------------------------------------------------------------- #
+
+def datatype_of_method(method_name):
+    """The BIDS datatype a Bruker method name maps to, else ``'etc'``.
+
+    'epi' is checked against 'dti' first: a DtiEpi method is diffusion,
+    not a functional run.
+    """
+    name = str(method_name)
+    if re.search('epi', name, re.IGNORECASE) and not re.search('dti', name, re.IGNORECASE):
+        return 'func'
+    if re.search('dti', name, re.IGNORECASE):
+        return 'dwi'
+    if re.search('flash|rare', name, re.IGNORECASE):
+        return 'anat'
+    if re.search('fieldmap', name, re.IGNORECASE):
+        return 'fmap'
+    if re.search('msme', name, re.IGNORECASE):
+        return 'anat'
+    return 'etc'
+
+
+def is_localizer_protocol(visu_pars):
+    """True when the acquisition protocol names a localizer/tripilot scan."""
+    protocol = get_value(visu_pars, 'VisuAcquisitionProtocol')
+    return bool(protocol and re.search('tripilot|localizer', str(protocol), re.IGNORECASE))
+
+
+def predict_conversion(method, visu_pars, frame_groups):
+    """Predicted BIDS ``{'datatype', 'suffix'}`` for one reconstruction, or None.
+
+    `method` is the scan's method file and `frame_groups` the ``(name, size)``
+    list from ``api.helper.frame_groups``. None means pvraw would not convert
+    this reconstruction into the validated tree without the user's say -- a
+    localizer, a derived stack with no single BIDS suffix, a single-volume
+    EPI, or a method the rules do not recognise. No heuristic goes beyond
+    the datasheet-prefill rules on purpose.
+
+    A field map predicts ``{'datatype': 'fmap', 'suffix': None}``: it converts
+    to a fieldmap/magnitude pair, so no single suffix names it.
+    """
+    method_name = get_value(method, 'Method')
+    if method_name is None or is_localizer_protocol(visu_pars):
+        return None
+    method_name = str(method_name)
+    if derived.is_derived(frame_groups):
+        found = derived.isa_map(visu_pars)
+        return {'datatype': 'anat', 'suffix': found[1]} if found else None
+    if asl.labeling_type(method_name):
+        return {'datatype': 'perf', 'suffix': 'asl'}
+    datatype = datatype_of_method(method_name)
+    if datatype == 'func':
+        try:
+            repetitions = int(get_value(method, 'PVM_NRepetitions', 1) or 1)
+        except Exception:
+            repetitions = 1
+        # A BOLD time-series needs more than one volume (BIDS BOLD_NOT_4D).
+        return {'datatype': 'func', 'suffix': 'bold'} if repetitions > 1 else None
+    if datatype == 'dwi':
+        return {'datatype': 'dwi', 'suffix': 'dwi'}
+    if datatype == 'fmap':
+        return {'datatype': 'fmap', 'suffix': None}
+    if datatype == 'anat':
+        if re.search('msme', method_name, re.IGNORECASE):
+            # Only a genuinely multi-echo reconstruction is a MESE; a
+            # single-echo MSME is a plain T2-weighted image.
+            multi_echo = any(name == 'echo' and size > 1 for name, size in frame_groups)
+            return {'datatype': 'anat', 'suffix': 'MESE' if multi_echo else 'T2w'}
+        return {'datatype': 'anat', 'suffix': default_suffix('anat', method_name)}
+    return None
 
 
 # --------------------------------------------------------------------------- #

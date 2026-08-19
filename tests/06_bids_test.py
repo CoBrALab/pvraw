@@ -235,6 +235,89 @@ def test_suffix_of(filename, expected):
 
 
 # --------------------------------------------------------------------------- #
+# Unit tests: conversion prediction (info --json's `bids` field, and the
+# rules behind bids_helper's datasheet prefill)
+# --------------------------------------------------------------------------- #
+
+class _Params(dict):
+    """A parameter file fake speaking `get_value`'s protocol."""
+    def get_parameter(self, key):
+        return _Value(self[key])
+
+
+class _Value:
+    def __init__(self, value):
+        self.value = value
+        self.val_str = str(value)
+        self.nested = value
+
+
+@pytest.mark.parametrize(('method', 'datatype'), [
+    ('Bruker:EPI', 'func'),
+    ('Bruker:DtiEpi', 'dwi'),          # 'dti' outranks the 'epi' substring
+    ('Bruker:FLASH', 'anat'),
+    ('Bruker:RARE', 'anat'),
+    ('Bruker:FieldMap', 'fmap'),
+    ('Bruker:MSME', 'anat'),
+    ('Bruker:SINGLEPULSE', 'etc'),
+])
+def test_datatype_of_method(method, datatype):
+    assert bids.datatype_of_method(method) == datatype
+
+
+def _predict(method_name, extra=None, visu=None, groups=()):
+    method = _Params({'Method': method_name, **(extra or {})})
+    return bids.predict_conversion(method, _Params(visu or {}), list(groups))
+
+
+def test_predict_localizer_is_not_converted():
+    visu = {'VisuAcquisitionProtocol': 'TriPilot-multi'}
+    assert _predict('Bruker:FLASH', visu=visu) is None
+
+
+def test_predict_epi_needs_more_than_one_volume():
+    assert _predict('Bruker:EPI', {'PVM_NRepetitions': 300}) == \
+        {'datatype': 'func', 'suffix': 'bold'}
+    assert _predict('Bruker:EPI', {'PVM_NRepetitions': 1}) is None
+
+
+def test_predict_fair_outranks_the_epi_substring():
+    """FAIR_EPI is perfusion, not a functional run."""
+    assert _predict('Bruker:FAIR_EPI') == {'datatype': 'perf', 'suffix': 'asl'}
+
+
+def test_predict_dti_and_anat():
+    assert _predict('Bruker:DtiEpi') == {'datatype': 'dwi', 'suffix': 'dwi'}
+    assert _predict('Bruker:FLASH') == {'datatype': 'anat', 'suffix': 'FLASH'}
+    assert _predict('Bruker:RARE') == {'datatype': 'anat', 'suffix': 'T2w'}
+
+
+def test_predict_msme_is_mese_only_when_multi_echo():
+    assert _predict('Bruker:MSME', groups=[('echo', 12)]) == \
+        {'datatype': 'anat', 'suffix': 'MESE'}
+    assert _predict('Bruker:MSME', groups=[('echo', 1)]) == \
+        {'datatype': 'anat', 'suffix': 'T2w'}
+
+
+def test_predict_fieldmap_names_no_single_suffix():
+    """A Bruker field map converts to a fieldmap/magnitude pair."""
+    assert _predict('Bruker:FieldMap') == {'datatype': 'fmap', 'suffix': None}
+
+
+def test_predict_unrecognised_method_predicts_nothing():
+    assert _predict('Bruker:SINGLEPULSE') is None
+
+
+def test_predict_derived_stack_only_when_it_is_a_map():
+    """A derived reconstruction converts only when one element is a known map."""
+    visu = {'VisuFGElemComment': ['fitted image', 'T2 relaxation time',
+                                  'standard deviation', 'RSS', 'DOF']}
+    assert _predict('Bruker:MSME', visu=visu, groups=[('isa', 5)]) == \
+        {'datatype': 'anat', 'suffix': 'T2map'}
+    assert _predict('Bruker:DtiEpi', groups=[('dti', 22)]) is None
+
+
+# --------------------------------------------------------------------------- #
 # The verdict table: every schema field is accounted for
 # --------------------------------------------------------------------------- #
 

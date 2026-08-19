@@ -54,26 +54,36 @@ not unzip it — `pvraw` reads the archive directly.
 pvraw info UNC_PV6.0.1_FLASH_TurboRARE_EPI.zip
 ```
 
-The top of the output is the subject block. Notice that every field says
-`None` — this sample ships without a `subject` file, so there is nothing to
-show. A study from your scanner fills these in.
+The top of the output is the subject block — subject ID, sex, weight, position
+and so on. This sample ships without a `subject` file, so the block shows only
+the ParaVision version; a study from your scanner fills the rest in.
 
 Below that is the scan table, one entry per scan:
 
 ```
-[ScanID]	Sequence::Protocol::[Parameters]
-[003]	Bruker:FLASH::1_Localizer_GOP::1_Localizer_GOP (E3)
-	[ TR: 100 ms, TE: 3.37 ms, pixelBW: 292.97 Hz, FlipAngle: 30 degree]
+[ScanID]  Sequence::Protocol::ScanName
+[003]  Bruker:FLASH::1_Localizer_GOP::1_Localizer_GOP (E3)
+      [ TR: 100 ms, TE: 3.37 ms, pixelBW: 292.97 Hz, FlipAngle: 30 degree ]
     [01] dim: 2D, matrix_size: 256 x 256 x 3, fov_size: 30 x 30 (unit:mm)
-         spatial_resol: 0.117 x 0.117 x 3.000 (unit:mm), temporal_resol: 12800.000 (unit:msec)
-[006]	Bruker:RARE::CAMRI_T2_RARE_2D_ax::CAMRI_T2_RARE_2D_ax (E6)
-	...
+         spatial_resol: 0.117 x 0.117 x 3.000 (unit:mm), temporal_resol: 12800.000 (unit:ms)
+[006]  Bruker:RARE::CAMRI_T2_RARE_2D_ax::CAMRI_T2_RARE_2D_ax (E6)
+      [ TR: 3000 ms, TE: 48 ms, pixelBW: 130.21 Hz, FlipAngle: 90 degree ]
+    [01] dim: 2D, matrix_size: 384 x 384 x 12, fov_size: 28.8 x 28.8 (unit:mm)
+         spatial_resol: 0.075 x 0.075 x 1.000 (unit:mm), temporal_resol: 1152000.000 (unit:ms)
+         bids: anat/T2w
+...
 ```
 
 Read one entry: scan 6 is a RARE sequence, protocol `CAMRI_T2_RARE_2D_ax`, a
 2D acquisition of 384 × 384 × 12 voxels at 0.075 × 0.075 × 1 mm. The bracketed
 `[01]` is the reconstruction id — a scan can carry more than one
-reconstruction, and each converts separately.
+reconstruction, and each converts separately. The `bids: anat/T2w` line is a
+prediction: it is what the BIDS conversion later in this tutorial will propose
+for this reconstruction. The localizer above it has no such line — positioning
+scans are not data, and pvraw will skip it.
+
+If you want the same summary for a script rather than for your eyes,
+`pvraw info --json` prints it as JSON on stdout.
 
 ## 4. Convert to NIfTI
 

@@ -3,6 +3,11 @@ type: recipe
 subtype: studyinfo
 version: 24.5.3
 
+# The keys below are the public vocabulary of ``BrukerLoader.info_dict()`` --
+# renaming one is a breaking change for `--json` consumers. Units are baked
+# into the key names (`_ms`, `_mm`, ...) because every unit ParaVision writes
+# here is a constant.
+
 study:
   date:
     first_avail:
@@ -11,13 +16,10 @@ study:
   dob: header.dbirth
   id: header.id
   name: header.name_string
-  operator: study_operator
-  position:
-    first_avail:
-      - header.study_instrument_position
-      - entry: header.entry
-        position: header.position
-        script: entry.split("_").pop(-1) + "_" + position.split("_").pop(-1)
+  operator: header.study_operator
+  # `position` is not read here: reshipe's `script:` case is broken on
+  # Python >= 3.13 (its exec-into-locals trick stopped persisting, PEP 667),
+  # so BrukerLoader._study_block derives it from subj_entry/subj_pose instead.
   sex:
     first_avail:
       - header.gender
@@ -32,18 +34,25 @@ study:
       - header.weight
 
 scan:
-  dim: image.dim
-  in_plane_shape: image.shape
-  in_plann_resolution: image.resolution
   method: protocol.scan_method
-  num_cycles: cycle.num_cycles
-  num_slice_packs: slicepack.num_slice_packs
-  num_slices_each_pack: slicepack.num_slices_each_pack
-  ppg: protocol.pulse_program
   protocol: protocol.protocol_name
-  slice_distances_each_pack: slicepack.slice_distances_each_pack
-  slice_order_scheme: slicepack.slice_order_scheme
-  time_step: cycle.time_step
+  ppg: protocol.pulse_program
+  scan_name: seqparams.scan_name
+  sequence: seqparams.sequence_name
+  tr_ms: seqparams.repetition_time
+  te_ms: seqparams.echo_time
+  flip_angle_deg: seqparams.flip_angle
+  pixel_bandwidth_hz: seqparams.pixel_bandwidth
 
 reco:
-  dim_description: dataarray.axis_labels
+  dim: image.dim
+  fov_mm: image.field_of_view
+  resolution_mm: image.resolution
+  num_slice_packs: slicepack.num_slice_packs
+  num_slices_each_pack: slicepack.num_slices_each_pack
+  slice_distances_mm: slicepack.slice_distances_each_pack
+  slice_order_scheme: slicepack.slice_order_scheme
+  num_cycles: cycle.num_cycles
+  time_step_ms: cycle.time_step
+  scan_time_ms: cycle.scan_time
+  axis_labels: dataarray.axis_labels
