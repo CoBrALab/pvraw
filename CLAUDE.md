@@ -85,8 +85,6 @@ crashes on PV5.1".
 
 - **brukerapi** — all Bruker file reading (ADR 0002). Fix problems upstream
   rather than working around them here
-- **xnippet** (PyPI) — configuration management framework, used for `XnippetManager` in `__init__.py`
-- **reshipe** — recipe parser, used for the study header in `api/data/study.py`
 - **nibabel** — NIfTI format support (required, used in orientation math and conversion)
 - **bidsschematools** — BIDS entity/datatype definitions, used by `lib/bids.py`
 
