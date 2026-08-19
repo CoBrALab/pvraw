@@ -14,20 +14,17 @@ of pvraw addresses by ``scan_id``/``reco_id``.
 
 from __future__ import annotations
 
-import os
 import warnings
 import zipfile
 from copy import copy
 from dataclasses import dataclass
 from pathlib import Path
 
-import yaml
 from brukerapi.dataset import LOAD_STAGES
 from brukerapi.exceptions import NotExperimentFolder, NotStudyFolder
 from brukerapi.folders import Experiment, Folder
 from brukerapi.folders import Study as BrukerapiStudy
 from brukerapi.jcampdx import JCAMPDX
-from reshipe import RecipeParser
 
 from pvraw.api.analyzer.base import BaseAnalyzer
 from pvraw.lib.errors import FileNotValidError
@@ -57,6 +54,85 @@ class ScanHeader:
 class RecoHeader:
     reco_id: int
     header: dict
+
+
+#: The three header recipes: output key -> where the value comes from, as a
+#: ``'section.key'`` path on the parse target, or a tuple of paths taking the
+#: first that resolves. The keys are the public vocabulary of
+#: ``BrukerLoader.info_dict()`` -- renaming one is a breaking change for
+#: `--json` consumers. Units are baked into the key names (`_ms`, `_mm`, ...)
+#: because every unit ParaVision writes here is a constant.
+#:
+#: Formerly a reshipe recipe (study.yaml). reshipe returned a spec string that
+#: matched no target verbatim -- which is how ``operator`` was once the
+#: literal string ``'study_operator'`` -- and its ``script:`` case stopped
+#: working on Python >= 3.13 (PEP 667), so what survives here is the two
+#: features the recipes actually used.
+_STUDY_RECIPE = {
+    'date': ('header.study_date', 'header.date'),
+    'dob': 'header.dbirth',
+    'id': 'header.id',
+    'name': 'header.name_string',
+    'operator': 'header.study_operator',
+    # `position` is deliberately absent: PV360's single parameter and the
+    # older entry/position split are resolved by BrukerLoader._study_block.
+    'sex': ('header.gender', 'header.sex'),
+    'study_name': 'header.study_name',
+    'study_nr': 'header.study_nr',
+    'sw_version': 'header.sw_version',
+    'type': 'header.type',
+    'weight': ('header.study_weight', 'header.weight'),
+}
+
+_SCAN_RECIPE = {
+    'method': 'protocol.scan_method',
+    'protocol': 'protocol.protocol_name',
+    'ppg': 'protocol.pulse_program',
+    'scan_name': 'seqparams.scan_name',
+    'sequence': 'seqparams.sequence_name',
+    'tr_ms': 'seqparams.repetition_time',
+    'te_ms': 'seqparams.echo_time',
+    'flip_angle_deg': 'seqparams.flip_angle',
+    'pixel_bandwidth_hz': 'seqparams.pixel_bandwidth',
+}
+
+_RECO_RECIPE = {
+    'dim': 'image.dim',
+    'fov_mm': 'image.field_of_view',
+    'resolution_mm': 'image.resolution',
+    'num_slice_packs': 'slicepack.num_slice_packs',
+    'num_slices_each_pack': 'slicepack.num_slices_each_pack',
+    'slice_distances_mm': 'slicepack.slice_distances_each_pack',
+    'slice_order_scheme': 'slicepack.slice_order_scheme',
+    'num_cycles': 'cycle.num_cycles',
+    'time_step_ms': 'cycle.time_step',
+    'scan_time_ms': 'cycle.scan_time',
+    'axis_labels': 'dataarray.axis_labels',
+}
+
+
+def _resolve(target, path):
+    """One recipe value: ``'section.key'`` looked up on `target`, or a tuple
+    of such paths taking the first that resolves.
+
+    None when nothing resolves -- never a literal string. A single target on
+    purpose: reshipe's multi-target search was never used with more than one.
+    """
+    if isinstance(path, (tuple, list)):
+        for candidate in path:
+            value = _resolve(target, candidate)
+            if value is not None:
+                return value
+        return None
+    section_name, _, key = path.partition('.')
+    section = getattr(target, section_name, None)
+    return section.get(key) if isinstance(section, dict) else None
+
+
+def _parse(target, recipe):
+    """Every recipe key, absent values as None, so the header shape does not
+    depend on which parameters a ParaVision version writes."""
+    return {key: _resolve(target, path) for key, path in recipe.items()}
 
 
 def _archive_root(path: Path):
@@ -233,44 +309,33 @@ class Study(BaseAnalyzer):
         return stream
 
     def _process_header(self):
-        """Compile study, scan and reconstruction headers via the study recipe.
+        """Compile study, scan and reconstruction headers from the recipes.
 
-        Every recipe key is present in every header, absent values as None, so
-        the shape downstream consumers (``BrukerLoader.info_dict``) see does not
-        depend on which parameters a ParaVision version writes. A scan or
-        reconstruction that cannot be analysed is kept as an entry whose header
-        carries only ``error`` -- listing a study must not abort because one
-        scan of it is unreadable.
+        A scan or reconstruction that cannot be analysed is kept as an entry
+        whose header carries only ``error`` -- listing a study must not abort
+        because one scan of it is unreadable.
         """
-        spec_path = os.path.join(os.path.dirname(__file__), 'study.yaml')
-        with open(spec_path, 'r') as f:
-            spec = yaml.safe_load(f)
-
-        def parse(targets, level):
-            parsed = RecipeParser(targets, copy(spec)[level]).get()
-            return {key: parsed.get(key) for key in spec[level]}
-
-        self._info = StudyHeader(header=parse(self, 'study'), scans=[])
+        self._info = StudyHeader(header=_parse(self, _STUDY_RECIPE), scans=[])
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             for scan_id in self.avail:
                 try:
-                    scan_header = self._scan_header(scan_id, parse)
+                    scan_header = self._scan_header(scan_id)
                 except Exception as error:
                     scan_header = ScanHeader(scan_id=scan_id,
                                              header={'error': str(error)}, recos=[])
                 self._info.scans.append(scan_header)
 
-    def _scan_header(self, scan_id, parse):
+    def _scan_header(self, scan_id):
         """One scan's header and reco headers; reco failures stay per-reco."""
         scanobj = self.get_scan(scan_id)
         scan_header = ScanHeader(scan_id=scan_id,
-                                 header=parse(scanobj.info, 'scan'),
+                                 header=_parse(scanobj.info, _SCAN_RECIPE),
                                  recos=[])
         for reco_id in scanobj.avail:
             try:
                 recoinfo = scanobj.get_scaninfo(reco_id=reco_id)
-                header = parse([recoinfo], 'reco')
+                header = _parse(recoinfo, _RECO_RECIPE)
                 header['warns'] = list(recoinfo.warns)
             except Exception as error:
                 header = {'error': str(error)}
