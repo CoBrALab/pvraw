@@ -1,11 +1,14 @@
 """Tests for the command-line interface (scripts/pvraw.py).
 
-The id-list parsing is pure-unit (offline). The selection test runs the real
-``tonii`` against a public sample study, so it carries the ``data`` marker
-through its fixture.
+The id-list parsing and the info error contract are pure-unit (offline). The
+selection and info-output tests run the real CLI against a public sample
+study, so they carry the ``data`` marker through their fixture.
 """
 import argparse
+import json
+import re
 import subprocess
+import sys
 
 import pytest
 
@@ -28,6 +31,49 @@ def test_id_list_rejects_what_is_not_a_list_of_ids(text):
     """argparse turns ArgumentTypeError into a usage error, not a traceback."""
     with pytest.raises(argparse.ArgumentTypeError):
         id_list(text)
+
+
+def test_info_rejects_a_missing_input(tmp_path, monkeypatch, capsys):
+    """A path that is no PvDataset is an error contract: stderr and exit 1,
+    nothing on stdout -- `--json` consumers must be able to trust stdout."""
+    from pvraw.scripts.pvraw import main
+    monkeypatch.setattr(sys, 'argv', ['pvraw', 'info', '--json',
+                                      str(tmp_path / 'no_such_study')])
+    with pytest.raises(SystemExit) as excinfo:
+        main()
+    assert excinfo.value.code == 1
+    captured = capsys.readouterr()
+    assert captured.out == ''
+    assert 'not valid' in captured.err
+
+
+def test_info_json_is_parseable_and_shaped(h2_study):
+    out = subprocess.run(['pvraw', 'info', '--json', str(h2_study)],
+                         capture_output=True, text=True, check=True)
+    info = json.loads(out.stdout)
+    assert set(info) == {'study', 'scans'}
+    assert info['study']['pv_version']
+    assert info['scans']
+    for scan in info['scans']:
+        assert isinstance(scan['scan_id'], int)
+        for reco in scan['recos']:
+            assert isinstance(reco['reco_id'], int)
+    recos = [r for s in info['scans'] for r in s['recos'] if 'error' not in r]
+    assert recos
+    # the enriched fields ride on every readable reconstruction
+    assert all({'dim_class', 'frame_groups', 'derived', 'bids', 'warns'} <= set(r)
+               for r in recos)
+    assert any(r['shape'] for r in recos)
+    # at least one scan of the sample study predicts a BIDS conversion
+    assert any(r['bids'] for r in recos)
+
+
+def test_info_text_summarises_the_study(h2_study):
+    out = subprocess.run(['pvraw', 'info', str(h2_study)],
+                         capture_output=True, text=True, check=True)
+    assert 'Paravision' in out.stdout
+    assert re.search(r'^\[\d{3}\]', out.stdout, re.MULTILINE)
+    assert 'matrix_size' in out.stdout
 
 
 def test_tonii_converts_every_listed_scan(h2_study, tmp_path):

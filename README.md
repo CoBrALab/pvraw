@@ -60,10 +60,24 @@ One command-line tool is installed: **`pvraw`** (inspection/conversion).
 ## Command-line usage
 
 ### Inspect a dataset — `pvraw info`
-Print study/subject info and a table of scans, reconstructions, dimensions and resolutions.
+Print study/subject info and a table of scans, reconstructions, dimensions and
+resolutions — including each reconstruction's frame groups, whether it is a
+ParaVision-derived map, a diffusion summary, the BIDS datatype/suffix the
+conversion rules predict for it, and any warnings raised while reading it.
 
 ```bash
 uv run pvraw info <input>           # <input> = study dir or .zip
+uv run pvraw info --json <input>    # the same summary as JSON on stdout
+```
+
+`--json` is made for scripting: warnings go to stderr so stdout always parses,
+an unreadable input exits 1 with nothing on stdout, and a scan that cannot be
+read stays in the document as `{"scan_id": N, "error": "..."}` rather than
+disappearing. Numbers stay numbers, with units in the key names (`tr_ms`,
+`fov_mm`, ...):
+
+```bash
+uv run pvraw info --json <input> | jq '.scans[] | select(.recos[].bids.datatype == "dwi") | .scan_id'
 ```
 
 ### Convert one study — `pvraw tonii`
@@ -188,6 +202,8 @@ study = pvraw.load('path/to/study_or_archive.zip')   # == BrukerLoader(path)
 study.is_pvdataset          # True if a valid PvDataset
 study.num_scans             # number of scans
 study.info()                # print the same summary as `pvraw info`
+study.info_dict()           # the summary as a JSON-serialisable dict
+                            # (what `pvraw info --json` dumps)
 
 study.avail_scan_id         # e.g. [1, 2, 3, ...]
 study.avail_reco_id         # {scan_id: [reco_id, ...]}

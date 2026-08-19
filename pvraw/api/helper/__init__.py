@@ -5,6 +5,7 @@ from .diffusion import Diffusion
 from .image import Image
 from .orientation import Orientation, from_matvec, rotate_affine, to_matvec
 from .protocol import Protocol
+from .seqparams import SeqParams
 from .slicepack import SlicePack
 
 __all__ = [
@@ -14,6 +15,7 @@ __all__ = [
            'Image',
            'Orientation',
            'Protocol',
+           'SeqParams',
            'SlicePack',
            'axis_labels',
            'frame_groups',

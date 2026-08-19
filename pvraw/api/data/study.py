@@ -233,27 +233,46 @@ class Study(BaseAnalyzer):
         return stream
 
     def _process_header(self):
-        """Compile study, scan and reconstruction headers via the study recipe."""
+        """Compile study, scan and reconstruction headers via the study recipe.
+
+        Every recipe key is present in every header, absent values as None, so
+        the shape downstream consumers (``BrukerLoader.info_dict``) see does not
+        depend on which parameters a ParaVision version writes. A scan or
+        reconstruction that cannot be analysed is kept as an entry whose header
+        carries only ``error`` -- listing a study must not abort because one
+        scan of it is unreadable.
+        """
         spec_path = os.path.join(os.path.dirname(__file__), 'study.yaml')
         with open(spec_path, 'r') as f:
             spec = yaml.safe_load(f)
-        self._info = StudyHeader(header=RecipeParser(self, copy(spec)['study']).get(),
-                                 scans=[])
+
+        def parse(targets, level):
+            parsed = RecipeParser(targets, copy(spec)[level]).get()
+            return {key: parsed.get(key) for key in spec[level]}
+
+        self._info = StudyHeader(header=parse(self, 'study'), scans=[])
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             for scan_id in self.avail:
-                scanobj = self.get_scan(scan_id)
-                scan_spec = copy(spec)['scan']
-                scaninfo_targets = scanobj.info
-                scan_header = ScanHeader(scan_id=scan_id,
-                                         header=RecipeParser(scaninfo_targets, scan_spec).get(),
-                                         recos=[])
-                for reco_id in scanobj.avail:
-                    recoinfo_targets = [scanobj.get_scaninfo(reco_id=reco_id)]
-                    reco_spec = copy(spec)['reco']
-                    parsed_reco = RecipeParser(recoinfo_targets, reco_spec).get()
-                    reco_header = RecoHeader(reco_id=reco_id,
-                                             header=parsed_reco) if parsed_reco else None
-                    if reco_header:
-                        scan_header.recos.append(reco_header)
+                try:
+                    scan_header = self._scan_header(scan_id, parse)
+                except Exception as error:
+                    scan_header = ScanHeader(scan_id=scan_id,
+                                             header={'error': str(error)}, recos=[])
                 self._info.scans.append(scan_header)
+
+    def _scan_header(self, scan_id, parse):
+        """One scan's header and reco headers; reco failures stay per-reco."""
+        scanobj = self.get_scan(scan_id)
+        scan_header = ScanHeader(scan_id=scan_id,
+                                 header=parse(scanobj.info, 'scan'),
+                                 recos=[])
+        for reco_id in scanobj.avail:
+            try:
+                recoinfo = scanobj.get_scaninfo(reco_id=reco_id)
+                header = parse([recoinfo], 'reco')
+                header['warns'] = list(recoinfo.warns)
+            except Exception as error:
+                header = {'error': str(error)}
+            scan_header.recos.append(RecoHeader(reco_id=reco_id, header=header))
+        return scan_header

@@ -105,23 +105,3 @@ class StudyToNifti(Study, BaseMethods):
                                        scale_mode=scale_mode,
                                        subj_type=subj_type, 
                                        subj_position=subj_position)
-        
-    @property
-    def info(self):
-        # scan cycle
-        header = super().info['header']
-        scans = super().info['scans']
-        title = header['sw_version']
-        print(title)
-        print('-' * len(title))
-        print('date: {date}')
-        for key, value in header.items():
-            if key not in ['date', 'sw_version']:
-                print(f'{key}:\t{value}')
-        print('\n[ScanID]\tMethod::Protocol')
-        max_size = len(str(max(scans.keys())))
-        
-        for scan_id, value in scans.items():
-            print(f"[{str(scan_id).zfill(max_size)}]\t{value['method']}::{value['protocol']}")
-            if value.get('recos'):
-                print('\tRECO:', list(value['recos'].keys()))
