@@ -21,7 +21,7 @@ Install the command-line tool onto your `PATH`, isolated from your other
 environments:
 
 ```bash
-uv tool install git+https://github.com/gdevenyi/pvraw.git
+uv tool install git+https://github.com/CoBrALab/pvraw.git
 ```
 
 Check that it worked:

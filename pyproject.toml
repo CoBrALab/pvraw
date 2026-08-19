@@ -1,6 +1,7 @@
 [build-system]
 build-backend = "hatchling.build"
-requires = ["hatchling"]
+# >=1.27 for PEP 639 license metadata (SPDX expression + license-files)
+requires = ["hatchling>=1.27"]
 
 [project]
 classifiers = [
@@ -8,6 +9,12 @@ classifiers = [
     'Intended Audience :: Science/Research',
     'Topic :: Scientific/Engineering :: Medical Science Apps.',
     'Natural Language :: English',
+    'Operating System :: OS Independent',
+    'Programming Language :: Python :: 3',
+    'Programming Language :: Python :: 3.11',
+    'Programming Language :: Python :: 3.12',
+    'Programming Language :: Python :: 3.13',
+    'Programming Language :: Python :: 3.14',
 ]
 dependencies = [
     'brukerapi>=0.4.5',
@@ -24,7 +31,8 @@ dependencies = [
     'jsonschema>=4.0',
 ]
 description = "Read raw Bruker ParaVision MRI data and convert it to NIfTI or BIDS"
-license = {text = "GPL-3.0-or-later"}
+license = "GPL-3.0-or-later"
+license-files = ["LICENSE"]
 dynamic = ["version"]
 authors = [
     {name = "SungHo Lee", email = 'shlee@unc.edu'},
@@ -41,16 +49,19 @@ readme = "README.md"
 requires-python = ">=3.11"
 keywords = [
     'bruker',
-    'data_handler',
+    'paravision',
+    'mri',
+    'preclinical',
+    'nifti',
+    'bids',
     'converter',
-    'administrator_tool',
-    'extensible',
+    'neuroimaging',
 ]
 
 [project.urls]
-Homepage = "https://github.com/gdevenyi/pvraw"
-Repository = "https://github.com/gdevenyi/pvraw"
-Issues = "https://github.com/gdevenyi/pvraw/issues"
+Homepage = "https://github.com/CoBrALab/pvraw"
+Repository = "https://github.com/CoBrALab/pvraw"
+Issues = "https://github.com/CoBrALab/pvraw/issues"
 
 [project.optional-dependencies]
 dev = [
@@ -66,6 +77,19 @@ style = "pep440"
 
 [tool.hatch.build.targets.wheel]
 packages = ["pvraw"]
+
+# The sdist is an allowlist so local tooling (.claude/, .serena/, agent
+# instructions, planning notes) can never leak into a published artifact.
+# README, LICENSE and pyproject.toml are always included by hatchling.
+[tool.hatch.build.targets.sdist]
+only-include = [
+    "pvraw",
+    "tests",
+    "tools",
+    "docs",
+    "FILE_FORMAT.md",
+    "DATASETS.md",
+]
 
 [project.scripts]
 pvraw = "pvraw.scripts.pvraw:main"

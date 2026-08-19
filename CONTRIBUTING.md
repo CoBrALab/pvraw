@@ -5,7 +5,7 @@ improvements are all welcome.
 
 ## Reporting issues
 
-Use the [Issues](https://github.com/gdevenyi/pvraw/issues) section of this repository. For a bug,
+Use the [Issues](https://github.com/CoBrALab/pvraw/issues) section of this repository. For a bug,
 the things that actually help are: your ParaVision version, the `pvraw` version, the scan and
 reco ids involved, and the output of `pvraw info` on the study.
 
@@ -36,6 +36,31 @@ Anything that could move geometry or change sidecars also needs a
 `tools/sweep_nifti.py --compare` run against a corpus. Geometry is verified against
 data, not against recorded output. The README's Development section is the reference
 for the full test suite, the sample-data cache and the sweep tools.
+
+## Releasing
+
+Releases are published to PyPI by CI (`.github/workflows/release.yml`) when a version
+tag is pushed:
+
+1. Set `__version__` in `pvraw/__init__.py` and commit. (`uv.lock` does not record the
+   project's own version, so no re-lock is needed for a version bump alone.)
+2. Tag and push the tag:
+
+   ```bash
+   git tag v<X.Y.Z>
+   git push origin v<X.Y.Z>
+   ```
+
+   The tag must match `__version__` — the workflow fails when they differ.
+3. CI builds the sdist and wheel and publishes them with
+   [PyPI trusted publishing](https://docs.pypi.org/trusted-publishers/); there is no
+   API token to manage.
+
+**One-time setup, before the first release:** on pypi.org, under *Your account →
+Publishing*, add a *pending publisher* with project name `pvraw`, owner `CoBrALab`,
+repository `pvraw`, workflow `release.yml`, environment `pypi`. The first tag push then
+creates the PyPI project. The `pypi` GitHub environment is created automatically on
+first use; optionally add a required reviewer to it for a manual approval gate.
 
 ## Before you start
 

@@ -66,7 +66,7 @@ class BaseMethods:
         except ValueError:
             warnings.warn(
                 "Scale correction not applied. The 'slope' and 'offset' provided are not in a tested condition. "
-                "For further assistance, contact the developer via issue at: https://github.com/gdevenyi/pvraw.git",
+                "For further assistance, contact the developer via issue at: https://github.com/CoBrALab/pvraw.git",
                 UserWarning)
             return dataobj
     

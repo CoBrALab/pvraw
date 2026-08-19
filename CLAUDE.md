@@ -151,7 +151,7 @@ and data hash and is what proves a lint sweep changed nothing.
 
 ### Issue tracker
 
-Issues live in GitHub Issues (`gdevenyi/pvraw`), via the `gh` CLI. See `docs/agents/issue-tracker.md`.
+Issues live in GitHub Issues (`CoBrALab/pvraw`), via the `gh` CLI. See `docs/agents/issue-tracker.md`.
 
 ### Triage labels
 
