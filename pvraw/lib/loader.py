@@ -88,6 +88,23 @@ def load(path):
     return StudyToNifti(pathlib.Path(path))
 
 
+_STUDY_DIR_NUMBERS = re.compile(r'_(\d+)_(\d+)$')
+
+
+def session_and_study_number(name):
+    """``(session number, study number)`` from a study directory name, or None.
+
+    ParaVision 6 and later name a study ``<$Date>_<$Time>_<$AnimalID>_<session>_<study>``
+    (or Animal ID first, per the "Study Directory Pattern" option) and write the
+    session number nowhere else -- not in ``subject``, not in ``visu_pars``
+    (``dsetserver.util.NeedFulThings.buildStudyPath``; FILE_FORMAT.md section 1.1,
+    ADR 0003). The Animal ID may itself hold underscores, so the two numbers are
+    read from the right. PV5 names carry no such suffix.
+    """
+    found = _STUDY_DIR_NUMBERS.search(name or '')
+    return (int(found.group(1)), int(found.group(2))) if found else None
+
+
 class BrukerLoader:
     """ The front-end handler for Bruker PvDataset
 
@@ -236,6 +253,20 @@ class BrukerLoader:
 
     @property
     def session_id(self):
+        """ParaVision's session number: the visit, which BIDS calls ``ses-``.
+
+        Read from the study directory name, the only place ParaVision writes it
+        (ADR 0003). A name without the ``_<session>_<study>`` suffix -- PV5, or
+        a renamed directory -- falls back to ``SUBJECT_study_nr``: PV5 has no
+        sessions, and there a study is one visit.
+        """
+        numbers = session_and_study_number(self.path)
+        return numbers[0] if numbers else self.study_nr
+
+    @property
+    def study_nr(self):
+        """``SUBJECT_study_nr``: the study's number inside its session (under a
+        project, its study-template slot). Not a session."""
         return self._subject_value('SUBJECT_study_nr')
 
     @property
@@ -710,6 +741,7 @@ class BrukerLoader:
         if position is None and self.subj_entry and self.subj_pose:
             position = f'{self.subj_entry}_{self.subj_pose}'
         header['position'] = position
+        header['session'] = self.session_id
         stamp = tabular.parse_datetime(header.get('date'))
         if stamp:
             header['date'] = stamp.isoformat()
@@ -828,8 +860,9 @@ class BrukerLoader:
                 ('Date', study.get('date')),
                 ('Researcher', study.get('name')),
                 ('Subject ID', study.get('id')),
-                ('Session ID', study.get('study_nr')),
+                ('Session ID', study.get('session')),
                 ('Study ID', study.get('study_name')),
+                ('Study Nr', study.get('study_nr')),
                 ('Date of Birth', study.get('dob')),
                 ('Sex', study.get('sex')),
                 ('Age', f'{age} years' if age is not None else None),

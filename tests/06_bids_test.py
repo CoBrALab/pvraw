@@ -428,6 +428,29 @@ def _validator_bin():
     return shutil.which('bids-validator-deno') or shutil.which('bids-validator')
 
 
+def _simple_scans(pvdir, count):
+    """Up to `count` scan ids that convert to a single 3D image.
+
+    Each yields one clean anat file rather than a per-slicepack
+    _T2starw-01/-02/... split.
+    """
+    from pvraw import BrukerLoader
+
+    loader = BrukerLoader(str(pvdir))
+    simple = []
+    for sid in loader.avail_scan_id:
+        try:
+            obj = loader.get_niftiobj(sid, 1)
+        except Exception:
+            continue
+        if not isinstance(obj, list) and getattr(obj, 'ndim', 0) == 3:
+            simple.append(sid)
+        if len(simple) >= count:
+            break
+    assert simple, 'no single-volume 3D scan available for anat conversion'
+    return simple
+
+
 def _prepare_anat_dataset(pvdir, tmp_path):
     """Run bids_helper, fill in a couple of valid anat rows, and convert.
 
@@ -439,22 +462,7 @@ def _prepare_anat_dataset(pvdir, tmp_path):
     """
     import pandas as pd
 
-    from pvraw import BrukerLoader
-
-    # Pick scans that convert to a single 3D image, so each yields one clean
-    # anat file rather than a per-slicepack _T2starw-01/-02/... split.
-    loader = BrukerLoader(str(pvdir))
-    simple = []
-    for sid in loader.avail_scan_id:
-        try:
-            obj = loader.get_niftiobj(sid, 1)
-        except Exception:
-            continue
-        if not isinstance(obj, list) and getattr(obj, 'ndim', 0) == 3:
-            simple.append(sid)
-        if len(simple) >= 2:
-            break
-    assert simple, 'no single-volume 3D scan available for anat conversion'
+    simple = _simple_scans(pvdir, 2)
 
     sample_parent = tmp_path / 'sample'
     sample_parent.mkdir()
@@ -508,6 +516,72 @@ def test_end_to_end_bids_convert(lego_study, tmp_path):
         assert 'IntendFor' not in text                 # old typo'd key
         assert '*_bold.nii.gz' not in text             # old invalid glob
         assert 'Visu' not in text                       # echoed Bruker param name
+
+
+# A repeat visit under the same ParaVision study gets a new dataset directory
+# but the same SUBJECT_study_nr, so bids_helper prefills both visits with one
+# SessID. The helper must say so, and the converter must not let the second
+# visit overwrite the first.
+
+def test_helper_warns_when_two_datasets_share_a_scan_kind_in_one_session():
+    from pvraw.scripts.pvraw import warnSessionCollisions
+
+    later, earlier, other = ('20260821_134720_S1_1_2', '20260821_133357_S1_1_1',
+                             '20260821_140024_S2_1_2')
+    claims = {('S1', '1', 'anat', 'Bruker:FLASH', None): {later, earlier},   # collides
+              ('S1', '1', 'func', 'Bruker:EPI', 'rest'): {later},            # one dataset: fine
+              ('S2', '1', 'anat', 'Bruker:FLASH', None): {other}}
+    dates = {later: '2026-08-21T13:47:20', earlier: '2026-08-21T13:33:57',
+             other: '2026-08-21T14:00:24'}
+    # one warning, for S1's anat only, listing its datasets oldest first
+    with pytest.warns(UserWarning, match=rf'sub-S1 ses-1: anat Bruker:FLASH .*{earlier}.*{later}') as record:
+        warnSessionCollisions(claims, dates)
+    assert len(record) == 1
+
+
+def test_claim_output_refuses_a_second_writer():
+    from pvraw.lib.errors import ValueConflictInField
+    from pvraw.scripts.pvraw import claimOutput
+
+    claimed = {}
+    claimOutput(claimed, '/out/sub-S1/ses-1/anat/sub-S1_ses-1_T1w', 'visit1')
+    with pytest.raises(ValueConflictInField, match='visit1'):
+        claimOutput(claimed, '/out/sub-S1/ses-1/anat/sub-S1_ses-1_T1w', 'visit2')
+
+
+def test_repeat_visit_under_one_study_is_not_overwritten(lego_study, tmp_path):
+    """The same study exposed twice under one session number."""
+    import pandas as pd
+
+    parent = tmp_path / 'sample'
+    parent.mkdir()
+    # Same session number (1) and study number (2) on purpose: ParaVision would
+    # never write this pair, but a renamed or hand-copied directory can.
+    visits = ('20200612_094625_lego_phantom_3_1_2', '20200613_094625_lego_phantom_3_1_2')
+    for name in visits:
+        (parent / name).symlink_to(lego_study.resolve())
+    sheet = tmp_path / 'bids_map'
+
+    helper = subprocess.run(['pvraw', 'bids_helper', str(parent), str(sheet)],
+                            capture_output=True, text=True, check=True)
+    assert 'comes from 2 datasets' in helper.stderr
+
+    # One scan per visit, left on the SessID the helper prefilled for both.
+    df = pd.read_csv(str(sheet) + '.csv', dtype={'SessID': str})
+    df = df[df['ScanID'].isin(_simple_scans(lego_study, 2))] \
+        .sort_values('RecoID').drop_duplicates(['RawData', 'ScanID'])
+    df = df[df['ScanID'] == df['ScanID'].iloc[0]].copy()
+    assert sorted(df['RawData']) == sorted(visits)
+    assert df['SessID'].nunique() == 1
+    df['DataType'] = 'anat'
+    df['modality'] = 'T2starw'
+    df.to_csv(str(sheet) + '.csv', index=False)
+
+    out = tmp_path / 'raw'
+    convert = subprocess.run(['pvraw', 'bids_convert', str(parent), str(sheet) + '.csv',
+                              '--output', str(out)], capture_output=True, text=True, check=True)
+    assert 'already wrote sub-' in convert.stdout
+    assert len(list(out.rglob('sub-*/ses-*/anat/*_T2starw.nii.gz'))) == 1
 
 
 def test_phase_encode_axis_emitted_without_a_polarity_claim(h2_study, tmp_path):
