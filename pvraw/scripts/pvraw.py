@@ -276,6 +276,8 @@ def main():
 
     elif args.function == 'bids_helper':
         import pandas as pd
+
+        from ..lib import tabular
         path = os.path.abspath(args.input)
         ds_output = os.path.abspath(args.output)
         make_json = args.json
@@ -307,6 +309,7 @@ def main():
         else:         # old way, when you run against the parent folder (which contains one or more scan folder).
             dNames = sorted(os.listdir(path))
 
+        study_dates = {}    # RawData -> study date, for the session collision warning
         for dname in dNames:
             dpath = os.path.join(path, dname)
 
@@ -317,6 +320,7 @@ def main():
 
             if dset is not None and dset.is_pvdataset:
                 rawdata = dset.path
+                study_dates[rawdata] = tabular.session_date(dset.subject)
 
                 if swap_id:
                     subj_id = dset.study_id
@@ -431,6 +435,7 @@ def main():
                                 df = pd.concat([df, pd.DataFrame([item])], ignore_index=True)
                             else:
                                 df = pd.concat([df, pd.DataFrame([item])], ignore_index=True)
+        warnSessionCollisions(df, study_dates)
         # -f is restricted to csv/tsv by argparse, and the extension branch above only
         # ever sets one of the two, so there is no third case to reject here.
         df.to_csv(output, index=None, sep=',' if ds_format == 'csv' else '\t')
@@ -504,6 +509,7 @@ def main():
 
         print('Inspect input BIDS datasheet...')
 
+        claimed = {}    # output stem -> RawData that wrote it; see claimOutput
         # if the path directly contains scan files for one participant
         if 'subject' in os.listdir(path):
             dNames = ['']
@@ -543,7 +549,7 @@ def main():
                                 # both of which the validator ignores by definition.
                                 try:
                                     convertUnvalidated(root_path, dset, row, subj_code,
-                                                       include_session, scale_mode)
+                                                       include_session, scale_mode, claimed)
                                 except Exception as e:
                                     report_conversion_error(row.ScanID, row.RecoID, e)
                                 continue
@@ -572,12 +578,14 @@ def main():
                                                                            'among the scans with the same modality.')
                                             else:
                                                 conflict_tested.append(fname)
+                                            claimOutput(claimed, os.path.join(sub_row.Dir, f'{fname}_{sub_row.modality}'), rawdata)
                                             recordScanRows(
                                                 scan_rows, root_path, dset, sub_row, include_session,
                                                 build_bids_json(dset, sub_row, fname, json_fname,
                                                                 scale_mode=scale_mode))
                                     else:
                                         fname = f'{row.FileName}'
+                                        claimOutput(claimed, os.path.join(row.Dir, f'{fname}_{row.modality}'), rawdata)
                                         recordScanRows(
                                             scan_rows, root_path, dset, row, include_session,
                                             build_bids_json(dset, row, fname, json_fname,
@@ -627,6 +635,25 @@ def report_conversion_error(scan_id, reco_id, error):
         print(f'Skipped (non-image data): ScanID:{scan_id}, RecoID:{reco_id}')
     else:
         print(f'Conversion failed: ScanID:{scan_id}, RecoID:{reco_id} ({error})')
+
+
+def warnSessionCollisions(df, study_dates):
+    """Warn when the datasheet prefills two or more raw datasets with one subject and session.
+
+    ParaVision gives a repeat visit under the same study a new dataset directory
+    but the same ``SUBJECT_study_nr``. The prefilled SessID then repeats, and the
+    datasheet would write both visits to one BIDS session. No file on disk says
+    which visit it is, so the user has to set SessID. The warning lists the
+    datasets oldest first to make that easy.
+    """
+    for (subj_id, sess_id), group in df.groupby(['SubjID', 'SessID']):
+        dirs = sorted(set(group['RawData']), key=lambda d: (study_dates.get(d) or '', d))
+        if len(dirs) > 1:
+            listing = ', '.join(f'{d} ({study_dates.get(d)})' for d in dirs)
+            warnings.warn(f'{len(dirs)} datasets claim sub-{subj_id} ses-{sess_id}: {listing}. '
+                          'ParaVision keeps SUBJECT_study_nr (the prefilled SessID) for a repeat '
+                          'visit under the same study. Set a different SessID for each dataset in '
+                          'the datasheet, or bids_convert will refuse the later visit.')
 
 
 def cleanSubjectID(subj_id):
@@ -821,7 +848,22 @@ def generateModalityAgnosticFiles(root_path, json_fname):
 
 
 
-def convertUnvalidated(root_path, dset, row, subj_code, include_session, scale_mode):
+def claimOutput(claimed, stem, rawdata):
+    """Refuse to write one output stem twice in one conversion.
+
+    Two raw datasets with the same SubjID and SessID (a repeat visit under the same
+    ParaVision study, which keeps SUBJECT_study_nr) resolve to the same filenames.
+    The later one would silently overwrite the earlier one. The converter assigns
+    run indices within one dataset only, so nothing else catches this.
+    """
+    if stem in claimed:
+        raise ValueConflictInField(
+            f'{claimed[stem]} already wrote {os.path.basename(stem)}; {rawdata} maps to the same '
+            'file. Give the datasheet rows different SessID (or run) values.')
+    claimed[stem] = rawdata
+
+
+def convertUnvalidated(root_path, dset, row, subj_code, include_session, scale_mode, claimed):
     """Convert a scan that has no valid BIDS datatype, outside the validated tree.
 
     Two destinations, because they are two different things. A ParaVision-computed
@@ -853,6 +895,7 @@ def convertUnvalidated(root_path, dset, row, subj_code, include_session, scale_m
     directory = os.path.join(base, *parts)
     mkdir(directory)
     stem = '_'.join([*parts, f'scan-{row.ScanID}', f'reco-{row.RecoID}'])
+    claimOutput(claimed, os.path.join(directory, stem), dset.path)
 
     niiobj = dset.get_niftiobj(row.ScanID, row.RecoID, scale_mode=scale_mode)
     for i, nii in enumerate(niiobj if isinstance(niiobj, list) else [niiobj]):
