@@ -8,14 +8,24 @@ one of each and names the others so they don't drift back together.
 ## Dataset structure
 
 **PvDataset**:
-One subject-session of raw ParaVision output, supplied either as a study
-directory or as a `.zip`/`.PvDatasets` archive. The unit a user hands to the CLI.
+One ParaVision study of raw output, supplied either as a study directory or as
+a `.zip`/`.PvDatasets` archive of it. The unit a user hands to the CLI.
 _Avoid_: dataset, session folder, raw data
 
+**Session**:
+One visit of a subject: ParaVision's session level, numbered per subject, which
+BIDS calls `ses-`. A Session holds one Study per study template that was run.
+_Avoid_: visit, timepoint, study number
+
 **Study**:
-The top level of a PvDataset — one subject scanned on one occasion, containing
-many Scans.
+The top level of a PvDataset — one ParaVision study: one subject, one Session,
+one study template, containing many Scans.
 _Avoid_: subject, session, experiment
+
+**Study Number**:
+ParaVision's number of a Study inside its Session (`SUBJECT_study_nr`); under a
+project, the study-template slot. Not the Session.
+_Avoid_: session number, session id
 
 **Scan**:
 A single acquisition within a Study, holding the raw FID plus its acquisition

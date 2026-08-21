@@ -115,7 +115,7 @@ flowchart TD
   E2 --> P3["pdata/1/ …"]
 ```
 
-The three levels are the **Study** (`<name>/`, one per session), the **experiment**
+The three levels are the **Study** (`<name>/`, one per ParaVision study — a session, i.e. a visit, can hold several, see the naming note below), the **experiment**
 (`<EXPNO>/`, one acquisition each), and the **reconstruction** (`pdata/<PROCNO>/`, one derived
 image series each). The full path to a reconstruction is
 `<DataPath>/<name>/<expno>/pdata/<procno>`.
@@ -167,17 +167,23 @@ exists to state a limit (see [Section 13.2](#132-paravision-70)) — and **15 ch
 (`<DiskUnit>/data/<user>/<type>/<name>/<expno>/pdata/<procno>`, where `<type>` is `nmr`, `<user>`
 is limited to 15 characters and `<DiskUnit>` to 255).
 
-ParaVision generates the name, and the manuals do not specify its composition. Observed PV6, PV7
-and PV360 datasets use `<YYYYMMDD>_<HHMMSS>_<SUBJECT_id>_<N>_<SUBJECT_study_nr>`. The **last**
-number is the study number. A new study for an existing subject increments it: the sample studies
-`naive1` … `naive5` of subject `FC0001` are `_1_1` … `_1_5`, and `Lego`'s `DTIEPI_001` and
-`MultiEcho_001` are `_1_1` and `_1_2`. The **middle** number counts the dataset directories written
-under the *same* study. A repeat visit under an existing study gets `_2_<nr>`; `SUBJECT_study_name`
-and `SUBJECT_study_nr` do not change, only `SUBJECT_study_instance_uid` and `SUBJECT_date` are new
-(observed on PV6.0.1). Do not parse meaning out of the name — use the `subject` file and the Visu
-study parameters instead. But no parameter records the middle number: only
-`SUBJECT_study_instance_uid`/`VisuStudyUid` and the study date tell two visits under one study
-apart.
+ParaVision generates the name. The manuals do not specify its composition, but the software does
+(PV6.0.1 `de.bruker.mri.dsetserver.util.NeedFulThings.buildStudyPath`): the "Study Directory
+Pattern" option — `$Date_$Time_$AnimalID` (default) or `$AnimalID_$Date_$Time`, with `$Date` =
+`yyyyMMdd`, `$Time` = `HHmmss` and `$AnimalID` = `SUBJECT_id` — followed by
+`_<session number>_<study number>`, and then every non-word character replaced by `_`
+(`std_PV360_3.6` becomes `std_PV360_3_6`). Read it from the right: the last field is the study
+number (`SUBJECT_study_nr`), the field before it is the session number. Since PV6 the dataset
+levels are Project → Subject → **Session** → Study → Examination (EXPNO) → Image Series (PROCNO)
+(PV6.0.1 Operating Manual 1.7.4; PV360 manual, "Hierarchical Structure of Datasets"): a session
+is a visit and can hold several studies, one per study template of a project, and a study is one
+directory. The session number, the session name and the project live only in the ParaVision
+database and the directory name; no parameter file carries them. Observed: the sample studies
+`naive1` … `naive5` of subject `FC0001` (Default session) are `_1_1` … `_1_5`; a project with two
+study templates scanned twice gives `_1_1`, `_2_1` (template 1) and `_1_2`, `_2_2` (template 2)
+(CoBrALab PV6.0.1). A reader must take the session number from the name — nothing else records
+it (ADR 0003) — and should take everything else from the `subject` file and the Visu study
+parameters.
 
 ### 1.2 Experiment Level (EXPNO)
 
@@ -2365,7 +2371,7 @@ the mapping after the table.
 | `SUBJECT_weight` | Weight in **kg** (the derived `VisuSubjectWeight` is documented in kg) |
 | `SUBJECT_position` | Position in magnet (`SUBJECT_POSITION`, in header order): `SUBJ_POS_Supine` (0), `SUBJ_POS_Prone` (1), `SUBJ_POS_Left` (2), `SUBJ_POS_Right` (3). Distinct from `ACQ_patient_pos`, which combines entry and position into one 8-value enum |
 | `SUBJECT_entry` | Entry direction (`SUBJECT_ENTRY`, in header order): `SUBJ_ENTRY_FeetFirst` (0), `SUBJ_ENTRY_HeadFirst` (1) — note feet-first is the **zero** ordinal |
-| `SUBJECT_study_nr` | Study number. It counts the subject's studies; a repeat visit under the same study keeps it (see [Section 1.1](#11-study-level)) |
+| `SUBJECT_study_nr` | Study number **inside the session** — under a project, the study-template slot; it is not the session (see [Section 1.1](#11-study-level)). PV360 manual: "The number must be unique in a day. The study is identified by the study number and the study creation time in a ParaVision instance." |
 | `SUBJECT_remarks` | Free-text remarks |
 
 **ParaVision 360 renamings.** PV360 keeps only `SUBJECT_id`, `SUBJECT_name_string`,
