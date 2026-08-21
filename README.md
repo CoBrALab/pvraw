@@ -145,6 +145,12 @@ uv run pvraw bids_convert <parent_dir> bids_map.csv -j bids_map.json -o <bids_ou
 `--subj` and `--sess` have no short form on purpose: `-s` and `-t` mean `--scanid`
 and `--subjecttype` elsewhere.
 
+The prefilled `SessID` is ParaVision's session number -- the second-last `_` field of
+the study directory name, the only place ParaVision writes it (ADR 0003). `SUBJECT_study_nr`
+is the study number *inside* the session (under a project, the study-template slot), so a
+visit that ran several study templates is one session. A name without that suffix (PV5)
+falls back to `SUBJECT_study_nr`.
+
 `bids_convert` options:
 
 | Option | Description | Default |

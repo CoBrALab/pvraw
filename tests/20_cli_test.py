@@ -123,3 +123,31 @@ def test_tonii_reports_an_id_the_study_does_not_have(h2_study, tmp_path):
     assert f'No RecoID:99 for ScanID:{good}' in out.stdout
     written = [p.name for p in tmp_path.glob('out-*.nii.gz')]
     assert {name.split('-')[1] for name in written} == {f'{good:02d}'}
+
+
+# --------------------------------------------------------------------------- #
+# The BIDS session is ParaVision's session number, which only the study
+# directory name carries (ADR 0003).
+# --------------------------------------------------------------------------- #
+
+@pytest.mark.parametrize('name, expected', [
+    ('20260821_134720_MCHxFRTx001_2_1', (2, 1)),        # second visit, template 1
+    ('20260821_140024_MCHxFRTx002_1_2', (1, 2)),        # first visit, template 2
+    ('20251219_142450_MCH_AONP_IC118_4_1_1', (1, 1)),   # underscores in the Animal ID
+    ('MCHxFRTx001_20260821_134720_3_1', (3, 1)),        # the $AnimalID_$Date_$Time pattern
+    ('20240524_163824_legophantom1_1_1', (1, 1)),
+    ('0.2H2', None),                                    # PV5.1: no session suffix
+    ('sub01_baseline', None),                           # renamed by hand
+])
+def test_session_and_study_number_come_from_the_directory_name(name, expected):
+    from pvraw.lib.loader import session_and_study_number
+    assert session_and_study_number(name) == expected
+
+
+def test_session_id_is_the_session_not_the_study_number(lego_study):
+    """``..._lego_phantom_3_1_2``: session 1, study 2 -- the old code returned 2."""
+    from pvraw import BrukerLoader
+    study = BrukerLoader(str(lego_study))
+    assert study.session_id == 1
+    assert study.study_nr == 2
+    assert study.info_dict()['study']['session'] == 1

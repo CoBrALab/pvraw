@@ -523,21 +523,19 @@ def test_end_to_end_bids_convert(lego_study, tmp_path):
 # SessID. The helper must say so, and the converter must not let the second
 # visit overwrite the first.
 
-def test_helper_warns_when_two_datasets_share_a_session():
-    import pandas as pd
-
+def test_helper_warns_when_two_datasets_share_a_scan_kind_in_one_session():
     from pvraw.scripts.pvraw import warnSessionCollisions
 
-    later, earlier, other = ('20260821_134720_S1_2_1', '20260821_133357_S1_1_1',
+    later, earlier, other = ('20260821_134720_S1_1_2', '20260821_133357_S1_1_1',
                              '20260821_140024_S2_1_2')
-    df = pd.DataFrame([{'RawData': later, 'SubjID': 'S1', 'SessID': '1'},
-                       {'RawData': earlier, 'SubjID': 'S1', 'SessID': '1'},
-                       {'RawData': other, 'SubjID': 'S2', 'SessID': '2'}])
+    claims = {('S1', '1', 'anat', 'Bruker:FLASH', None): {later, earlier},   # collides
+              ('S1', '1', 'func', 'Bruker:EPI', 'rest'): {later},            # one dataset: fine
+              ('S2', '1', 'anat', 'Bruker:FLASH', None): {other}}
     dates = {later: '2026-08-21T13:47:20', earlier: '2026-08-21T13:33:57',
              other: '2026-08-21T14:00:24'}
-    # one warning, for S1 only, listing its datasets oldest first
-    with pytest.warns(UserWarning, match=rf'2 datasets claim sub-S1 ses-1: {earlier}.*{later}') as record:
-        warnSessionCollisions(df, dates)
+    # one warning, for S1's anat only, listing its datasets oldest first
+    with pytest.warns(UserWarning, match=rf'sub-S1 ses-1: anat Bruker:FLASH .*{earlier}.*{later}') as record:
+        warnSessionCollisions(claims, dates)
     assert len(record) == 1
 
 
@@ -552,19 +550,21 @@ def test_claim_output_refuses_a_second_writer():
 
 
 def test_repeat_visit_under_one_study_is_not_overwritten(lego_study, tmp_path):
-    """The same study exposed twice, as ParaVision names a repeat visit."""
+    """The same study exposed twice under one session number."""
     import pandas as pd
 
     parent = tmp_path / 'sample'
     parent.mkdir()
-    visits = ('20200612_094625_lego_phantom_3_1_2', '20200613_094625_lego_phantom_3_2_2')
+    # Same session number (1) and study number (2) on purpose: ParaVision would
+    # never write this pair, but a renamed or hand-copied directory can.
+    visits = ('20200612_094625_lego_phantom_3_1_2', '20200613_094625_lego_phantom_3_1_2')
     for name in visits:
         (parent / name).symlink_to(lego_study.resolve())
     sheet = tmp_path / 'bids_map'
 
     helper = subprocess.run(['pvraw', 'bids_helper', str(parent), str(sheet)],
                             capture_output=True, text=True, check=True)
-    assert '2 datasets claim sub-' in helper.stderr
+    assert 'comes from 2 datasets' in helper.stderr
 
     # One scan per visit, left on the SessID the helper prefilled for both.
     df = pd.read_csv(str(sheet) + '.csv', dtype={'SessID': str})

@@ -238,7 +238,7 @@ def main():
                 if len(study.avail_scan_id):
                     subj_path = os.path.join(base_path, f'sub-{study.subj_id}')
                     mkdir(subj_path)
-                    sess_path = os.path.join(subj_path, f'ses-{study.study_id}')
+                    sess_path = os.path.join(subj_path, f'ses-{study.session_id}')
                     mkdir(sess_path)
                     for scan_id, recos in study.avail_reco_id.items():
                         method = scanMethod(study, scan_id)
@@ -260,7 +260,7 @@ def main():
                             else:
                                 output_path = os.path.join(sess_path, 'etc')
                             mkdir(output_path)
-                            filename = f'sub-{study.subj_id}_ses-{study.study_id}_{str(scan_id).zfill(2)}'
+                            filename = f'sub-{study.subj_id}_ses-{study.session_id}_{str(scan_id).zfill(2)}'
                             for reco_id in recos:
                                 output_fname = os.path.join(output_path, f'{filename}_reco-{str(reco_id).zfill(2)}')
                                 try:
@@ -309,7 +309,8 @@ def main():
         else:         # old way, when you run against the parent folder (which contains one or more scan folder).
             dNames = sorted(os.listdir(path))
 
-        study_dates = {}    # RawData -> study date, for the session collision warning
+        study_dates = {}    # RawData -> study date, for the collision warning
+        claims = {}         # (SubjID, SessID, DataType, method, task) -> {RawData, ...}
         for dname in dNames:
             dpath = os.path.join(path, dname)
 
@@ -405,6 +406,8 @@ def main():
                             # so func output validates by default.
                             if datatype == 'func':
                                 item['task'] = bidsTaskLabel(visu_pars)
+                            claims.setdefault((subj_id, sess_id, datatype, method, item.get('task')),
+                                              set()).add(rawdata)
 
                             if datatype == 'fmap':
                                 for m, s, e in [['fieldmap', 0, 1], ['magnitude', 1, 2]]:
@@ -435,7 +438,7 @@ def main():
                                 df = pd.concat([df, pd.DataFrame([item])], ignore_index=True)
                             else:
                                 df = pd.concat([df, pd.DataFrame([item])], ignore_index=True)
-        warnSessionCollisions(df, study_dates)
+        warnSessionCollisions(claims, study_dates)
         # -f is restricted to csv/tsv by argparse, and the extension branch above only
         # ever sets one of the two, so there is no third case to reject here.
         df.to_csv(output, index=None, sep=',' if ds_format == 'csv' else '\t')
@@ -637,23 +640,28 @@ def report_conversion_error(scan_id, reco_id, error):
         print(f'Conversion failed: ScanID:{scan_id}, RecoID:{reco_id} ({error})')
 
 
-def warnSessionCollisions(df, study_dates):
-    """Warn when the datasheet prefills two or more raw datasets with one subject and session.
+def warnSessionCollisions(claims, study_dates):
+    """Warn when the same kind of scan comes from two raw datasets of one subject and session.
 
-    ParaVision gives a repeat visit under the same study a new dataset directory
-    but the same ``SUBJECT_study_nr``. The prefilled SessID then repeats, and the
-    datasheet would write both visits to one BIDS session. No file on disk says
-    which visit it is, so the user has to set SessID. The warning lists the
-    datasets oldest first to make that easy.
+    ParaVision files every study of a visit under one session, so several
+    study directories (one per study template) share a session number; a
+    directory whose name lost its session number falls back to
+    ``SUBJECT_study_nr`` and can share one too. Scans of one datatype, method
+    and task in two of them resolve to the same filename, and run indices are
+    assigned within one dataset only. ``claims`` maps
+    ``(SubjID, SessID, DataType, method, task)`` to the RawData names that hold
+    such a scan; the warning lists them oldest first so the user can set run.
     """
-    for (subj_id, sess_id), group in df.groupby(['SubjID', 'SessID']):
-        dirs = sorted(set(group['RawData']), key=lambda d: (study_dates.get(d) or '', d))
-        if len(dirs) > 1:
-            listing = ', '.join(f'{d} ({study_dates.get(d)})' for d in dirs)
-            warnings.warn(f'{len(dirs)} datasets claim sub-{subj_id} ses-{sess_id}: {listing}. '
-                          'ParaVision keeps SUBJECT_study_nr (the prefilled SessID) for a repeat '
-                          'visit under the same study. Set a different SessID for each dataset in '
-                          'the datasheet, or bids_convert will refuse the later visit.')
+    for (subj_id, sess_id, datatype, method, task), dirs in claims.items():
+        if len(dirs) < 2:
+            continue
+        dirs = sorted(dirs, key=lambda d: (study_dates.get(d) or '', d))
+        listing = ', '.join(f'{d} ({study_dates.get(d)})' for d in dirs)
+        what = f'{datatype} {method}' + (f' task-{task}' if task else '')
+        warnings.warn(f'sub-{subj_id} ses-{sess_id}: {what} comes from {len(dirs)} datasets: '
+                      f'{listing}. They are studies of one ParaVision session, and run indices '
+                      'are assigned within one dataset only, so these scans map to one file. '
+                      'Set run (or SessID) in the datasheet, or bids_convert will refuse the second.')
 
 
 def cleanSubjectID(subj_id):
@@ -851,15 +859,18 @@ def generateModalityAgnosticFiles(root_path, json_fname):
 def claimOutput(claimed, stem, rawdata):
     """Refuse to write one output stem twice in one conversion.
 
-    Two raw datasets with the same SubjID and SessID (a repeat visit under the same
-    ParaVision study, which keeps SUBJECT_study_nr) resolve to the same filenames.
-    The later one would silently overwrite the earlier one. The converter assigns
-    run indices within one dataset only, so nothing else catches this.
+    Two raw datasets with the same SubjID and SessID -- two studies of one
+    ParaVision session (one per study template), or directories without a
+    session number that fell back to SUBJECT_study_nr -- can resolve to the same
+    filename. The later one would silently overwrite the earlier one. The
+    converter assigns run indices within one dataset only, so nothing else
+    catches this.
     """
     if stem in claimed:
         raise ValueConflictInField(
             f'{claimed[stem]} already wrote {os.path.basename(stem)}; {rawdata} maps to the same '
-            'file. Give the datasheet rows different SessID (or run) values.')
+            'file. The two datasets share subject and session: give the datasheet rows '
+            'different run (or SessID) values.')
     claimed[stem] = rawdata
 
 
