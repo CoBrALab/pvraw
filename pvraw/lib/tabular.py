@@ -51,16 +51,23 @@ _DAY_MONTH_YEAR = re.compile(r'^\s*(\d+\s+\w+\s+\d{4})\s*$')
 
 
 def parse_datetime(value):
-    """A Bruker date/time string as a naive ``datetime``, or None.
+    """A Bruker date/time as a naive ``datetime``, or None.
 
-    ParaVision writes two forms: a PV5.1 ``HH:MM:SS D Mon YYYY`` and an ISO
-    ``YYYY-MM-DDThh:mm:ss`` optionally followed by ``,ffffff`` and a UTC offset.
+    ParaVision writes three forms: a PV5.1 ``HH:MM:SS D Mon YYYY`` string, an
+    ISO ``YYYY-MM-DDThh:mm:ss`` string optionally followed by ``,fff`` and a UTC
+    offset, and -- PV360's ``SUBJECT_study_date`` -- the ``pvtime_t`` struct
+    ``(seconds, milliseconds, tzMinutes)`` (FILE_FORMAT.md section 2.2), which
+    ``get_value`` returns as a one-row list.
 
     Naive on purpose. The scanner records wall-clock with no zone, so attaching one
-    would shift the time -- the same reasoning as ``loader.get_scan_time``.
+    would shift the time -- the same reasoning as ``loader.get_scan_time``. The
+    struct form carries its offset, which is applied so that the result is the
+    same wall-clock the string forms give.
     """
     if value is None:
         return None
+    if not isinstance(value, str):
+        return _from_pvtime(value)
     text = str(value)
     iso = _ISO_DATETIME.match(text)
     if iso:
@@ -73,6 +80,22 @@ def parse_datetime(value):
             return None
         return dt.datetime.combine(day, dt.time(int(hour), int(minute), int(second)))
     return None
+
+
+def _from_pvtime(value):
+    """A ``pvtime_t`` struct ``(seconds, milliseconds, tzMinutes)`` as the naive
+    local wall-clock ``datetime``, or None for anything else."""
+    rows = value.tolist() if hasattr(value, 'tolist') else value
+    if isinstance(rows, (list, tuple)) and len(rows) == 1 and isinstance(rows[0], (list, tuple)):
+        rows = rows[0]
+    if not isinstance(rows, (list, tuple)) or len(rows) != 3:
+        return None
+    try:
+        seconds, _millis, tz_minutes = (int(v) for v in rows)
+    except (TypeError, ValueError):
+        return None
+    stamp = dt.datetime.fromtimestamp(seconds, dt.UTC) + dt.timedelta(minutes=tz_minutes)
+    return stamp.replace(tzinfo=None)
 
 
 def parse_date(value):

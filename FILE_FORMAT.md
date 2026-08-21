@@ -976,9 +976,10 @@ Contains subject/patient demographic information. Key parameters:
 | Parameter | Description |
 |-----------|-------------|
 | `SUBJECT_id` | Subject identifier |
-| `SUBJECT_name_string` | Subject name |
+| `SUBJECT_name_string` | Subject name (the subject's, not the operator's — see [Section 9](#9-subject-file)) |
 | `SUBJECT_study_name` | Study name |
-| `SUBJECT_date` | Study date |
+| `SUBJECT_date` | Study date (PV360: `SUBJECT_study_date`, struct form) |
+| `SUBJECT_referral` | Operator entered at study registration (PV360: `SUBJECT_study_operator`); the login is `##OWNER`/`ACQ_operator` |
 | `SUBJECT_type` | Subject type (version-dependent enum — PV5: `Human`/`Animal`/`Phantom`/`Other`; PV6+/360: `Biped`/`Quadruped`/`Phantom`/`Other`/`OtherAnimal`; see [Section 9](#9-subject-file)) |
 | `SUBJECT_sex` | Subject sex (PV5.1/PV6; PV360 uses `SUBJECT_gender`) |
 | `SUBJECT_weight` | Subject weight (PV5.1/PV6; PV360 uses `SUBJECT_study_weight`) |
@@ -2361,11 +2362,16 @@ the mapping after the table.
 
 | Parameter | Description |
 |-----------|-------------|
-| `SUBJECT_id` | Subject identifier string |
-| `SUBJECT_name_string` | Subject name |
-| `SUBJECT_study_name` | Name of the study |
-| `SUBJECT_date` | Date of study |
+| `SUBJECT_id` | Subject identifier string — the **subject**, not the study (PV360 manual §3.5.2.1: "User defined identification of the subject"; `VisuSubjectId`) |
+| `SUBJECT_name_string` | **Subject** name, `char[64]` — the PV360 manual: "Name of the subject … in the DICOM format" (`VisuSubjectName`, `family^given^middle^prefix^suffix`). PV5.1/PV6 also write the struct `SUBJECT_name=(<Family_name>, <Given_names>)` (`SUBJECT_NAME_STRUCT`, `subjtyp.h`) that this string flattens; PV360 drops the struct and writes the DICOM form (`<std_PV360_3.7^^^^>`). It is not the researcher: the person who ran the study is `SUBJECT_referral`/`SUBJECT_study_operator` below |
+| `SUBJECT_dbirth` | Subject birth date, `char[12]`, written `D Mon YYYY` (`<24 Feb 2026>`); the PV360 manual says `dd.MON.yyyy` but the files do not. Derived into `VisuSubjectBirthDate` as `YYYYMMDD` |
+| `SUBJECT_instance_uid` | System-generated subject UID (PV6+; PV5.1 spells it `SUBJECT_patient_instance_uid`) |
+| `SUBJECT_study_name` | Name of the study — the "User given study identifier, set during study registration" of `VisuStudyId` |
+| `SUBJECT_study_instance_uid` | System-generated study UID (`VisuStudyUid`) |
+| `SUBJECT_date` | Study creation date and time (`VisuStudyDate`). A `char[21]` `HH:MM:SS D Mon YYYY` in PV5.1, `pvtime_t` in PV6 (ISO string form, with `SUBJECT_abs_date` beside it as the struct form — PV5.1 writes `SUBJECT_abs_date` as a bare epoch integer). See [Section 2.2](#22-data-types) |
+| `SUBJECT_referral` | `char[64]`, PV5.1/PV6: the person entered as operator/referrer at study registration — carried into `VisuStudyReferringPhysician` ("Referring person for this study, e.g. operator or physician"), verified equal in the public PV6.0.1 files. Usually the login, but a free field: PV360 renames it `SUBJECT_study_operator` and Bruker's own 360.3.7 standard data writes `jkl` there while `##OWNER` and `ACQ_operator` are `nmrsu` |
 | `SUBJECT_purpose` | Purpose / notes (PV5.1 and PV6; not written by PV360) |
+| `SUBJECT_comment` | Study comment, `char[64]` in PV5.1, `char[2048]` in PV6; PV360 renames it `SUBJECT_study_comment` |
 | `SUBJECT_type` | Subject type (`SUBJECT_TYPE_TYPE`) — **version-dependent enum**: PV5.x = `Human`, `Animal`, `Phantom`, `Other`; PV6+/360 = `Biped`, `Quadruped`, `Phantom`, `Other`, `OtherAnimal` |
 | `SUBJECT_sex` | Subject sex — a length-8 **free-text string**, lowercase (`<male>`, `<female>`, `<unknown>`). The enum members live in separate parameters: `SUBJECT_sex_animal` (`SUBJECT_ANIMAL_SEX_TYPE`: `MALE`, `FEMALE`, `UNDEFINED`, `UNKNOWN`) and `SUBJECT_sex_human` (`SUBJECT_HUMAN_SEX_TYPE`: `Male`, `Female`) |
 | `SUBJECT_weight` | Weight in **kg** (the derived `VisuSubjectWeight` is documented in kg) |
@@ -2380,16 +2386,27 @@ and `SUBJECT_study_instance_uid` from the list above, and replaces the rest:
 
 | PV5.1 / PV6 | ParaVision 360 | Note |
 |-------------|----------------|------|
-| `SUBJECT_date` | `SUBJECT_study_date` | |
+| `SUBJECT_date` (+ `SUBJECT_abs_date`) | `SUBJECT_study_date` | written in the **struct** form `(seconds, milliseconds, tzMinutes)`, e.g. `(1755158659, 614, 120)`; there is no ISO string and no `SUBJECT_abs_date` any more |
+| `SUBJECT_referral` | `SUBJECT_study_operator` | "Operator of the study. Maximum length is 63 characters" (PV360 manual §3.5.2.2). Not the login: `##OWNER` and `ACQ_operator` stay the UNIX account |
+| `SUBJECT_comment` | `SUBJECT_study_comment` | |
 | `SUBJECT_sex` (+ `SUBJECT_sex_human` / `SUBJECT_sex_animal`) | `SUBJECT_gender` | takes the `SUBJECT_ANIMAL_SEX_TYPE` values (`MALE`, `FEMALE`, `UNDEFINED`, `UNKNOWN`) |
 | `SUBJECT_weight` | `SUBJECT_study_weight` | |
 | `SUBJECT_position` **and** `SUBJECT_entry` | `SUBJECT_study_instrument_position` | the two are **merged**, and it carries the combined 8-value `PATIENT_POS_TYPE` (e.g. `Head_Prone`), not `SUBJECT_POSITION` |
-| — | `SUBJECT_study_operator`, `SUBJECT_study_modalities` | new in PV360 (`SUBJECT_instance_creation_date` already exists in PV6) |
+| — | `SUBJECT_study_modalities` | new in PV360: the modalities the study is set up for (`MR_Modality`, `PT_Modality`, `OT_Modality`); `SUBJECT_instance_creation_date` already exists in PV6 |
 
 `SUBJECT_purpose`, `SUBJECT_name`, `SUBJECT_location` and `SUBJECT_size` are not written by PV360
 at all (`SUBJECT_remarks` is retained, but omitted from the file when empty). Both PV5.1 and PV6 define `SUBJECT_sex_human` *and* `SUBJECT_sex_animal`; which one carries the
 value follows `SUBJECT_type` — human/biped subjects use `SUBJECT_sex_human` (`Male`/`Female`),
 animal types use `SUBJECT_sex_animal` (`MALE`/`FEMALE`/`UNDEFINED`/`UNKNOWN`).
+
+**Who ran the study — three parameters, two meanings.** The JCAMP header `##OWNER` (the UNIX
+account that wrote the file, [Section 2.1](#21-basic-format)) and `ACQ_operator` ("is
+automatically set and contains the operator identifier", PV6 D02 p. D-2-25 — the same account,
+per scan) are the **login**. `SUBJECT_referral` (PV5.1/PV6) / `SUBJECT_study_operator`
+(PV360) is the **person entered at study registration**, a free field. They coincide on a
+single-user console and differ on a shared one: the PV360 3.7 standard data has
+`##OWNER=nmrsu`, `ACQ_operator=<nmrsu>` and `SUBJECT_study_operator=<jkl>`. `SUBJECT_name_string`
+is none of these — it names the **subject**.
 
 PV360 additionally stores the ATS usage in the subject file: `CMN_study_use_ats` (YesNo —
 whether the animal transport system is used for the study) and `CMN_study_bed` (name of the
