@@ -27,11 +27,26 @@ class _p(dict):
 @pytest.mark.parametrize(('raw', 'expected'), [
     ('2020-06-12T10:09:12,758+0200', dt.datetime(2020, 6, 12, 10, 9, 12)),  # noqa: DTZ001
     ('14:15:17 16 Jun 2020', dt.datetime(2020, 6, 16, 14, 15, 17)),         # noqa: DTZ001
+    # pvtime_t struct (seconds, milliseconds, tzMinutes), as get_value returns
+    # it: PV360's SUBJECT_study_date. Same wall-clock as the string forms --
+    # the PV6 sample writes both (1771961229, 822, -300) and
+    # <2026-02-24T14:27:09,822-0500>.
+    ([[1771961229, 822, -300]], dt.datetime(2026, 2, 24, 14, 27, 9)),       # noqa: DTZ001
+    ([[1755158659, 614, 120]], dt.datetime(2025, 8, 14, 10, 4, 19)),        # noqa: DTZ001
+    ([1, 2], None),
     ('not a date', None),
     (None, None),
 ])
-def test_parse_datetime_handles_both_paravision_forms(raw, expected):
+def test_parse_datetime_handles_every_paravision_form(raw, expected):
     assert tabular.parse_datetime(raw) == expected
+
+
+def test_age_and_session_date_resolve_for_pv360():
+    """PV360 writes the study date as the pvtime_t struct, which used to leave
+    the age and the session date empty."""
+    subject = _p(SUBJECT_dbirth='14 Aug 2023', SUBJECT_study_date=[[1755158659, 614, 120]])
+    assert tabular.session_date(subject) == '2025-08-14T10:04:19'
+    assert tabular.age_years(subject) == pytest.approx(2.0, abs=0.01)
 
 
 def test_acq_time_uses_the_acquisition_not_the_reconstruction():
