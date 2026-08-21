@@ -151,3 +151,35 @@ def test_session_id_is_the_session_not_the_study_number(lego_study):
     assert study.session_id == 1
     assert study.study_nr == 2
     assert study.info_dict()['study']['session'] == 1
+
+
+def test_info_text_labels_say_whose_attribute_each_field_is():
+    """Offline: the study block is rendered from the dict alone."""
+    from pvraw.lib.loader import BrukerLoader
+    info = {'study': {'pv_version': '360.3.7', 'user_account': 'nmrsu', 'operator': 'jkl',
+                      'subject_name': 'std_PV360_3.7^^^^', 'subject_id': 'std_PV360_3.7',
+                      'position': 'Head_Prone', 'use_ats': 'Yes'},
+            'scans': [{'scan_id': 23, 'tr_ms': 200, 'te_ms': 3, 'acq_date': '2025-08-14T10:29:19',
+                       'nucleus': '1H', 'num_averages': 3, 'recos': []}]}
+    text = '\n'.join(BrukerLoader._render_info(info))
+    assert 'Researcher' not in text
+    assert 'Subject Name:  std_PV360_3.7^^^^' in text
+    assert 'User Account:  nmrsu' in text and 'Operator:      jkl' in text
+    assert 'ATS:           Yes' in text
+    assert '[ acquired: 2025-08-14T10:29:19, nucleus: 1H, NA: 3 ]' in text
+
+
+def test_info_json_study_block_is_version_independent(lego_study, h2_study):
+    """The same keys and vocabulary on PV6 and PV5.1: the operator comes from
+    SUBJECT_referral, the position is spelled as --position takes it."""
+    from pvraw import BrukerLoader
+    lego = BrukerLoader(str(lego_study)).info_dict()['study']
+    assert lego['subject_name'] == 'lego_phantom_3' and lego['subject_id'] == 'lego_phantom_3'
+    assert lego['user_account'] == 'psorn' and lego['operator'] == 'psorn'
+    assert lego['study_name'] == 'data_io'
+    assert lego['position'] == 'Head_Prone'          # SUBJ_ENTRY_HeadFirst + SUBJ_POS_Prone
+    assert lego['institution'] and lego['station']
+    h2 = BrukerLoader(str(h2_study)).info_dict()['study']
+    assert h2['subject_name'] == 'LEGO_PHANTOM' and h2['operator'] is None
+    assert h2['position'] == 'Head_Supine'
+    assert set(h2) == set(lego)

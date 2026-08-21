@@ -237,10 +237,21 @@ class BrukerLoader:
 
     @property
     def user_account(self):
+        """``##OWNER``: the login that wrote the study (also ``ACQ_operator``)."""
         return self._subject_value('OWNER')
 
     @property
-    def user_name(self):
+    def operator(self):
+        """The operator entered at study registration: PV360's
+        ``SUBJECT_study_operator``, ``SUBJECT_referral`` before it. Not the
+        login -- Bruker's own PV360 data has ``nmrsu`` writing for ``jkl``."""
+        return (self._subject_value('SUBJECT_study_operator')
+                or self._subject_value('SUBJECT_referral'))
+
+    @property
+    def subject_name(self):
+        """``SUBJECT_name_string``: the subject's name, in DICOM patient-name
+        format on PV360 (``family^given^middle^prefix^suffix``)."""
         return self._subject_value('SUBJECT_name_string')
 
     @property
@@ -271,12 +282,17 @@ class BrukerLoader:
 
     @property
     def subj_entry(self):
-        # PV360 records entry and position in one parameter
+        """``Head`` or ``Foot``, the vocabulary of ``SUBJECT_POSE`` and
+        ``--position``. PV360 records entry and position in one parameter
+        (``Head_Prone``); PV5.1/PV6 spell the entry ``SUBJ_ENTRY_HeadFirst``."""
         position = self._subject_value('SUBJECT_study_instrument_position')
         if position is not None:
             return str(position).split('_')[0]
         entry = self._subject_value('SUBJECT_entry')
-        return str(entry).split('_')[-1] if entry is not None else None
+        if entry is None:
+            return None
+        entry = str(entry).split('_')[-1]
+        return {'HeadFirst': 'Head', 'FeetFirst': 'Foot'}.get(entry, entry)
 
     @property
     def subj_pose(self):
@@ -288,7 +304,7 @@ class BrukerLoader:
 
     @property
     def subj_sex(self):
-        return self._subject_value('SUBJECT_sex')
+        return self._subject_value('SUBJECT_sex') or self._subject_value('SUBJECT_gender')
 
     @property
     def subj_type(self):
@@ -296,7 +312,7 @@ class BrukerLoader:
 
     @property
     def subj_weight(self):
-        return self._subject_value('SUBJECT_weight')
+        return self._subject_value('SUBJECT_weight') or self._subject_value('SUBJECT_study_weight')
 
     @property
     def subj_dob(self):
@@ -653,43 +669,29 @@ class BrukerLoader:
     def get_scan_time(self, visu_pars=None):
         """Session date and start time, plus the scan end time when given a reco.
 
-        ParaVision writes the subject date in one of two forms: a PV5.1
-        ``HH:MM:SS D Mon YYYY`` or an ISO ``YYYY-MM-DDTHH:MM:SS`` optionally
-        followed by a fraction and UTC offset.
+        The study date is read in whichever form ParaVision wrote it (see
+        ``tabular.parse_datetime``). The end time is ``VisuCreationDate`` on
+        PV6 and later; PV5.1 writes that equal to the acquisition start, so
+        there it is ``VisuAcqDate`` plus ``VisuAcqScanTime``. PV5.1 is told by
+        its date form (``HH:MM:SS D Mon YYYY`` -- no ``T``), as `brukerapi` does.
         """
         import datetime as dt
-        subject_date = self._subject_value('SUBJECT_date')
-        if isinstance(subject_date, (list, tuple, np.ndarray)):
-            subject_date = subject_date[0] if len(subject_date) else None
-        subject_date = str(subject_date)
-
-        legacy = re.match(r'(\d{2}:\d{2}:\d{2})\s+(\d+\s\w+\s\d{4})', subject_date)
-        iso = re.match(r'(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2}:\d{2})', subject_date)
-
-        if legacy:
-            start_time = dt.time(*map(int, legacy.group(1).split(':')))
-            # Naive on purpose: Bruker records scanner wall-clock with no zone,
-            # and only the calendar date is kept. Attaching one would shift it.
-            date = dt.datetime.strptime(legacy.group(2), '%d %b %Y').date()  # noqa: DTZ007
-            if visu_pars is not None:
-                acq_date = str(get_value(visu_pars, 'VisuAcqDate'))
-                last = re.match(r'(\d{2}:\d{2}:\d{2})', acq_date)
-                acq_time = get_value(visu_pars, 'VisuAcqScanTime') / 1000.0
-                scan_time = (dt.datetime.combine(date, dt.time(*map(int, last.group(1).split(':'))))
-                             + dt.timedelta(0, acq_time)).time()
-                return {'date': date, 'start_time': start_time, 'scan_time': scan_time}
-        elif iso:
-            start_time = dt.time(*map(int, iso.group(2).split(':')))
-            date = dt.date(*map(int, iso.group(1).split('-')))
-            if visu_pars is not None:
-                created = str(np.atleast_1d(get_value(visu_pars, 'VisuCreationDate'))[0])
-                stamp = re.match(r'\d{4}-\d{2}-\d{2}T(\d{2}:\d{2}:\d{2})', created)
-                return {'date': date, 'start_time': start_time,
-                        'scan_time': dt.time(*map(int, stamp.group(1).split(':')))}
-        else:
+        raw = self._subject_value('SUBJECT_date') or self._subject_value('SUBJECT_study_date')
+        stamp = tabular.parse_datetime(raw)
+        if stamp is None:
             raise InvalidValueInField(ERROR_MESSAGES['NotIntegrated'])
-
-        return {'date': date, 'start_time': start_time}
+        result = {'date': stamp.date(), 'start_time': stamp.time()}
+        if visu_pars is not None:
+            if isinstance(raw, str) and 'T' not in raw:
+                start = tabular.parse_datetime(get_value(visu_pars, 'VisuAcqDate'))
+                end = start + dt.timedelta(milliseconds=float(get_value(visu_pars, 'VisuAcqScanTime')))
+            else:
+                created = get_value(visu_pars, 'VisuCreationDate')
+                if isinstance(created, (list, tuple, np.ndarray)):
+                    created = created[0] if len(created) else None
+                end = tabular.parse_datetime(created)
+            result['scan_time'] = end.time()
+        return result
 
     # printing functions / help documents
     def print_bids(self, scan_id, reco_id, fobj=None, metadata=None):
@@ -728,15 +730,21 @@ class BrukerLoader:
 
         ``sw_version`` becomes ``pv_version`` (brukerapi's normalisation from
         the first readable reconstruction, falling back to the subject-file
-        TITLE); the dates turn ISO 8601; sex is replaced by its normalised
-        spelling and ``weight_kg``/``age_years`` are derived (``lib.tabular``)
-        where the raw values allow it. The raw ``weight`` stays -- it keeps
-        ParaVision's unset sentinel visible to QC.
+        TITLE); ``institution`` and ``station`` come from the same
+        reconstruction, the only place ParaVision writes them; the dates turn
+        ISO 8601; sex is replaced by its normalised spelling and
+        ``weight_kg``/``age_years`` are derived (``lib.tabular``) where the raw
+        values allow it. The raw ``weight`` stays -- it keeps ParaVision's unset
+        sentinel visible to QC.
         """
         sw_version = header.pop('sw_version', None)
-        header['pv_version'] = self._first_pv_version() or sw_version
+        facts = self._first_reco_facts()
+        header['pv_version'] = facts.get('pv_version') or sw_version
+        header['institution'] = facts.get('institution')
+        header['station'] = facts.get('station')
         # PV360 records the position in one parameter; older versions split it
-        # over entry/position, which subj_entry/subj_pose already resolve.
+        # over entry/position, which subj_entry/subj_pose resolve to the same
+        # ``Head_Prone`` vocabulary.
         position = self._subject_value('SUBJECT_study_instrument_position')
         if position is None and self.subj_entry and self.subj_pose:
             position = f'{self.subj_entry}_{self.subj_pose}'
@@ -753,17 +761,22 @@ class BrukerLoader:
         header['age_years'] = tabular.age_years(self.subject)
         return header
 
-    def _first_pv_version(self):
-        """`brukerapi`'s ParaVision version, from the first readable reco."""
+    def _first_reco_facts(self):
+        """Study-wide facts ParaVision writes per reconstruction, from the first
+        readable one: `brukerapi`'s ParaVision version, ``VisuInstitution`` and
+        ``VisuStation``. Empty when no reconstruction reads."""
         for scan_id, recos in self.avail_reco_id.items():
             try:
                 dataset = self._study.get_scan(scan_id).get_dataset(recos[0])
-                version = self._pv_version(dataset, self._get_visu_pars(scan_id, recos[0]))
+                visu_pars = self._get_visu_pars(scan_id, recos[0])
+                version = self._pv_version(dataset, visu_pars)
             except Exception:
                 version = None
             if version is not None:
-                return version
-        return None
+                return {'pv_version': version,
+                        'institution': get_value(visu_pars, 'VisuInstitution'),
+                        'station': get_value(visu_pars, 'VisuStation')}
+        return {}
 
     def _scan_block(self, scan_id, header):
         entry = {'scan_id': scan_id,
@@ -856,20 +869,29 @@ class BrukerLoader:
         lines = [title, '-' * len(title)]
         weight_kg = study.get('weight_kg')
         age = study.get('age_years')
-        rows = [('UserAccount', study.get('operator')),
+        # The UIDs and modalities are in the JSON only: one-line noise to a reader.
+        rows = [('User Account', study.get('user_account')),
+                ('Operator', study.get('operator')),
+                ('Institution', study.get('institution')),
+                ('Station', study.get('station')),
                 ('Date', study.get('date')),
-                ('Researcher', study.get('name')),
-                ('Subject ID', study.get('id')),
+                ('Subject ID', study.get('subject_id')),
+                ('Subject Name', study.get('subject_name')),
                 ('Session ID', study.get('session')),
-                ('Study ID', study.get('study_name')),
+                ('Study Name', study.get('study_name')),
                 ('Study Nr', study.get('study_nr')),
+                ('Purpose', study.get('purpose')),
+                ('Study Comment', study.get('study_comment')),
+                ('Remarks', study.get('remarks')),
                 ('Date of Birth', study.get('dob')),
                 ('Sex', study.get('sex')),
                 ('Age', f'{age} years' if age is not None else None),
                 ('Weight', f'{weight_kg} kg' if weight_kg is not None
                            else study.get('weight')),
-                ('Subject Type', study.get('type')),
-                ('Position', study.get('position'))]
+                ('Subject Type', study.get('subject_type')),
+                ('Position', study.get('position')),
+                ('ATS', study.get('use_ats')),
+                ('Animal Bed', study.get('animal_bed'))]
         lines.extend(f'{label + ":":<15}{value}' for label, value in rows
                      if value is not None)
         lines.append('\n[ScanID]  Sequence::Protocol::ScanName')
@@ -889,6 +911,14 @@ class BrukerLoader:
                  .format(cls._fmt_num(scan.get('tr_ms')), cls._fmt_num(scan.get('te_ms')),
                          cls._fmt_num(scan.get('pixel_bandwidth_hz')),
                          cls._fmt_num(scan.get('flip_angle_deg')))]
+        extras = [(label, scan.get(key)) for label, key in
+                  (('acquired', 'acq_date'), ('nucleus', 'nucleus'),
+                   ('NA', 'num_averages'), ('NR', 'num_repetitions'),
+                   ('TI', 'ti_ms'), ('ETL', 'echo_train_length'))]
+        extras = [f'{label}: {cls._fmt_num(value)}{" ms" if label == "TI" else ""}'
+                  for label, value in extras if value is not None]
+        if extras:
+            lines.append('      [ ' + ', '.join(extras) + ' ]')
         for reco in scan.get('recos') or []:
             lines.extend(cls._render_reco(reco))
         return lines

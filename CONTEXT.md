@@ -59,3 +59,35 @@ _Avoid_: volume, slice, image
 A group of slices sharing one geometry within a Reco. More than one means the
 Reco has multiple distinct orientations and cannot be a single NIfTI.
 _Avoid_: slab, slice group, stack
+
+## Subject and study identity
+
+The `subject` file names three people-ish things and one of them is the
+subject. `pvraw info` and `info_dict()` use the names below; FILE_FORMAT.md
+section 9 carries the per-version parameter spellings.
+
+**Subject Name**:
+The subject's own name, `SUBJECT_name_string` (DICOM patient-name format on
+PV360: `family^given^middle^prefix^suffix`). `subject_name` in `info_dict()`.
+_Avoid_: researcher, user name, patient name
+
+**Subject ID**:
+The user-defined identifier of the subject, `SUBJECT_id`; what `sub-` is built
+from. `subject_id` in `info_dict()`.
+_Avoid_: study id, id
+
+**Operator**:
+The person entered at study registration: `SUBJECT_study_operator` (PV360),
+`SUBJECT_referral` before it. `operator` in `info_dict()`.
+_Avoid_: researcher, referring physician, owner
+
+**User Account**:
+The login that wrote the study: the JCAMP `##OWNER`, equal to `ACQ_operator`.
+Not the Operator -- on a shared console they differ. `user_account` in
+`info_dict()`.
+_Avoid_: operator, owner, user
+
+**Study Name**:
+The user-given name of the study, `SUBJECT_study_name` (`VisuStudyId`).
+`study_name` in `info_dict()`; the loader's `study_id` property returns it.
+_Avoid_: study id, session name

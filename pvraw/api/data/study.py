@@ -68,32 +68,56 @@ class RecoHeader:
 #: literal string ``'study_operator'`` -- and its ``script:`` case stopped
 #: working on Python >= 3.13 (PEP 667), so what survives here is the two
 #: features the recipes actually used.
+#: Subject-file keys are the PV5.1/PV6 spellings with PV360's renamings as the
+#: first candidate (FILE_FORMAT.md section 9). The names say whose attribute
+#: each is -- ``subject_name`` is the subject's, not a researcher's.
 _STUDY_RECIPE = {
-    'date': ('header.study_date', 'header.date'),
+    # who ran it
+    'user_account': 'header.owner',                              # ##OWNER: the login
+    'operator': ('header.study_operator', 'header.referral'),    # the person entered at registration
+    # the subject (SUBJECT_object)
+    'subject_id': 'header.id',
+    'subject_name': 'header.name_string',
+    'subject_uid': ('header.instance_uid', 'header.patient_instance_uid'),
+    'subject_type': 'header.type',
     'dob': 'header.dbirth',
-    'id': 'header.id',
-    'name': 'header.name_string',
-    'operator': 'header.study_operator',
-    # `position` is deliberately absent: PV360's single parameter and the
-    # older entry/position split are resolved by BrukerLoader._study_block.
     'sex': ('header.gender', 'header.sex'),
+    'weight': ('header.study_weight', 'header.weight'),
+    'remarks': 'header.remarks',
+    # the study (SUBJECT_study)
     'study_name': 'header.study_name',
     'study_nr': 'header.study_nr',
+    'study_uid': 'header.study_instance_uid',
+    'date': ('header.study_date', 'header.date'),
+    'purpose': 'header.purpose',
+    'study_comment': ('header.study_comment', 'header.comment'),
+    'modalities': 'header.study_modalities',
+    'use_ats': 'header.study_use_ats',                           # CMN_study_use_ats (PV360)
+    'animal_bed': 'header.study_bed',                            # CMN_study_bed (PV360)
     'sw_version': 'header.sw_version',
-    'type': 'header.type',
-    'weight': ('header.study_weight', 'header.weight'),
+    # `position` is deliberately absent: PV360's single parameter and the
+    # older entry/position split are resolved by BrukerLoader._study_block.
 }
 
 _SCAN_RECIPE = {
     'method': 'protocol.scan_method',
     'protocol': 'protocol.protocol_name',
     'ppg': 'protocol.pulse_program',
+    'nucleus': 'protocol.nucleus',
+    'institution': 'protocol.institution',
+    'station': 'protocol.device',
     'scan_name': 'seqparams.scan_name',
     'sequence': 'seqparams.sequence_name',
+    'acq_date': 'seqparams.acq_date',
     'tr_ms': 'seqparams.repetition_time',
     'te_ms': 'seqparams.echo_time',
+    'ti_ms': 'seqparams.inversion_time',
     'flip_angle_deg': 'seqparams.flip_angle',
     'pixel_bandwidth_hz': 'seqparams.pixel_bandwidth',
+    'num_averages': 'seqparams.num_averages',
+    'num_repetitions': 'seqparams.num_repetitions',
+    'echo_train_length': 'seqparams.echo_train_length',
+    'imaging_frequency_mhz': 'seqparams.imaging_frequency',
 }
 
 _RECO_RECIPE = {
@@ -275,17 +299,24 @@ class Study(BaseAnalyzer):
         return Scan(self._scans[scan_id], reco_id=reco_id, debug=debug)
 
     def _parse_header(self) -> None:
-        """Subject-level parameters, keyed without their ``SUBJECT_`` prefix."""
+        """Subject-level parameters, keyed without their ``SUBJECT_``/``CMN_``
+        prefix, plus the JCAMP ``##OWNER`` as ``owner``.
+
+        ``OWNER`` gets its own key: PV360 also writes ``SUBJECT_study_operator``,
+        the operator entered at study registration, which is a different person
+        from the login that wrote the file (``nmrsu`` vs ``jkl`` in Bruker's own
+        PV360 3.7 standard data).
+        """
         self.header = None
         if self._subject is None:
             return
-        self.header = {key.replace('SUBJECT_', ''): get_value(self._subject, key)
-                       for key in self._subject if key.startswith('SUBJECT')}
+        self.header = {key.replace('SUBJECT_', '').replace('CMN_', ''): get_value(self._subject, key)
+                       for key in self._subject if key.startswith(('SUBJECT_', 'CMN_'))}
         title = get_value(self._subject, 'TITLE')
         self.header['sw_version'] = (str(title).split(',')[-1].strip()
                                      if title and 'ParaVision' in str(title)
                                      else 'ParaVision < 6')
-        self.header['study_operator'] = get_value(self._subject, 'OWNER')
+        self.header['owner'] = get_value(self._subject, 'OWNER')
 
     @property
     def info(self) -> dict:

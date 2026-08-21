@@ -30,3 +30,23 @@ def test_scan_binds_the_requested_reconstruction(dataset):
                 dataset_ = scanobj.get_dataset(reco_id)
                 assert int(dataset_.path.parent.name) == reco_id
             return
+
+
+def test_study_recipe_names_whose_attribute_each_field_is():
+    """``SUBJECT_name_string`` is the subject's name -- it was printed as
+    'Researcher' -- and ``##OWNER`` (the login) must not overwrite PV360's
+    ``SUBJECT_study_operator`` (the operator entered at registration)."""
+    from types import SimpleNamespace
+
+    from pvraw.api.data.study import _STUDY_RECIPE, _parse
+    pv360 = SimpleNamespace(header={'owner': 'nmrsu', 'study_operator': 'jkl',
+                                    'name_string': 'std_PV360_3.7^^^^', 'id': 'std_PV360_3.7',
+                                    'study_name': '94T_protocols', 'study_use_ats': 'Yes'})
+    out = _parse(pv360, _STUDY_RECIPE)
+    assert out['user_account'] == 'nmrsu' and out['operator'] == 'jkl'
+    assert out['subject_name'] == 'std_PV360_3.7^^^^' and out['subject_id'] == 'std_PV360_3.7'
+    assert out['use_ats'] == 'Yes'
+    # PV5.1/PV6 spell the operator SUBJECT_referral
+    pv6 = SimpleNamespace(header={'owner': 'galdan', 'referral': 'galdan'})
+    assert _parse(pv6, _STUDY_RECIPE)['operator'] == 'galdan'
+    assert 'name' not in out and 'id' not in out and 'type' not in out

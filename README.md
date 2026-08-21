@@ -214,6 +214,7 @@ study.info_dict()           # the summary as a JSON-serialisable dict
 study.avail_scan_id         # e.g. [1, 2, 3, ...]
 study.avail_reco_id         # {scan_id: [reco_id, ...]}
 study.subj_id, study.study_id, study.session_id
+study.subject_name, study.operator, study.user_account   # SUBJECT_name_string, the registered operator, ##OWNER
 
 study.pvobj                 # the brukerapi folder the data is read through
 ```
