@@ -9,6 +9,32 @@ legacy loader path) once carried an independent copy of the table below, which
 is how the two drifted apart (that copy gave ``Foot_Left``/``Foot_Right`` the
 *head-first* rotation).  Keep the table here only.
 
+What the position rotation is
+-----------------------------
+`brukerapi`'s affine is built from ``VisuCoreOrientation``/``VisuCorePosition``,
+which ParaVision writes in the DICOM patient frame of the position it was
+*told* -- ``VisuSubjectPosition`` / ``ACQ_patient_pos``. (``GTB_ObjPosMatrix``
+in ``PvGeoTools.h`` "converts magnet coordinate system into object coordinate
+system", keyed by that position.) So that affine is already anatomical, but
+only for the *declared* position. Preclinical data routinely keeps ParaVision's
+default ``Head_Supine`` on an animal lying prone -- 2,589 of 3,009 ``visu_pars``
+in ``resources/testdata`` declare ``Head_Supine`` -- so pvraw does not trust
+the declaration. It assumes the animal lay prone, head first
+(``ASSUMED_POSITION``) unless ``--position`` says otherwise, and rotates the
+declared frame into the actual one::
+
+    correction = R(actual).T @ R(declared)
+
+where ``R(pose)`` (``SUBJECT_POSE_ROTATION``) takes the frame ParaVision writes
+for ``pose`` to the frame it writes for ``Head_Prone``, the reference. With no
+override the correction is ``R(declared)``.
+
+Verified on two SAMRI mouse studies from one lab, both animals prone, one
+declared ``Head_Supine`` (``20151208_182500_4007_1_4``) and one ``Head_Prone``
+(``20180730_053743_6587_1_1``): their `brukerapi` frames differ by a half turn
+about F->H, and the corrected output is oriented the same, and correctly, for
+both (reviewed 2026-08-21; ADR 0001, amendment of that date).
+
 References
 ----------
 ParaVision 6.0.1 Software Manual, S1.3.6 "Subject Coordinate Systems":
@@ -18,6 +44,15 @@ ParaVision 6.0.1 Software Manual, S1.3.6 "Subject Coordinate Systems":
                              "This coordinate system is also used for subject
                              specimen Unknown."
     Material (phantoms)      XYZ
+
+ParaVision 5.1 D13 / 6.0.1 D02 "ParaVision Parameters", ``ACQ_patient_pos``:
+``Head_Supine`` negates Gx and Gz; ``Head_Prone`` Gy and Gz; ``Head_Left``
+negates Gz and exchanges Gx/Gy; ``Head_Right`` negates all three and exchanges
+Gx/Gy; ``Foot_Supine`` leaves all unchanged; ``Foot_Prone`` negates Gx and Gy;
+``Foot_Left`` negates Gy and exchanges Gx/Gy; ``Foot_Right`` negates Gx and
+exchanges Gx/Gy. Read as ``subject = M_pose @ magnet`` every entry matches its
+name (the ``*_Left`` matrices put the left side down), and
+``R(pose) = M_Head_Prone @ M_pose.T``. FILE_FORMAT.md Section 12.
 """
 
 import numpy as np
@@ -28,14 +63,21 @@ SUBJECT_POSE = {
     'side': ['Supine', 'Prone', 'Left', 'Right'],
 }
 
+#: The position pvraw assumes the animal was actually in when ``--position``
+#: is not given: prone, head first -- the preclinical standard. The declared
+#: position is what ParaVision was told, and is usually the untouched default.
+ASSUMED_POSITION = 'Head_Prone'
+
 #: ``Human`` is the ParaVision 5 spelling of the biped type. Accepted so an
 #: explicit override (``--subjecttype Human``) works, but note that PV5 writes
 #: ``SUBJECT_type=Human`` unconditionally, so it must never be read off a PV5
 #: study as if it were a real declaration -- see ``uses_quadruped_frame``.
 _TYPE_ALIASES = {'Human': 'Biped'}
 
-#: Rotation taking the image frame to the subject frame, keyed by
-#: ``VisuSubjectPosition``.  ``Head_Prone`` is the reference (identity).
+#: ``R(pose)``: the rotation taking the frame ParaVision writes for ``pose`` to
+#: the frame it writes for ``Head_Prone`` (the reference, identity). Derived as
+#: ``M_Head_Prone @ M_pose.T`` from the manual's ``ACQ_patient_pos`` table
+#: (module docstring).
 #:
 #: Supine/Prone/Left/Right differ by a roll about the bore (head-foot) axis.
 #: Feet-first entry is the head-first rotation composed with a 180 degree flip
@@ -43,15 +85,20 @@ _TYPE_ALIASES = {'Human': 'Biped'}
 #: why every ``Foot_*``/``Tail_*`` entry carries ``rad_y=pi``.  Angles are
 #: consumed by ``apply_rotate``/``rotate_affine``, which compose as Rz @ Ry @ Rx
 #: in the fixed frame.
+#:
+#: ``Head_Supine``/``Head_Prone`` are verified on data. No acquisition in the
+#: corpus declares a ``*_Left``/``*_Right`` or ``Foot_*`` position, so those
+#: entries rest on the manual alone (before 2026-08-21 the quarter turns had the
+#: opposite sign, without a source).
 SUBJECT_POSE_ROTATION = {
     'Head_Supine': {'rad_z': np.pi},
     'Head_Prone':  {},
-    'Head_Left':   {'rad_z': np.pi / 2},
-    'Head_Right':  {'rad_z': -np.pi / 2},
+    'Head_Left':   {'rad_z': -np.pi / 2},
+    'Head_Right':  {'rad_z': np.pi / 2},
     'Foot_Supine': {'rad_x': np.pi},
     'Foot_Prone':  {'rad_y': np.pi},
-    'Foot_Left':   {'rad_y': np.pi, 'rad_z': -np.pi / 2},
-    'Foot_Right':  {'rad_y': np.pi, 'rad_z': np.pi / 2},
+    'Foot_Left':   {'rad_y': np.pi, 'rad_z': np.pi / 2},
+    'Foot_Right':  {'rad_y': np.pi, 'rad_z': -np.pi / 2},
 }
 
 # Bruker uses Tail_* as the quadruped spelling of Foot_*.
@@ -112,7 +159,11 @@ def uses_quadruped_frame(subj_type):
 
 
 def get_pose_rotation(subj_pose):
-    """Rotation angles for a ``VisuSubjectPosition`` value.
+    """Rotation angles ``R(pose)`` for a ``VisuSubjectPosition`` value.
+
+    Takes the frame ParaVision writes for ``subj_pose`` to the one it writes
+    for ``Head_Prone``; see the module docstring for how the declared and the
+    actual position compose.
 
     Args:
         subj_pose (str or None): e.g. ``'Head_Supine'``. None/empty yields no

@@ -100,7 +100,7 @@ or multi-slicepack reconstruction writes one per echo or pack).
 | `-r, --recoid <id[,id...]>` | Reconstruction ids; only read together with `-s`, since without it every reconstruction is converted | `1` |
 | `-b, --bids` | Also write a JSON sidecar of BIDS-recommended metadata | off |
 | `-t, --subjecttype <T>` | Override subject type (`Biped`, `Quadruped`, `Phantom`, `Other`, `OtherAnimal`) | the recorded subject type |
-| `-p, --position <P>` | Override position, `<BodyPart>_<Side>` (e.g. `Head_Supine`) | the recorded position |
+| `-p, --position <P>` | The position the animal was actually in, `<BodyPart>_<Side>` (e.g. `Foot_Supine`). The recorded position is what ParaVision was told and is not trusted | `Head_Prone` (prone, head first) |
 | `--ignore-rescale` | Write raw stored values, with no intensity scaling in the header. `--ignore-slope` and `--ignore-offset` are aliases: slope and offset cannot be suppressed independently | off (the header carries the scaling) |
 | `--ignore-localizer` | Skip localizer/tripilot scans | on |
 
@@ -265,7 +265,7 @@ study.save_bdata(scan_id, 'dwi', dir='.')   # writes dwi.bval / dwi.bvec
 ### Overrides
 ```python
 study.override_subjtype('Quadruped')        # fix mis-set subject type
-study.override_position('Head_Supine')       # fix mis-set position
+study.override_position('Foot_Supine')       # the animal really lay like this (default assumes Head_Prone)
 ```
 
 ---

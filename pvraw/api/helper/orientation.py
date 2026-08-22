@@ -58,15 +58,17 @@ def rotate_affine(affine, rad_x=0, rad_y=0, rad_z=0):
 
 
 class Orientation(BaseHelper):
-    """How the subject was lying, which the voxel-to-patient affine does not say.
+    """What ParaVision was told about the subject: its type and its position.
 
     `brukerapi` derives the affine from ``VisuCorePosition``/
-    ``VisuCoreOrientation`` (ADR 0002, amended) and deliberately leaves the
-    subject frame out of it -- re-applying ``VisuSubjectPosition`` inside the
-    affine was one of the defects that made the old one wrong. These two
-    parameters are what ADR 0001's correction (as amended) is applied from,
-    and what ``--subjecttype``/``--position`` override when a study recorded
-    them badly.
+    ``VisuCoreOrientation`` (ADR 0002, amended), which ParaVision writes in the
+    DICOM frame of the *declared* position -- so that affine must not apply
+    ``VisuSubjectPosition`` again (a defect of the old upstream affine). What
+    ADR 0001's correction (as amended 2026-08-21) does with these two
+    parameters is different: it rotates the declared position's frame into the
+    frame of the position the animal was actually in (``--position``, assumed
+    ``Head_Prone``), and applies the quadruped convention by type
+    (``--subjecttype``). See ``lib/subject_orient.py``.
 
     Dependencies:
         visu_pars

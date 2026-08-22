@@ -161,7 +161,8 @@ class BrukerLoader:
         override_subjtype(subjtype)
             override subject type (e.g. Biped)
         override_position(position_string)
-            override position of subject (e.g. Head_Prone)
+            state the position the subject was actually in (e.g. Foot_Supine);
+            without it Head_Prone is assumed
     """
     def __init__(self, path):
         """ class method to initiate object.
@@ -330,9 +331,16 @@ class BrukerLoader:
         self._override_type = subjtype
 
     def override_position(self, position_string):
-        """ override subject position
-        Arge:
-            position_string: subject position that supported by PV
+        """State the position the subject was actually in.
+
+        The recorded ``VisuSubjectPosition`` is what ParaVision was told, and
+        the frame it writes its geometry in; pvraw does not trust it and
+        assumes ``Head_Prone`` (prone, head first). Pass the real position
+        here when that assumption is wrong (ADR 0001, as amended 2026-08-21).
+
+        Args:
+            position_string: ``<BodyPart>_<Side>`` as ParaVision spells it,
+                e.g. ``Foot_Supine``.
         """
         err_msg = f'Unknown position string [{position_string}]'
         parts = position_string.split('_')
@@ -346,9 +354,11 @@ class BrukerLoader:
 
     def get_affine(self, scan_id, reco_id):
         # Delegate to the single affine implementation (AffineAnalyzer via the
-        # app.tonifti bridge). Subject-type/position overrides ride through as
-        # explicit args; None lets the analyzer read them per-scan from
-        # VisuSubjectType/VisuSubjectPosition (FILE_FORMAT.md 7.5/7.7).
+        # app.tonifti bridge). The type override rides through as an explicit
+        # arg (None reads VisuSubjectType per scan); the position override is
+        # the position the animal was actually in (None assumes Head_Prone) --
+        # the declared VisuSubjectPosition is always read per scan and rotated
+        # away from (ADR 0001, as amended 2026-08-21).
         return self._scan_bridge(scan_id, reco_id).get_affine(
             reco_id=reco_id,
             subj_type=self._override_type,
