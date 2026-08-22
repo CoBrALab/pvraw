@@ -6,6 +6,13 @@ ParaVision orientation conventions: ``Foot_Left``/``Foot_Right`` (and their
 feet-first entry flip. There is now a single affine implementation
 (``AffineAnalyzer``); these tests pin its pose/type behaviour directly.
 
+The pose table is pinned to the manual's ``ACQ_patient_pos`` definition
+(``MANUAL`` below) and the declared/actual composition of ADR 0001 (as amended
+2026-08-21): the recorded position is what ParaVision was told and the frame
+the Visu geometry is written in; the correction rotates it into the frame of
+the position the animal was actually in, ``Head_Prone`` unless ``--position``
+says otherwise.
+
 Also pins the subject-type behaviour that ParaVision's display convention makes
 look wrong. The Primate system "is also used for subject specimen Unknown",
 which reads as though an absent ``VisuSubjectType`` (i.e. all PV5 data) should
@@ -29,12 +36,29 @@ SIDES = ['Supine', 'Prone', 'Left', 'Right']
 
 
 #: Head_Prone is the reference (identity). The other head-first poses differ by
-#: a roll about the bore/head-foot axis.
+#: a roll about the bore/head-foot axis (signs from MANUAL below).
 HEAD_FIRST = {
     'Prone': {},
     'Supine': {'rad_z': PI},
-    'Left': {'rad_z': PI / 2},
-    'Right': {'rad_z': -PI / 2},
+    'Left': {'rad_z': -PI / 2},
+    'Right': {'rad_z': PI / 2},
+}
+
+#: ``ACQ_patient_pos`` as the PV5.1 D13 / PV6 D02 manuals define it -- how each
+#: position negates and exchanges the gradient axes -- read as
+#: ``subject = M_pose @ magnet`` (ParaVision's ``GTB_ObjPosMatrix``). Row 0 is
+#: the subject's right: for every ``*_Left`` it points up, i.e. left side down,
+#: so each entry matches its name; and ``Foot_X == Head_X @ Ry(pi)``, the
+#: end-for-end turn about the vertical.
+MANUAL = {
+    'Head_Supine': np.diag([-1, 1, -1]),                            # negates Gx and Gz
+    'Head_Prone':  np.diag([1, -1, -1]),                            # negates Gy and Gz
+    'Head_Left':   np.array([[0, 1, 0], [1, 0, 0], [0, 0, -1]]),    # negates Gz, exchanges Gx/Gy
+    'Head_Right':  np.array([[0, -1, 0], [-1, 0, 0], [0, 0, -1]]),  # negates all, exchanges Gx/Gy
+    'Foot_Supine': np.eye(3),                                       # unchanged
+    'Foot_Prone':  np.diag([-1, -1, 1]),                            # negates Gx and Gy
+    'Foot_Left':   np.array([[0, 1, 0], [-1, 0, 0], [0, 0, 1]]),    # negates Gy, exchanges Gx/Gy
+    'Foot_Right':  np.array([[0, -1, 0], [1, 0, 0], [0, 0, 1]]),    # negates Gx, exchanges Gx/Gy
 }
 
 
@@ -107,6 +131,68 @@ def test_unknown_pose_raises():
 def test_empty_pose_is_identity():
     assert get_pose_rotation(None) == {}
     assert get_pose_rotation('') == {}
+
+
+@pytest.mark.parametrize('pose', list(MANUAL))
+def test_pose_rotation_matches_the_manual(pose):
+    """R(pose) = M_Head_Prone @ M_pose.T: declared-pose frame -> Head_Prone frame.
+
+    The manual's per-position matrices are the magnet -> subject map, so the
+    frame ParaVision writes for ``pose`` and the one it writes for
+    ``Head_Prone`` are related by exactly this. The quarter turns had the
+    opposite sign before 2026-08-21, with no source.
+    """
+    want = MANUAL['Head_Prone'] @ MANUAL[pose].T
+    assert np.allclose(_rot(**get_pose_rotation(pose)), want, atol=1e-9)
+
+
+def test_manual_table_is_self_consistent():
+    """Every manual entry is a proper rotation and Foot_X == Head_X @ Ry(pi)."""
+    for m in MANUAL.values():
+        assert np.isclose(np.linalg.det(m), 1.0)
+    for side in SIDES:
+        assert np.array_equal(MANUAL[f'Foot_{side}'], MANUAL[f'Head_{side}'] @ _rot(rad_y=PI).round())
+
+
+# --- declared vs actual position ---------------------------------------------
+
+def test_no_override_undoes_the_declaration():
+    """With no --position the declared frame is rotated into the Head_Prone frame.
+
+    The SAMRI case: a prone mouse declared Head_Supine comes out of Visu half a
+    turn about F->H from one declared Head_Prone, and R(Head_Supine) = Rz(pi)
+    brings it back. A Head_Prone declaration is left alone.
+    """
+    supine = AffineAnalyzer._correct_orientation(np.eye(4), 'Head_Supine', 'Biped')
+    prone = AffineAnalyzer._correct_orientation(np.eye(4), 'Head_Prone', 'Biped')
+    assert np.allclose(supine[:3, :3], _rot(rad_z=PI), atol=1e-9)
+    assert np.allclose(prone, np.eye(4), atol=1e-9)
+
+
+@pytest.mark.parametrize('declared', ALL_POSES)
+@pytest.mark.parametrize('actual', ALL_POSES)
+def test_override_is_the_actual_position(declared, actual):
+    """--position X means 'the animal lay like X': rotation = R(X).T @ R(declared)."""
+    got = AffineAnalyzer._correct_orientation(np.eye(4), declared, 'Biped', actual)[:3, :3]
+    want = _rot(**get_pose_rotation(actual)).T @ _rot(**get_pose_rotation(declared))
+    assert np.allclose(got, want, atol=1e-9)
+
+
+@pytest.mark.parametrize('pose', ALL_POSES)
+def test_override_equal_to_declared_trusts_the_file(pose):
+    """Saying the animal lay as declared leaves brukerapi's (declared-frame) affine alone."""
+    got = AffineAnalyzer._correct_orientation(np.eye(4), pose, 'Biped', pose)
+    assert np.allclose(got, np.eye(4), atol=1e-9)
+
+
+def test_override_default_equals_head_prone():
+    """No override and an explicit Head_Prone must agree, to the bit."""
+    aff = rotate_affine(np.eye(4), rad_x=0.3, rad_y=-0.2, rad_z=1.1)
+    aff[:3, 3] = [1.5, -2.5, 3.5]
+    for declared in ALL_POSES:
+        default = AffineAnalyzer._correct_orientation(aff, declared, 'Quadruped')
+        explicit = AffineAnalyzer._correct_orientation(aff, declared, 'Quadruped', 'Head_Prone')
+        assert np.array_equal(default, explicit)
 
 
 # --- subject type -------------------------------------------------------

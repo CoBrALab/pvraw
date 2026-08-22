@@ -10,6 +10,7 @@ from pvraw.api.data import Scan
 from pvraw.api.helper import axis_labels
 from pvraw.api.helper.base import collapse_scale, normalized_axes
 from pvraw.lib.errors import UnexpectedError
+from pvraw.lib.subject_orient import ASSUMED_POSITION
 from pvraw.lib.utils import get_value
 
 from .header import Header
@@ -143,13 +144,15 @@ class BaseMethods:
         BaseMethods._ensure_image_data(scanobj, reco_id)
         affine_analyzer = scanobj.get_affine_analyzer(reco_id)
         subj_type = subj_type or affine_analyzer.subj_type
-        subj_position = subj_position or affine_analyzer.subj_position
+        # subj_position is the position the animal was actually in (--position);
+        # the analyzer reads the declared VisuSubjectPosition itself and rotates
+        # from that to this (ADR 0001, as amended 2026-08-21).
         affine = affine_analyzer.get_affine(subj_type, subj_position)
         return {
             "num_slicepacks": len(affine) if isinstance(affine, list) else 1,
             "affine": affine,
             "subj_type": subj_type,
-            "subj_position": subj_position
+            "subj_position": subj_position or ASSUMED_POSITION
         }
         
     @staticmethod

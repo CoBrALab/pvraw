@@ -36,10 +36,10 @@ def main():
     subjtype_opt = ("override subject type in case the original setting was not properly set. "
                     "available options are (Biped, Quadruped, Phantom, Other, OtherAnimal) "
                     "(default: the subject type recorded in the data)")
-    position_opt = ("override position information in case the original setting was not properly "
-                    "input. the position variable can be defiend as <BodyPart>_<Side>, available "
-                    "BodyParts are (Head, Foot, Tail) and sides are (Supine, Prone, Left, Right). "
-                    "(e.g. Head_Supine) (default: the position recorded in the data)")
+    position_opt = ("the position the animal was actually in, as <BodyPart>_<Side>; BodyParts are "
+                    "(Head, Foot, Tail), sides are (Supine, Prone, Left, Right), e.g. Foot_Supine. "
+                    "The position recorded in the data is what ParaVision was told, and is not "
+                    "trusted (default: Head_Prone, i.e. prone, head first)")
     # ADR 0002: brukerapi exposes one scaling switch, so slope and offset cannot be
     # suppressed independently. --ignore-slope and --ignore-offset are aliases.
     rescale_opt = ("write the raw stored values, with no slope or offset in the header "

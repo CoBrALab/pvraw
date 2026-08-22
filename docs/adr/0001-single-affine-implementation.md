@@ -108,6 +108,68 @@ Decision's last line reserves for the loader, only `_get_slice_info` survives;
 `_get_spatial_info` and `_get_matrix_size` are gone, their callers reading
 `brukerapi`'s derived properties or `lib/utils.get_value` instead.
 
+## Amendment, 2026-08-21: what the subject-position rotation is
+
+The amendment above said `brukerapi` "deliberately leaves the subject frame
+out of its affine", and the code described its rotation as "image frame to
+subject frame, keyed by `VisuSubjectPosition`". Both were wrong about the
+model, though right about the result for the data that matters.
+
+**What the files do.** ParaVision writes `VisuCoreOrientation`/`VisuCorePosition`
+in the DICOM patient frame of the position it was *told* —
+`VisuSubjectPosition` = `ACQ_patient_pos`. The PV5.1/PV6 manuals define the
+position as the map between magnet and subject axes (`ACQ_patient_pos`:
+`Head_Supine` negates Gx and Gz, `Head_Prone` Gy and Gz, …), and
+`GTB_ObjPosMatrix(ppos, m, dicom)` in `PvGeoTools.h` "converts magnet
+coordinate system into object coordinate system" keyed by that position. So
+`brukerapi`'s affine is already anatomical — for the *declared* position, and
+only if that declaration was true. Preclinical practice routinely leaves
+ParaVision's default `Head_Supine` on a prone animal: 2,589 of 3,009 `visu_pars`
+in `resources/testdata` declare `Head_Supine`.
+
+**Decision.** pvraw does not trust the declaration. It assumes the animal lay
+prone, head first (`ASSUMED_POSITION = 'Head_Prone'`), and rotates the
+declared frame into the actual one:
+
+```
+correction = R(actual).T @ R(declared)      # then the quadruped convention
+```
+
+where `R(pose)` (`SUBJECT_POSE_ROTATION`) takes the frame ParaVision writes for
+`pose` to the one it writes for `Head_Prone`, derived from the manual's table
+as `R(pose) = M_Head_Prone @ M_pose.T` with `subject = M_pose @ magnet`. With no
+override the correction is `R(declared)` — exactly what the code always did, so
+default output does not move (`tools/sweep_nifti.py --compare` over the zenodo
+corpus: 0 differing images).
+
+**What changes.** `--position X` / `override_position(X)` now means *the animal
+was actually in X*. Before, it replaced the declared value, so it meant "actual
+position" only when the file declared `Head_Prone`; on a `Head_Supine` file,
+`--position Head_Prone` ("my mice were prone") removed the correction and
+flipped the output, and there was no way to say "trust the declaration" for a
+genuinely supine subject. Now `--position <declared>` leaves `brukerapi`'s
+affine alone, and `--position Head_Prone` is the default.
+
+The four quarter-turn entries (`Head_Left`, `Head_Right`, `Foot_Left`,
+`Foot_Right`, and their `Tail_*` aliases) change sign to match the manual;
+their previous sign had no source. No acquisition in the corpus declares any of
+them, so they rest on the manual alone (`08_orientation_test.py::MANUAL`).
+
+**Evidence.** Two SAMRI mouse TurboRARE studies from one lab, both animals
+prone, one declared `Head_Supine` (`20151208_182500_4007_1_4`, PV6.0) and one
+`Head_Prone` (`20180730_053743_6587_1_1`, PV6.0): their `brukerapi` frames
+differ by a half turn about F→H, and the corrected output was reviewed on
+labelled renders and judged correctly oriented for both. Fitting the map from
+`ACQ_grad_matrix` to `VisuCoreOrientation` over the corpus reproduces the
+manual's table exactly (PV5.1/6/7 one fixed map for both positions; PV360 one
+map per position) — FILE_FORMAT.md Section 12.
+
+**What still binds.** One affine path; the declared type and position are read
+per scan from `VisuSubjectType`/`VisuSubjectPosition`, never from the study
+`subject` file; the quadruped convention is a fixed-frame rotation applied
+after the pose rotation. `AffineAnalyzer._correct_orientation` is still the one
+place.
+
 ## Do not re-litigate
 
 Do not reintroduce a loader-side affine or a second orientation module. If a new

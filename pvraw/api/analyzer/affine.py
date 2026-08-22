@@ -15,6 +15,7 @@ import numpy as np
 
 from pvraw.api import helper
 from pvraw.lib.subject_orient import (
+    ASSUMED_POSITION,
     SUBJECT_POSE,
     SUBJECT_TYPES,
     get_pose_rotation,
@@ -35,23 +36,28 @@ SUBJPOSE = SUBJECT_POSE
 
 
 class AffineAnalyzer(BaseAnalyzer):
-    """Places a reconstruction in the subject's frame.
+    """Places a reconstruction in the frame of the animal as it actually lay.
 
     The voxel-to-patient affine comes from `brukerapi`, which derives it from
     ``VisuCorePosition``/``VisuCoreOrientation`` per FILE_FORMAT.md 7.2 (ADR
-    0002, amended). What this class adds is the part `brukerapi` deliberately
-    leaves out: the subject-type and subject-position corrections of ADR 0001
-    (as amended), which the CLI can override per scan.
+    0002, amended). ParaVision writes those in the DICOM frame of the position
+    it was *told* (``VisuSubjectPosition``), so that affine is anatomical for
+    the declared position only. What this class adds (ADR 0001, as amended
+    2026-08-21) is the rotation from the declared position to the actual one
+    -- pvraw assumes ``Head_Prone`` unless ``--position`` says otherwise,
+    because ParaVision's default ``Head_Supine`` is routinely left on prone
+    rodents -- and the quadruped axis convention. Both can be overridden per
+    scan (``--position``, ``--subjecttype``). See ``lib/subject_orient.py``.
 
     Args:
-        infoobj (ScanInfo): Analysed scan properties; supplies the subject type
-            and position when the caller does not override them.
+        infoobj (ScanInfo): Analysed scan properties; supplies the declared
+            subject type and position.
         dataset: The `brukerapi` Dataset for the reconstruction.
 
     Attributes:
         affine: The patient-frame affine, or one per slice package.
-        subj_type (str): The type of the subject (e.g., Biped, Quadruped).
-        subj_position (str): The position of the subject during the scan.
+        subj_type (str): ``VisuSubjectType`` (e.g., Biped, Quadruped).
+        subj_position (str): ``VisuSubjectPosition`` -- the declared position.
     """
     def __init__(self, infoobj: ScanInfo, dataset):
         infoobj = copy(infoobj)
@@ -70,17 +76,24 @@ class AffineAnalyzer(BaseAnalyzer):
         self.subj_position = infoobj.orientation['subject_position'] if hasattr(infoobj, 'orientation') else None
 
     def get_affine(self, subj_type: str | None = None, subj_position: str | None = None):
-        """Retrieve the affine matrix, applying corrections based on subject type and position.
+        """The affine in the frame of the animal as it actually lay.
+
+        Args:
+            subj_type: overrides ``VisuSubjectType`` (the quadruped convention).
+            subj_position: the position the animal was actually in
+                (``Head_Prone``, ``Foot_Supine``, ...). None assumes
+                ``ASSUMED_POSITION``. The *declared* position is always the
+                scan's own ``VisuSubjectPosition``.
         """
         subj_type = subj_type or self.subj_type
-        subj_position = subj_position or self.subj_position
         if isinstance(self.affine, list):
-            return [self._correct_orientation(aff, subj_position, subj_type) for aff in self.affine]
-        return self._correct_orientation(self.affine, subj_position, subj_type)
+            return [self._correct_orientation(aff, self.subj_position, subj_type, subj_position)
+                    for aff in self.affine]
+        return self._correct_orientation(self.affine, self.subj_position, subj_type, subj_position)
 
     @staticmethod
     def _est_rotate_angle(subj_pose):
-        """Estimate the rotation angle needed based on the subject's pose.
+        """``R(pose)`` as rotate_affine angles: declared-pose frame -> Head_Prone frame.
         """
         rotate_angle = {'rad_x': 0, 'rad_y': 0, 'rad_z': 0}
         try:
@@ -90,12 +103,27 @@ class AffineAnalyzer(BaseAnalyzer):
         return rotate_angle
 
     @classmethod
-    def _correct_orientation(cls, affine, subj_pose, subj_type):
-        """Correct the orientation of the affine matrix based on the subject's type and pose.
+    def _pose_rotation(cls, subj_pose):
+        """``R(pose)`` as a 3x3 matrix."""
+        return helper.rotate_affine(np.eye(4), **cls._est_rotate_angle(subj_pose))[:3, :3]
+
+    @classmethod
+    def _correct_orientation(cls, affine, subj_pose, subj_type, actual_pose=None):
+        """Rotate the declared position's frame into the actual position's frame.
+
+        ``subj_pose`` is what ParaVision was told (``VisuSubjectPosition``),
+        the frame `brukerapi`'s affine is in; ``actual_pose`` is how the animal
+        lay (``--position``), ``ASSUMED_POSITION`` when not given. The rotation
+        is ``R(actual).T @ R(declared)`` -- with the default it is
+        ``R(declared)``, which undoes the declaration and asserts prone/head
+        first. The quadruped convention change follows, as a fixed-frame
+        rotation (left-multiplied, never folded into the pose angles).
         """
         cls._inspect_subj_info(subj_pose, subj_type)
-        rotate_angle = cls._est_rotate_angle(subj_pose)
-        affine = helper.rotate_affine(affine, **rotate_angle)
+        cls._inspect_subj_info(actual_pose, None)
+        rot = cls._pose_rotation(actual_pose or ASSUMED_POSITION).T @ cls._pose_rotation(subj_pose)
+        mat, vec = helper.to_matvec(affine)
+        affine = helper.from_matvec(rot @ mat, rot @ vec)
 
         if uses_quadruped_frame(subj_type):
             # fixed-frame Primate -> Rodent axis convention change; independent
