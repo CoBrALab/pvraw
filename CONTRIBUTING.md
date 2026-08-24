@@ -42,9 +42,10 @@ for the full test suite, the sample-data cache and the sweep tools.
 Releases are published to PyPI by CI (`.github/workflows/release.yml`) when a version
 tag is pushed:
 
-1. Set `__version__` in `pvraw/__init__.py` and commit. (`uv.lock` does not record the
-   project's own version, so no re-lock is needed for a version bump alone.)
-2. Tag and push the tag:
+1. Set `__version__` in `pvraw/__init__.py` and add the `## <X.Y.Z> — <date>` section to
+   `CHANGELOG.md`, in one commit. (`uv.lock` does not record the project's own version,
+   so no re-lock is needed for a version bump alone.)
+2. Tag the merged commit on `main` and push the tag:
 
    ```bash
    git tag v<X.Y.Z>
@@ -55,6 +56,10 @@ tag is pushed:
 3. CI builds the sdist and wheel and publishes them with
    [PyPI trusted publishing](https://docs.pypi.org/trusted-publishers/); there is no
    API token to manage.
+4. CI then creates the GitHub release, with the changelog section for that version as
+   the notes and the sdist and wheel attached. It runs only after PyPI accepted the
+   upload, and fails when `CHANGELOG.md` has no section for the version — so write the
+   changelog entry in step 1 rather than after the tag.
 
 **One-time setup, before the first release:** on pypi.org, under *Your account →
 Publishing*, add a *pending publisher* with project name `pvraw`, owner `CoBrALab`,
