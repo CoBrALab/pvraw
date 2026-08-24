@@ -1,6 +1,6 @@
 from .lib import BrukerLoader
 
-__version__ = '1.2.0'
+__version__ = '1.1.1'
 
 __all__ = ['BrukerLoader', '__version__']
 

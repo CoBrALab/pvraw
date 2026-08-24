@@ -7,7 +7,7 @@ All notable changes to this project are recorded here. The format follows
 Released versions are on [PyPI](https://pypi.org/project/pvraw/) and on the
 [releases page](https://github.com/CoBrALab/pvraw/releases).
 
-## 1.2.0 — 2026-08-24
+## 1.1.1 — 2026-08-24
 
 ### Changed
 

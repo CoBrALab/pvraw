@@ -10,7 +10,7 @@ The ultimate source of truth for implementing this software is FILE_FORMAT.md
 
 pvraw is a Python library for accessing and converting raw MRI data from Bruker Biospin preclinical scanners. It provides a CLI (`pvraw`) and Python API for reading Bruker PvDatasets (directory or archive), deriving their geometry, and exporting to NIfTI/BIDS formats.
 
-This began as a hard fork of the upstream [BrkRaw](https://github.com/BrkRaw/brkraw) 0.3.x/0.4 line and is developed independently of upstream 0.5+. The distribution and the import package are both `pvraw`. Current version: 1.2.0.
+This began as a hard fork of the upstream [BrkRaw](https://github.com/BrkRaw/brkraw) 0.3.x/0.4 line and is developed independently of upstream 0.5+. The distribution and the import package are both `pvraw`. Current version: 1.1.1.
 
 ## Build & Development Commands
 
