@@ -1350,11 +1350,35 @@ descriptive label of the resulting geometry.
 > PV5.1 — so use it only as a cross-check, and broadcast a single matrix across all slices if a
 > dataset ever does store just one.
 
-> **Patient position is not folded in (PV5.1/PV6).** There the x, y, z components are defined
-> independent of the subject position, so `ACQ_patient_pos` must be applied separately to reach
-> anatomical directions. ParaVision 360's `ACQ_GradientMatrix` instead maps the logical gradient
-> orientation *directly* to the physical gradient vector, with the subject position already taken
-> into account. Do not carry a PV5/PV6 orientation derivation over to PV360 unchanged.
+> **The matrices are in acquisition order; the offsets are per slice.** `ACQ_grad_matrix[i]`
+> belongs to the *i*-th slice *acquired*, i.e. to slice `ACQ_obj_order[i]` (once `NI > NSLICES`
+> makes `ACQ_obj_order` count objects, the method's `PVM_ObjOrderList` is the slice order), whereas
+> `ACQ_slice_offset`, `ACQ_read_offset` and `ACQ_phase1_offset` are indexed by slice id. For
+> parallel slices the matrices repeat and the difference is invisible; a multi-package scout shows
+> it. The tripilot of PV5.1 `0.2H2` expno 1 ([Zenodo 4048286](https://zenodo.org/records/4048286))
+> — three orthogonal packages of five slices, `ACQ_obj_order = 0 2 4 6 8 10 12 14 1 3 5 7 9 11 13`
+> — stores its 15 matrices as `A A A B B C C C A A B B B C C` (A axial, B sagittal, C coronal).
+> Read per slice id, its sagittal and coronal slices land 5.66 mm from the reconstruction's
+> `VisuCorePosition`; re-indexed with `argsort(ACQ_obj_order)` all 15 are exact, and so is every
+> 2-D slice of a ~1,500-acquisition corpus (PV5.1–PV360) checked the same way (1,412/1,412 at
+> 1e-3 mm, [Section 12](#12-coordinate-systems)).
+
+> **`ACQ_patient_pos` is the magnet ↔ subject map, and which frame the matrix is in depends on the
+> version.** The PV5.1/PV6 manuals define the position by how it negates and exchanges the
+> physical gradient axes relative to the matrix's x, y, z (`Head_Supine` negates Gx and Gz …
+> `Foot_Supine` leaves all unchanged; [Section 5.6](#56-patient-position)): `ACQ_grad_matrix` is
+> written in the **ParaVision subject frame**, and the position relates that frame to the magnet
+> (`GTB_ObjPosMatrix(ppos, m, dicom)` in `PvGeoTools.h`: "converts magnet coordinate system into
+> object coordinate system", keyed by position). ParaVision 360's `ACQ_GradientMatrix` instead
+> maps "directly to the physical gradient vector", the subject position already folded in — it is
+> written in the **magnet frame** — and PV360 writes the same values into `ACQ_grad_matrix` (57/57
+> scans), so one code path reads both, but the map to `VisuCoreOrientation` is fixed for
+> PV5.1/6/7 and position-dependent for PV360. Measured against the reconstruction, that is exactly
+> what the files do: on PV5.1/6/7 `Head_Supine` and `Head_Prone` (1,341 and 221 acquisitions)
+> share one map; on PV360 `Head_Prone` (78 scans) and the one `Head_Supine` acquisition give the two
+> maps the manual predicts — [Section 12](#12-coordinate-systems). `Head_Left`/`Head_Right` and
+> `Foot_*` do not occur in the corpus and are untested. In every version the Visu frame is the
+> frame of the *declared* position; Section 12 says what that means for a reader.
 
 **Slice separation mode (`ACQ_slice_sepn_mode`, enum `SL_SEPN_MODE`):**
 
@@ -1418,7 +1442,7 @@ The `ACQ_patient_pos` parameter defines how the subject is positioned in the mag
 | `Foot_Left` | Feet first, left side down |
 | `Foot_Right` | Feet first, right side down |
 
-The patient position affects the mapping between gradient axes and anatomical directions. For non-default positions, specific gradient axes must be negated or exchanged to maintain correct anatomical orientation.
+The patient position affects the mapping between gradient axes and anatomical directions. For non-default positions, specific gradient axes must be negated or exchanged to maintain correct anatomical orientation. The per-position matrices are in [Section 12](#12-coordinate-systems); read as `subject = M_pos · magnet` they are ParaVision's own `GTB_ObjPosMatrix` (`PvGeoTools.h`), and every entry then matches its name (the `*_Left` matrices put the left side down). On PV5.1/PV6/PV7 `ACQ_grad_matrix` is already written in the subject frame and carries them; only PV360's gradient matrix is in the magnet frame.
 
 ### 5.7 Identification and Timing (ACQ_INFO)
 
@@ -1894,7 +1918,7 @@ These parameters fully describe the image geometry and data layout:
 | `VisuCoreUnits` | string[] | Units per dimension (default: `mm`). PV360 requires unit strings (also `VisuCoreDataUnits`) to conform to the **UCUM** standard (§4.13.3.2) |
 | `VisuCoreModalityOffset` | double[1 or FrameCount][3] | **[PV360]** per-frame spatial modality offset in mm; first dimension is 1 when all offsets are identical, else `VisuCoreFrameCount`; second dimension always 3 (§4.13.3.2) |
 | `VisuCoreAtsCenterDistance` | double | **[PV360]** labelled reference-position distance to a fixed cradle position in ATS direction, mm — the origin shift of [Section 12](#12-coordinate-systems) (§4.13.3.2; see also `ACQ_AtsCenterDistance`, [Section 5.8](#58-ats-parameters-pv360)) |
-| `VisuCorePosition` | double[][3] | Position of the centre of the **first pixel/voxel transferred**, in patient coordinates (mm). Usually that is the first pixel in the image coordinate system — but for frames with 3 spatial dimensions *and* `VisuCoreDiskSliceOrder = disk_reverse_slice_order` it is instead the first voxel of the **last** 2D frame in the stored dataset. |
+| `VisuCorePosition` | double[][3] | Position of the centre of the **first pixel/voxel transferred**, in patient coordinates (mm). Usually that is the first pixel in the image coordinate system — but for frames with 3 spatial dimensions *and* `VisuCoreDiskSliceOrder = disk_reverse_slice_order` it is instead the first voxel of the **last** 2D frame in the stored dataset. In-plane that first pixel centre is exactly FOV/2 from the field-of-view centre (pixel N/2 *is* the centre, whatever the matrix size); along the partition axis of a 3-D frame PV5.1 does the same, but PV6 onwards centres the grid *between* partitions, half a step in — see [Section 12](#12-coordinate-systems). |
 | `VisuCoreOrientation` | double[][9] | 3x3 orientation matrix per frame |
 | `VisuCoreTransposition` | int[] | Dimension transposition per frame: `0` = no exchange; `n < VisuCoreDim` = exchange dimensions `n` and `n-1`; `VisuCoreDim` = exchange dimensions `0` and **`VisuCoreDim - 1`**. (The PV5.1/PV6 manuals write "0 and `VisuCoreDim`", which is one past the last dimension; PV360 3.6+ corrects it to `VisuCoreDim-1`, the only in-range reading.) **Optional** — written only when frames differ in transposition; its absence means no frame needs one. |
 | `VisuCoreReferenceCS` | enum | Reference coordinate system; defaults to the patient coordinate system |
@@ -2145,7 +2169,7 @@ A series corresponds to a combination of EXPNO and PROCNO:
 | `VisuExperimentNumber` | int | Experiment number (EXPNO) |
 | `VisuProcessingNumber` | int | Processing number (PROCNO) |
 | `VisuSeriesDate` | string | Series creation date/time |
-| `VisuSubjectPosition` | enum | Position of the subject in the magnet (`PATIENT_POS_TYPE`): `Head_Supine`, `Head_Prone`, `Head_Left`, `Head_Right`, `Foot_Supine`, `Foot_Prone`, `Foot_Left`, `Foot_Right` |
+| `VisuSubjectPosition` | enum | Position of the subject in the magnet (`PATIENT_POS_TYPE`): `Head_Supine`, `Head_Prone`, `Head_Left`, `Head_Right`, `Foot_Supine`, `Foot_Prone`, `Foot_Left`, `Foot_Right`. The position ParaVision was *told* at study setup (= `ACQ_patient_pos`), and therefore the frame `VisuCoreOrientation`/`VisuCorePosition` are written in — see [Section 12](#12-coordinate-systems) |
 | `VisuSeriesTypeId` | string | Series type identifier — see the value list below |
 | `VisuSeriesComment` | string | Free-text comment |
 | `VisuSeriesCreationId` | enum | **[PV360]** how the series came to be: `VCMN_ACQUISITION`, `VCMN_DERIVED`, `VCMN_DICOM_IMPORT` (§4.13.3.6) |
@@ -2747,21 +2771,78 @@ reader must not assume a proper rotation. It is applied as a **row-vector** prod
 the row order read/phase/slice given in [Section 5.4](#54-geometry-and-orientation). The index runs
 over the array's own leading dimension.
 
-**Where that product lands differs by version, and this is easy to get wrong:**
+**Where that product lands — the manuals, confirmed by the files.** The manuals describe a
+version split. For PV5.1 / PV6 the x, y, z of `ACQ_grad_matrix` are "defined independent of the
+subject position" and `ACQ_patient_pos` relates them to the physical gradient axes by negating and
+exchanging (`Head_Supine` negates Gx and Gz; `Head_Prone` Gy and Gz; `Head_Left` negates Gz and
+exchanges Gx/Gy; `Head_Right` negates all three and exchanges Gx/Gy; `Foot_Supine` leaves all
+unchanged; `Foot_Prone` negates Gx and Gy; `Foot_Left` negates Gy and exchanges Gx/Gy;
+`Foot_Right` negates Gx and exchanges Gx/Gy) — i.e. the matrix is in the **ParaVision subject
+frame** and the position is the magnet ↔ subject map. Read as `subject = M_pos · magnet` every
+entry matches its name (the `*_Left` matrices put the left side down, and
+`M_Foot_X = M_Head_X · Ry(π)`, the end-for-end turn about the vertical), and it is
+`GTB_ObjPosMatrix` of `PvGeoTools.h`. ParaVision 360's `ACQ_GradientMatrix` "transforms the
+logical gradient orientation **directly to the physical gradient vector**", with the subject
+position already taken into account ("unlike `ACQ_grad_matrix` in older ParaVision versions") —
+i.e. it is in the **magnet frame**, and the PV360 manual's own example says so: "X- and Y-
+Gradient is reversed in case of Subject Position = HEAD_PRONE" (axial: read Gx = 1, phase
+Gy = −1, slice Gz = −1).
 
-- **ParaVision 360** — `ACQ_GradientMatrix` "transforms the logical gradient orientation **directly
-  to the physical gradient vector**", with the subject position already taken into account when it
-  is set. One matrix, one step.
-- **PV5.1 / PV6** — `ACQ_grad_matrix` is explicitly contrasted with that ("unlike `ACQ_grad_matrix`
-  in older ParaVision versions"). There the subject position is **not** folded in, and
-  `ACQ_patient_pos` supplies the remaining step by negating and exchanging gradient axes:
-  `Head_Supine` negates Gx and Gz; `Head_Prone` negates Gy and Gz; `Head_Left` negates Gz and
-  exchanges Gx/Gy; `Head_Right` negates all three and exchanges Gx/Gy; `Foot_Prone` negates Gx and
-  Gy; and **`Foot_Supine` leaves all gradients unchanged** — i.e. only for `Foot_Supine` do
-  `ACQ_grad_matrix`'s x, y, z coincide with the physical gradient axes.
+> **Measured against the reconstruction, the files do what the manuals say.** Fitting, per
+> dataset, the signed-permutation matrix `P` for which `VisuCoreOrientation = S · M · Pᵀ` holds
+> with `S` a signed permutation — over ~1,500 acquisitions that have a `2dseq` (PV5.1, 6.0, 6.0.1,
+> 7.0.0, 360.3.4–3.7; 1,341 `Head_Supine`, 221 `Head_Prone`) — the direction of logical axis *j*
+> in the DICOM patient frame is `P · M[j]` with
+>
+> | Generation | `ACQ_patient_pos` | `P` | Reading |
+> |---|---|---|---|
+> | PV5.1, PV6, PV7 | `Head_Supine` and `Head_Prone`, the same | `diag(−1, −1, 1)` | = `VISU_DICOM_PV_MATRIX` below: the matrix is in the ParaVision subject frame (L→R, P→A, F→H), Visu only converts it to DICOM, and the position cancels |
+> | PV360 | `Head_Prone` (78 scans) | `diag(−1, 1, −1)` | = `VISU_DICOM_PV_MATRIX · M_Head_Prone` (Gy, Gz negated): the matrix is in the magnet frame |
+> | PV360 | `Head_Supine` (1 scan) | `diag(1, −1, −1)` | = `VISU_DICOM_PV_MATRIX · M_Head_Supine` (Gx, Gz negated); reproduces that volume's `VisuCorePosition` to 1e-4 mm, where the Prone map gets the x sign wrong |
+>
+> So `P = VISU_DICOM_PV_MATRIX` on PV5.1–7 for every position, and
+> `P = VISU_DICOM_PV_MATRIX · M_pos` on PV360, `M_pos` the manual's table read as
+> `subject = M_pos · magnet` (`M_pos⁻¹ = M_posᵀ`). `Head_Left`/`Head_Right` and `Foot_*` do not
+> occur in the corpus, so their rows of the table are untested. A reader deriving
+> `VisuCoreOrientation`/`VisuCorePosition` from the acqp must not apply `ACQ_patient_pos` a second
+> time on PV5.1–7 — the matrix already carries it — and must apply it once on PV360.
 
-So a PV5/PV6 orientation derivation must apply `ACQ_patient_pos` (equivalently
-`VisuSubjectPosition`) as a separate stage, and must **not** be carried over to PV360 unchanged.
+> **The Visu frame is the frame of the *declared* position — in every version.** ParaVision
+> writes `VisuCoreOrientation`/`VisuCorePosition` in the DICOM patient frame of the position it was
+> told at study setup (`VisuSubjectPosition` = `ACQ_patient_pos`), which is anatomical only if that
+> declaration was true. Preclinical practice routinely leaves the default `Head_Supine` on an
+> animal lying prone — 2,589 of 3,009 `visu_pars` in the corpus declare `Head_Supine` — and two
+> acquisitions of the same prone setup, one declared `Head_Supine` and one `Head_Prone`, come out
+> of Visu rotated by π about F→H relative to each other. A reader that wants the frame of the
+> animal as it actually lay therefore has to reconcile the declaration with reality as a step
+> *after* Visu; that is not a second application of the position to the gradient matrix.
+
+**Image axes and first voxel, from acqp.** With `d_r, d_p, d_s = P·M[0], P·M[1], P·M[2]` and the
+slice centre `c = P · (ACQ_read_offset·M[0] + ACQ_phase1_offset·M[1] + ACQ_slice_offset·M[2])`
+(per slice id; [Section 5.4](#54-geometry-and-orientation)), the reconstruction has
+
+- `VisuCoreOrientation = [ −d_r ; −d_p ; ±d_s ]` — the in-plane image axes run **against** the
+  gradient directions; read and phase are exchanged when `RECO_transposition = 1`
+  ([Section 6.9](#69-image-type-and-transposition)), and the third row is the right-handed
+  completion rather than the direction in which the slice offsets grow;
+- `VisuCorePosition = c + (FOV_r/2)·d_r + (FOV_p/2)·d_p`, `FOV = 10 · ACQ_fov` (cm → mm): pixel
+  N/2 is the field-of-view centre, independent of the matrix size (partial Fourier, zero-filling).
+  The reconstruction crops an anti-aliased field of view (`PVM_AntiAlias`) symmetrically, so
+  against raw k-space compare centres or shift by (`ACQ_fov` − `VisuCoreExtent`)/2.
+  `ACQ_AtsCenterDistance` does **not** enter this relation on the PV360 data checked (values of
+  356 and 369 mm present).
+
+Exact to 1e-3 mm on 1,412/1,412 2-D slices of the corpus.
+
+**3-D partition grid.** PV5.1 places partition N/2 at the centre like the in-plane axes (first
+partition at −FOV_s/2 along `d_s`). From PV6 on — PV6, PV7 and PV360 alike — the grid is centred
+*between* partitions: first partition at −(FOV_s/2 − Δ_s/2). Every PV6+ 3-D volume of the corpus
+sits exactly half a partition in under the PV5.1 rule (0.0625 mm at 12 mm / 96 partitions,
+0.625 mm at 40 mm / 32, …), none of the PV5.1 ones does (91/91 volumes within half a partition
+once modelled; the one that did not fit at first is the PV360 `Head_Supine` compressed-sensing
+reconstruction above, which fits as soon as its position's `P` is used).
+With `VisuCoreDiskSliceOrder = disk_reverse_slice_order` the stored first frame is the far end of
+the slab ([Section 7.2](#72-core-image-description-visucore)).
 
 **Patient to image:** `VisuCoreOrientation` (3x3 matrix, `i = M * p`)
 
@@ -2776,10 +2857,11 @@ flowchart LR
   dicom["Patient — DICOM/Visu<br>R→L, A→P, F→H"]
   pv["Patient — ParaVision UI<br>L→R, P→A, F→H"]
   img["Image<br>col, row, slice"]
-  grad -- "ACQ_grad_matrix · (PV360: ACQ_GradientMatrix, direct)" --> mag
-  mag -- "ACQ_patient_pos (PV5/PV6 only; identity for Foot_Supine)" --> dicom
+  grad -- "ACQ_grad_matrix, PV5.1/6/7 (x, y, z = PV subject frame)" --> pv
+  grad -- "ACQ_GradientMatrix = ACQ_grad_matrix, PV360 (x, y, z = magnet)" --> mag
+  mag -- "ACQ_patient_pos: subject = M_pos · magnet (manual's table, GTB_ObjPosMatrix)" --> pv
+  pv -- "VISU_DICOM_PV_MATRIX = diag(-1,-1,1)" --> dicom
   dicom -- "VisuCoreOrientation (i = M·p)" --> img
-  dicom -- "VISU_DICOM_PV_MATRIX = diag(-1,-1,1)" --> pv
 ```
 
 **DICOM/Visu ↔ ParaVision conversion (authoritative, from `VisuDefines.h`):** The Visu
@@ -2957,7 +3039,7 @@ reconstruction, beyond this document's MRI scope.)
 
 ParaVision 7.0 is a newer version line (`ACQ_sw_version = <PV-7.0.0>`,
 `VisuCreatorVersion = <7.0.0>`). Unlike ParaVision 360, it is structurally a **continuation of the
-PV6 format** rather than a departure (observed in the BrukerAPI standard dataset,
+PV6 format** rather than a departure (observed in a public PV7 dataset,
 Zenodo [4522220](https://zenodo.org/records/4522220)):
 
 | Feature | ParaVision 7.0 |
@@ -2970,14 +3052,12 @@ Zenodo [4522220](https://zenodo.org/records/4522220)):
 | PROCNO file `pvmeta` | A small native JCAMP parameter file (group `PV_META`, e.g. `RefCopyId`) alongside `reco`/`methreco`/`visu_pars` — **defined since PV6.0.1** (`generated/DataPath.h`), not new in PV7; DICOM exports under `pdata/<procno>/dicom/` |
 | Observed extras | Study-level `Mapshim/<n>/` shim work directory and per-EXPNO `PowAdjustment/<n>/Results` / `SetupPulsePower/<n>/Profiles` adjustment files (public PV7 study, [Zenodo 20429962](https://zenodo.org/records/20429962)) — see [Sections 1.1](#11-study-level)–[1.2](#12-experiment-level-expno) |
 
-> **Non-native sidecars in public PV7 test data.** The BrukerAPI Zenodo dataset ships companion
+> **Non-native sidecars in public PV7 test data.** The public PV7 dataset above ships companion
 > files that are **not** written by ParaVision and must be ignored by a Bruker parser:
 > `fid.npz` / `2dseq.npz` (NumPy reference arrays) and a few `.json` serializations
-> (`subject.json`, `<expno>/acqp.json`, …) emitted by the `brukerapi-python` library. A reader that
+> (`subject.json`, `<expno>/acqp.json`, …) emitted by a third-party reader. A reader that
 > keys datasets off the filename stem (see [Section 3.5](#35-method-specific-auxiliary-files))
-> should treat `.npz`/`.json` as non-Bruker and skip them — pvraw already does, converting
-> the PV7 study with no code changes (all 30 image scans → NIfTI, spectroscopic scans rejected
-> cleanly).
+> should treat `.npz`/`.json` as non-Bruker and skip them.
 >
 > Third-party processing tools drop their own descriptors into EXPNOs, too — e.g. the plain
 > key=value `exp.par` files (`fileType = "Paravision-LittleEndian"`, zero-fill/FT settings) found

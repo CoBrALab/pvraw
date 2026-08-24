@@ -60,6 +60,20 @@ A group of slices sharing one geometry within a Reco. More than one means the
 Reco has multiple distinct orientations and cannot be a single NIfTI.
 _Avoid_: slab, slice group, stack
 
+## Subject framing
+
+**Declared Position**:
+The position ParaVision was told the subject was in — `VisuSubjectPosition`
+(`ACQ_patient_pos`), e.g. `Head_Supine` — and therefore the frame it writes
+its geometry in. Often the untouched default.
+_Avoid_: recorded position, patient position, pose
+
+**Actual Position**:
+How the subject really lay in the cradle: what `-p/--position` states and what
+the output is framed for. Assumed `Head_Prone` (prone, head first) when not
+stated.
+_Avoid_: override position, corrected position
+
 ## Subject and study identity
 
 The `subject` file names three people-ish things and one of them is the
