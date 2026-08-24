@@ -80,6 +80,13 @@ The `subject` file names three people-ish things and one of them is the
 subject. `pvraw info` and `info_dict()` use the names below; FILE_FORMAT.md
 section 9 carries the per-version parameter spellings.
 
+Since brukerapi 0.4.6 the Subject ID, Study Name, Study Nr and study date in
+`info_dict()` read through `brukerapi`'s Dataset properties (`subj_id`,
+`study_id`, `study_nr`, `date` — the `Visu*` spellings, ADR 0002) from the
+first readable reconstruction; the subject-file reads below are the fallback
+for a study with no readable reconstruction. Subject Name, Operator and User
+Account have no brukerapi property and stay subject-file reads.
+
 **Subject Name**:
 The subject's own name, `SUBJECT_name_string` (DICOM patient-name format on
 PV360: `family^given^middle^prefix^suffix`). `subject_name` in `info_dict()`.
