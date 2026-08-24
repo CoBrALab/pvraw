@@ -1,3 +1,4 @@
+[![PyPI](https://img.shields.io/pypi/v/pvraw.svg)](https://pypi.org/project/pvraw/)
 [![made-with-python](https://img.shields.io/badge/Made%20with-Python-1f425f.svg)](https://www.python.org/)
 
 ## pvraw: read raw Bruker ParaVision MRI data
@@ -27,21 +28,31 @@ Requires Python >= 3.11. Everything here uses [uv](https://docs.astral.sh/uv/), 
 manages the interpreter and the dependencies for you — there is no separate virtualenv
 to create or activate.
 
+Released versions are on [PyPI](https://pypi.org/project/pvraw/) — install from there
+unless you need an unreleased change.
+
 **As a command-line tool.** Installs `pvraw` onto your `PATH`, isolated from
 your other environments:
 
 ```bash
-uv tool install git+https://github.com/CoBrALab/pvraw.git
+uv tool install pvraw
 uv tool upgrade pvraw      # later, to update
 ```
 
 **As a dependency of your own project**, for the Python API:
 
 ```bash
+uv add pvraw               # or: pip install pvraw
+```
+
+**From git**, to run a change that is not released yet:
+
+```bash
+uv tool install git+https://github.com/CoBrALab/pvraw.git
 uv add git+https://github.com/CoBrALab/pvraw.git
 ```
 
-**From source**, for development or to run an unreleased change:
+**From source**, for development:
 
 ```bash
 git clone https://github.com/CoBrALab/pvraw.git
@@ -49,6 +60,9 @@ cd pvraw
 uv sync                       # runtime deps, editable install
 uv sync --extra dev           # also pytest, ruff and bids-validator
 ```
+
+Each release is listed with its changes in [CHANGELOG.md](https://github.com/CoBrALab/pvraw/blob/main/CHANGELOG.md)
+and on the [releases page](https://github.com/CoBrALab/pvraw/releases).
 
 One command-line tool is installed: **`pvraw`** (inspection/conversion).
 

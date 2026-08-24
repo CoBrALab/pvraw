@@ -1,6 +1,7 @@
 name: release
 
-# Publishes to PyPI via trusted publishing when a version tag is pushed.
+# Publishes to PyPI via trusted publishing when a version tag is pushed, then
+# creates the GitHub release from the matching CHANGELOG.md section.
 # See CONTRIBUTING.md "Releasing" for the procedure and the one-time
 # PyPI-side setup.
 
@@ -40,3 +41,29 @@ jobs:
           path: dist/
 
       - uses: pypa/gh-action-pypi-publish@release/v1
+
+  # Only after PyPI accepted the upload, so a release never announces artifacts
+  # that were not published.
+  github-release:
+    needs: publish
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+      - name: Create the GitHub release from the changelog section
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          awk -v v="## $version" '$0 ~ "^"v" " || $0 == v {f=1; next} /^## /{f=0} f' \
+            CHANGELOG.md > notes.md
+          test -s notes.md  # the changelog must carry a section for this version
+          gh release create "$GITHUB_REF_NAME" dist/* \
+            --title "$GITHUB_REF_NAME" --notes-file notes.md
