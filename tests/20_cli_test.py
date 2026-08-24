@@ -78,6 +78,22 @@ def test_info_json_dates_are_iso(lego_study):
     assert study['date'].startswith('2020-06-12T')
 
 
+def test_study_identity_matches_every_dataset(h2_study, lego_study):
+    """The study identity in ``info_dict`` equals `brukerapi`'s Dataset
+    properties on every reconstruction -- one id vocabulary with brukerapi's
+    ``report()``, the invariant the switch to those properties buys (#94).
+    Covers PV5.1 (h2) and PV6 (lego)."""
+    for root in (h2_study, lego_study):
+        study = BrukerLoader(str(root))
+        block = study.info_dict()['study']
+        for scan_id, recos in study.avail_reco_id.items():
+            for reco_id in recos:
+                dataset = study.study.get_scan(scan_id).get_dataset(reco_id)
+                assert dataset.get('subj_id') == block['subject_id']
+                assert dataset.get('study_id') == block['study_name']
+                assert dataset.get('study_nr') == block['study_nr']
+
+
 def test_info_text_summarises_the_study(h2_study):
     out = subprocess.run(['pvraw', 'info', str(h2_study)],
                          capture_output=True, text=True, check=True)

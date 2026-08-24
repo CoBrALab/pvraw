@@ -752,6 +752,13 @@ class BrukerLoader:
         header['pv_version'] = facts.get('pv_version') or sw_version
         header['institution'] = facts.get('institution')
         header['station'] = facts.get('station')
+        # Identity prefers brukerapi's per-reconstruction properties -- one id
+        # vocabulary with its report() (issue #94) -- and the subject-file
+        # reads in _STUDY_RECIPE stay as the fallback for a study with no
+        # readable reconstruction. `subject_name` stays a subject-file read:
+        # upstream has no property for it.
+        for key in ('subject_id', 'study_name', 'study_nr'):
+            header[key] = facts.get(key) or header.get(key)
         # PV360 records the position in one parameter; older versions split it
         # over entry/position, which subj_entry/subj_pose resolve to the same
         # ``Head_Prone`` vocabulary.
@@ -760,9 +767,12 @@ class BrukerLoader:
             position = f'{self.subj_entry}_{self.subj_pose}'
         header['position'] = position
         header['session'] = self.session_id
-        stamp = tabular.parse_datetime(header.get('date'))
+        stamp = facts.get('date') or tabular.parse_datetime(header.get('date'))
         if stamp:
-            header['date'] = stamp.isoformat()
+            # Wall-clock, naive, whole seconds: brukerapi's date is offset-aware
+            # with microseconds on PV6+, the subject file's is naive -- same
+            # reasoning as tabular.parse_datetime, and one stable format.
+            header['date'] = stamp.replace(microsecond=0, tzinfo=None).isoformat()
         born = tabular.parse_date(header.get('dob'))
         if born:
             header['dob'] = born.isoformat()
@@ -773,8 +783,13 @@ class BrukerLoader:
 
     def _first_reco_facts(self):
         """Study-wide facts ParaVision writes per reconstruction, from the first
-        readable one: `brukerapi`'s ParaVision version, ``VisuInstitution`` and
-        ``VisuStation``. Empty when no reconstruction reads."""
+        readable one: `brukerapi`'s ParaVision version and identity properties
+        -- ``subj_id``, ``study_id``, ``study_nr``, ``date``, which 2dseq reads
+        from ``VisuSubjectId``/``VisuStudyId``/``VisuStudyNumber``/
+        ``VisuStudyDate`` since 0.4.6 (isi-nmr/brukerapi-python#219/#220) --
+        plus ``VisuInstitution`` and ``VisuStation``. Empty when no
+        reconstruction reads; a property brukerapi could not fill (``''`` is
+        its absent value) is left out."""
         for scan_id, recos in self.avail_reco_id.items():
             try:
                 dataset = self._study.get_scan(scan_id).get_dataset(recos[0])
@@ -783,9 +798,14 @@ class BrukerLoader:
             except Exception:
                 version = None
             if version is not None:
-                return {'pv_version': version,
-                        'institution': get_value(visu_pars, 'VisuInstitution'),
-                        'station': get_value(visu_pars, 'VisuStation')}
+                facts = {'pv_version': version,
+                         'institution': get_value(visu_pars, 'VisuInstitution'),
+                         'station': get_value(visu_pars, 'VisuStation'),
+                         'subject_id': dataset.get('subj_id'),
+                         'study_name': dataset.get('study_id'),
+                         'study_nr': dataset.get('study_nr'),
+                         'date': dataset.get('date')}
+                return {k: v for k, v in facts.items() if v not in (None, '')}
         return {}
 
     def _scan_block(self, scan_id, header):
