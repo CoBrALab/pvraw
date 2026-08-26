@@ -2935,6 +2935,14 @@ with the ACQ_SCAN and ACQ_SETUP subgroups (PV360 manual §4.13.5.5.7 and §4.13.
   `GSTYP`: `Spectrometer_Parameters`, `Gradients`, `Preemphasis`, `Shim`), `ACQ_SetupAutoName`
   and `ACQ_SetupPipeJobSettings`.
 
+These lists describe the parameter groups, not a guarantee that every member is serialized. In
+all 63 sampled PV360 3.6/3.7 `acqp` files, `ACQ_ScanOnlineReco`, `ACQ_ScanFtDisplay`,
+`ACQ_ScanPipeJobSettings`, `ACQ_SetupOnlineReco`, `ACQ_SetupFtDisplay`, `ACQ_SetupType` and
+`ACQ_SetupPipeJobSettings` are present. `ACQ_SetupRecoDisplay` and `ACQ_SetupImageType` occur in
+61/63 (they are omitted by two PV360 3.7 methods). By contrast, none of the sampled files writes
+the documented `RecoDisplay`, `RecoEachNR` or `ACQ_SetupAutoName`. Treat individual controls as
+optional; do not use the presence of one optional member to identify the subgroup.
+
 ---
 
 ## 12. Coordinate Systems
