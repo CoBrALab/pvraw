@@ -2384,13 +2384,18 @@ for imported data:
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | `VisuManufacturer` | string | Instrument manufacturer — **PV6.0.1+** |
-| `VisuAcqSoftwareVersion` | string | ParaVision version |
-| `VisuInstitution` | string | Institution name |
+| `VisuAcqSoftwareVersion` | string | Optional ParaVision version that acquired the dataset |
+| `VisuInstitution` | string | Optional institution name |
 | `VisuStation` | string | Station/spectrometer name (optional) |
-| `VisuSystemOrderNumber` | string | **[PV360]** system order number (§4.13.3.7) |
+| `VisuSystemOrderNumber` | string | **[PV6.0.1+]** optional system order number (declared as `char[65]` in the PV6.0.1 `visu_extern.h`) |
 
 PV5.1's VisuEquipment group consists of exactly `VisuAcqSoftwareVersion`, `VisuInstitution` and
-`VisuStation`.
+`VisuStation`, and all three may be unvalued. PV6 adds `VisuManufacturer`; the PV6.0.1 header adds
+the optional `VisuSystemOrderNumber`. Stored PV6.0.1 and PV7 files contain both fields, whereas
+the available PV6.0 files do not contain `VisuSystemOrderNumber`. PV360 limits
+`VisuManufacturer`, `VisuAcqSoftwareVersion`, `VisuInstitution`, and `VisuSystemOrderNumber` to
+64 characters; it specifies no corresponding limit for `VisuStation`. The same field set is
+documented throughout the available PV360 1.0–3.7 manuals.
 
 ### 7.9 Acquisition Parameters (VisuAcquisition)
 
@@ -2515,9 +2520,13 @@ the `VisuMultiCoilStruct` type name):
 | `VisuCoilReceiveManufacturer` | string | Coil manufacturer |
 | `VisuCoilReceiveType` | enum | `BODY_COIL`, `VOLUME_COIL`, `SURFACE_COIL`, `MULTICOIL` |
 | `VisuCoilReceiveIsQuadrature` | YesNo | Quadrature coil |
-| `VisuCoilReceiveMultiName` | struct[] | Per-element description in a multi-coil setting (`VisuMultiCoilStruct`: coil name + active-during-acquisition flag). "May only exist if `VisuCoilReceiveType` is MULTICOIL" |
-| `VisuCoilReceiveMultiComment` | string[] | Per-element comments |
+| `VisuCoilReceiveMultiName` | struct[] | Per-element description in a multi-coil setting (`VisuMultiCoilStruct`: coil name + active-during-acquisition flag). May exist only if `VisuCoilReceiveType` is `MULTICOIL` |
+| `VisuCoilReceiveMultiComment` | unspecified | Optional receive multi-coil comment; the available headers, manuals, and files do not establish its value type or cardinality |
 | `VisuCoilTransmitName`, `VisuCoilTransmitManufacturer`, `VisuCoilTransmitType`, `VisuCoilTransmitIsQuadrature`, `VisuCoilTransmitMultiName`, `VisuCoilTransmitMultiComment` | — | The transmit-side mirrors of the six above |
+
+PV360 limits coil names, manufacturers and multi-coil comments to 64 characters. These are MR
+coil groups in PV360, not modality-independent equipment fields; their absence is expected for
+non-MR series as well as for MR datasets that do not populate optional coil metadata.
 
 When one physical coil both transmits and receives, the two subgroups simply carry the same
 values. Which receive *elements* were active is also recorded scan-side in `configscan`
