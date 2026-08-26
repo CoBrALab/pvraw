@@ -189,8 +189,8 @@ result at global/user/study/scan scope, which is what the `AdjResult/` subdirect
 
 The study directory name is created by ParaVision. Its maximum length is **64 characters in PV6
 and PV360** (`<DataPath>/<name>/<expno>/pdata/<procno>`, default `<DataPath>` =
-`<PvInstDir>/<USER>`) — PV7 datasets are observed to use the same path form, but no PV7 manual
-exists to state a limit (see [Section 13.2](#132-paravision-70)) — and **15 characters in PV5**
+`<PvInstDir>/<USER>`) — the PV7 manual gives the same path form and the same 64-character limit
+(see the table above and [Section 13.2](#132-paravision-70)) — and **15 characters in PV5**
 (`<DiskUnit>/data/<user>/<type>/<name>/<expno>/pdata/<procno>`, where `<type>` is `nmr`, `<user>`
 is limited to 15 characters and `<DiskUnit>` to 255).
 
