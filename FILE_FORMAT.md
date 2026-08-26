@@ -2139,8 +2139,8 @@ So a reader must not assume "one per slice" for any of these: check the actual c
 | `VisuSubjectName` | string | DICOM-format name (`family^given^middle^prefix^suffix`) |
 | `VisuSubjectId` | string | Subject ID / registration |
 | `VisuSubjectBirthDate` | string | Birth date (YYYYMMDD) |
-| `VisuSubjectSex` | enum | `MALE`, `FEMALE`, `UNDEFINED`, `UNKNOWN` |
-| `VisuSubjectComment` | string | Comments |
+| `VisuSubjectSex` | enum | Optional: `MALE`, `FEMALE`, `UNDEFINED`, `UNKNOWN` |
+| `VisuSubjectComment` | string | Optional comments (PV360 maximum: 2047 characters) |
 | `VisuSubjectType` | enum | `Biped` (humans, monkeys…), `Quadruped` (rodents, dogs, cats, horses…), `Phantom`, `Other` (e.g. material), `OtherAnimal` (e.g. snakes) — **PV6.0.1+**; not present in PV5.1 `visu_pars` |
 | `VisuSubjectUid` | string | **[PV360]** unique subject identifier (§4.13.3.4) |
 | `VisuSubjectInstanceCreationDate` | time | **[PV360]** creation date of the subject instance (§4.13.3.4) |
@@ -2154,10 +2154,10 @@ So a reader must not assume "one per slice" for any of these: check the actual c
 | `VisuStudyUid` | string | Unique study identifier |
 | `VisuStudyId` | string | User-assigned study ID |
 | `VisuStudyNumber` | int | Study number |
-| `VisuStudyDate` | string | Study creation date/time |
-| `VisuSubjectWeight` | double | Subject weight at study time |
-| `VisuStudyReferringPhysician` | string | Referring person/operator |
-| `VisuStudyDescription` | string | Study description |
+| `VisuStudyDate` | char[21] (PV5.1) / pvtime_t (PV6+) | Study creation date/time; parse with the version-dependent date rules in §7.1 |
+| `VisuSubjectWeight` | double | Optional subject weight in kg at study time |
+| `VisuStudyReferringPhysician` | string | Optional referring person/operator |
+| `VisuStudyDescription` | string | Optional study description |
 
 ### 7.7 Series Parameters (VisuSeries)
 
@@ -2166,9 +2166,9 @@ A series corresponds to a combination of EXPNO and PROCNO:
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | `VisuSeriesNumber` | int | Series number (deprecated, see below) |
-| `VisuExperimentNumber` | int | Experiment number (EXPNO) |
-| `VisuProcessingNumber` | int | Processing number (PROCNO) |
-| `VisuSeriesDate` | string | Series creation date/time |
+| `VisuExperimentNumber` | int | **[PV6+]** EXPNO captured when the dataset was created; it need not equal the current directory name after a move/renumber |
+| `VisuProcessingNumber` | int | **[PV6+]** PROCNO captured when the dataset was created; it need not equal the current directory name after a move/renumber |
+| `VisuSeriesDate` | char[21] (PV5.1) / pvtime_t (PV6+) | Series creation date/time; parse with the version-dependent date rules in §7.1 |
 | `VisuSubjectPosition` | enum | Position of the subject in the magnet (`PATIENT_POS_TYPE`): `Head_Supine`, `Head_Prone`, `Head_Left`, `Head_Right`, `Foot_Supine`, `Foot_Prone`, `Foot_Left`, `Foot_Right`. The position ParaVision was *told* at study setup (= `ACQ_patient_pos`), and therefore the frame `VisuCoreOrientation`/`VisuCorePosition` are written in — see [Section 12](#12-coordinate-systems) |
 | `VisuSeriesTypeId` | string | Series type identifier — see the value list below |
 | `VisuSeriesComment` | string | Free-text comment |
@@ -2182,7 +2182,10 @@ A series corresponds to a combination of EXPNO and PROCNO:
 VisuSeriesNumber = EXPNO * 2^16 + PROCNO
 ```
 
-Replaced by `VisuExperimentNumber` and `VisuProcessingNumber`.
+PV6+ replaces this packed identifier with `VisuExperimentNumber` and `VisuProcessingNumber`.
+Those values record the numbers at dataset creation time, whereas `EXPNO` and `PROCNO` describe
+the current directory numbers; do not overwrite the recorded values merely because a dataset was
+moved or renumbered.
 
 **`VisuSeriesTypeId` values** (`prog/include/generated/VisuIds.h`). Ids are prefixed `ACQ_` for
 acquired series, `DERIVED_` for series computed from other series, and — in PV6 only — `IMPORT_`
