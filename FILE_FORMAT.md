@@ -1513,10 +1513,11 @@ The `reco` file controls how raw data is transformed into images. Most RECO para
   (member 3 of `RECO_TYPE` in the PV5.1 header; the public PV5.1 study,
   [Zenodo 4048286](https://zenodo.org/records/4048286), stores `RECO_mode=USER_MODE` in 14 of
   its reconstructions).
-  From **PV5.1 onward** the pipeline is additionally described explicitly on disk by the
-  `RecoStage*` parameters, documented in the PV5.1 Image Reconstruction manual under "Network
-  description (RecoStageGroup)" (see [Section 10.2](#102-multi-channel-reconstruction)). Used for
-  multi-channel, GRAPPA, and regridding reconstructions.
+  The filter-network architecture is documented in the PV5.1 Image Reconstruction manual under
+  "Network description (RecoStageGroup)", but serialization of that graph in `RecoStage*`
+  parameters is a later on-disk feature (see [Section 10.2](#102-multi-channel-reconstruction)).
+  Used for multi-channel, GRAPPA, and regridding reconstructions. PV360 omits `RECO_mode` from
+  sampled `reco` files even though it serializes the graph, so do not require `USER_MODE` there.
 
 For 3-dimensional back projection the sampling pattern used to acquire the projections is given by
 **`RECO_bp_pattern`** (enum `RECO_BP_TYPE`): `MERIDIANS` or `GREAT_CIRCLES`. Note the parameter is
@@ -2521,24 +2522,32 @@ above names only the operations it enumerates for this pass.
 
 ### 10.2 Multi-Channel Reconstruction
 
-For parallel imaging with multiple receiver coils, the reconstruction uses a filter-network
-architecture (activated by `RECO_mode = USER_MODE`):
+For parallel imaging with multiple receiver coils, the reconstruction can use a filter-network
+architecture. PV5.1–PV7 select the user network with `RECO_mode=USER_MODE`; sampled PV360 files
+store the network without writing `RECO_mode` at all.
 
 **Key parameters:**
 - `RecoNumInputChan` - Number of input channels. When > 1, reconstruction assumes the raw data
   file consists of `RecoNumInputChan` blocks of size `RECO_inp_size[0]` forming the first
   dimension of the data file.
 - `RecoNumOutputChan` - Number of output channels: either `RecoNumInputChan` or 1. (The manual
-  prose calls this `RecoOutputChan`; the parameter declared on disk is `RecoNumOutputChan`.)
+  prose calls this `RecoOutputChan`; the parameter declared on disk is `RecoNumOutputChan`.) It
+  is stored in the sampled PV7/PV360 files but absent from sampled PV5.1/PV6 files.
 - `RecoCombineMode` - Channel combination (enum `RECO_COMBINE_TYPE`): `SumOfSquares` (0),
   `ShuffleImages` (1), or `AddImages` (2). `ShuffleImages` appends the per-coil datasets as
   separate frame groups instead of combining them.
 - `RecoScaleChan` - Per-channel weighting factors (array), applied just before images are combined.
-- `RecoPhaseChan` - Per-channel phase offsets.
+- `RecoPhaseChan` - Per-channel phase offsets (stored in the sampled PV6+ files; absent from
+  sampled PV5.1 files).
 
-**Processing network (`RECO_mode = USER_MODE`)** — introduced in PV5.1 (D07 §7.18.3.3, "Network
-description (RecoStageGroup)") and carried forward through PV6 and PV360. The reconstruction is an
-explicit directed graph of typed filter nodes, stored as text in the `RecoStage*` parameters:
+**Processing network.** The architecture is documented in PV5.1 (D07 §7.18.3.3, "Network
+description (RecoStageGroup)"), but none of 32 sampled PV5.1 reconstructions writes a
+`RecoStage*` parameter, including all 14 with `RECO_mode=USER_MODE`. Explicit on-disk graph
+serialization is observed from PV6 onward: 43/44 PV6, 41/43 PV7 and all 65 sampled PV360
+reconstructions carry it. The one PV6 file without it uses `FT_MODE`; the two PV7 exceptions are
+one `FT_MODE` reconstruction and one `USER_MODE` reconstruction. Treat the parameters as optional,
+not as a condition for recognizing a valid reconstruction. Where present, they describe an
+explicit directed graph of typed filter nodes stored as text:
 
 | Parameter | Description |
 |-----------|-------------|
