@@ -930,16 +930,25 @@ Where:
 For example, a 9-slice 2D magnitude acquisition reconstructed to 256x256, 16-bit, gives
 `2 * 9 * 256 * 256 = 1,179,648` bytes.
 
-**Intensity scaling:** Raw pixel values in `2dseq` must be scaled to recover physical values:
+**Intensity scaling:** Stored pixel/data-point values in `2dseq` are transformed as follows:
 ```
-real_value = VisuCoreDataSlope * pixel_value + VisuCoreDataOffs
+scaled_value[frame] = (VisuCoreDataSlope[frame] * pixel_value
+                       + VisuCoreDataOffs[frame])
 ```
+
+The slope and offset arrays have exactly `VisuCoreFrameCount` elements and are indexed in stored
+frame order. Apply the matching pair to every pixel/data point in that frame, including when the
+stored word type is `_32BIT_FLOAT`. `VisuCoreDataMin` and `VisuCoreDataMax` are likewise
+frame-count arrays in the **stored** value domain: transform them with the same slope and offset
+before using them as scaled extrema. `VisuCoreDataUnits` names the scaled quantity when present;
+an absent or empty unit means that no intensity unit is specified, not that scaling should be
+skipped.
 
 The RECO equivalent is the **inverse**, not the same expression. `RECO_map_slope` describes the
 reconstruction's forward mapping *internal value → pixel* (`y = (x - b) · s`, see
-[Section 10.4](#104-image-mapping)), so recovering the physical value divides:
+[Section 10.4](#104-image-mapping)), so recovering the scaled value divides:
 ```
-real_value = pixel_value / RECO_map_slope + RECO_map_offset
+scaled_value = pixel_value / RECO_map_slope + RECO_map_offset
 ```
 
 Consequently `VisuCoreDataSlope = 1 / RECO_map_slope`. This holds exactly in real data — Bruker's
@@ -2013,22 +2022,27 @@ The origin is the middle of the instrument (magnet isocentre) on single-modality
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `VisuCoreDataMin` | double[] | Minimum values per frame (before slope/offset) |
-| `VisuCoreDataMax` | double[] | Maximum values per frame (before slope/offset) |
-| `VisuCoreDataOffs` | double[] | Offset per frame |
-| `VisuCoreDataSlope` | double[] | Slope per frame |
+| `VisuCoreDataMin` | double[FrameCount] | Minimum stored pixel/data-point value per frame; transform with that frame's slope and offset |
+| `VisuCoreDataMax` | double[FrameCount] | Maximum stored pixel/data-point value per frame; transform with that frame's slope and offset |
+| `VisuCoreDataOffs` | double[FrameCount] | Additive scaling offset per frame |
+| `VisuCoreDataSlope` | double[FrameCount] | Multiplicative scaling slope per frame |
+| `VisuCoreDataUnits` | string[] | Unit of the scaled intensity for each frame; empty/absent entries mean no unit. The stored array may be frame-group dependent; PV360 unit strings must conform to UCUM |
 
-To recover physical values from pixel values:
+To recover scaled values from stored pixel/data-point values:
 ```
-real_value = slope * pixel_value + offset
+scaled_value[frame] = slope[frame] * pixel_value + offset[frame]
 ```
+
+This definition is consistent from PV5.1 through PV7 and every available PV360 version
+(1.0–3.7). Expand a frame-group-dependent `VisuCoreDataUnits` value according to
+`VisuGroupDepVals`; do not use its stored array length as the image frame count.
 
 ### 7.3 Data Storage (VisuPixel)
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | `VisuCoreWordType` | enum | Pixel data type: `_32BIT_SGN_INT`, `_16BIT_SGN_INT`, `_8BIT_UNSGN_INT`, `_32BIT_FLOAT` |
-| `VisuCoreByteOrder` | enum | `littleEndian` or `bigEndian` |
+| `VisuCoreByteOrder` | enum | `littleEndian` or `bigEndian`; irrelevant to the one-byte `_8BIT_UNSGN_INT` representation |
 | `VisuCoreDiskSliceOrder` | enum | Order of Visu frames in the dataset. `disk_normal_slice_order` (default, and the value assumed when the parameter is absent) means frames are ordered **along the third row of the orientation matrix**; `disk_reverse_slice_order` means that ordering is reversed — which also moves what `VisuCorePosition` refers to, see §7.2. |
 
 Bruker groups `VisuCoreFrameType` under the image description (VisuCore), not VisuPixel; it is
