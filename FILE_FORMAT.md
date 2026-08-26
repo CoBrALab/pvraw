@@ -1456,7 +1456,11 @@ a reader uses for metadata rather than for decoding bytes (PV5.1 D13 §13.4.5.4;
 | `ACQ_scan_name` | string | Scan name shown in the UI |
 | `ACQ_method` | string | Method name (the `acqp`-side mirror of `##$Method`) |
 | `ACQ_protocol_name` | string | Protocol the scan was created from |
+| `ACQ_protocol_location` | string | Protocol location. Stored by the sampled PV5.1 files and documented again by PV360, but absent from the sampled PV6/PV7/PV360 files |
 | `ACQ_operator`, `ACQ_institution`, `ACQ_station` | string | Operator, institution and station names |
+| `ACQ_system_order_number` | string | Bruker system order number. Stored in every sampled PV6/PV7/PV360 `acqp`; absent in PV5.1 |
+| `ACQ_abs_time` | int / pvtime_t | Acquisition start time: Unix seconds in PV5.1, `pvtime_t` in PV6+ (see [Section 2.4](#24-date-and-time-encoding)) |
+| `ACQ_series_time` | pvtime_t | Start time of the series (for example, its first adjustment). Documented for PV360, but absent from all sampled files |
 | `ACQ_echo_time` | double[] | The **weighted** echo time(s) in ms |
 | `ACQ_inter_echo_time` | double[] | The echo time (TE) for every image |
 | `ACQ_repetition_time` | double[] | Repetition time between subsequent multiplex steps (ms) |
@@ -1466,12 +1470,15 @@ a reader uses for metadata rather than for decoding bytes (PV5.1 D13 §13.4.5.4;
 | `ACQ_flip_angle` | double | Excitation flip angle (degrees) |
 | `ACQ_echo_descr`, `ACQ_movie_descr` | string[] | Per-echo / per-movie-frame display descriptions |
 | `ACQ_completed` | YesNo | Whether the acquisition ran to completion |
-| `ACQ_scans_completed`, `ACQ_nr_completed` | int | Scans / repetitions completed — with `ACQ_completed` these let a reader detect aborted scans, complementing `nStoredScans` ([Section 3.3](#33-rawdatajobn---job-based-raw-data-pv6)) |
+| `ACQ_scans_completed`, `ACQ_nr_completed` | int | Scans / repetitions completed — with `ACQ_completed` these let a reader detect aborted scans, complementing `nStoredScans` ([Section 3.3](#33-rawdatajobn---job-based-raw-data-pv6)). Stored by the sampled PV5.1/PV6/PV7 files; although still documented by PV360, absent from all 63 sampled PV360 scans |
 | `GRPDLY` | double | Group delay of the digital filter, in (possibly fractional) points |
 
-PV360 adds `ACQ_protocol_location`, `ACQ_series_time` and `ACQ_system_order_number`
-(§4.13.4.2.1); `ACQ_comment` is already documented in the PV5.1/PV6 parameter references
-(D13 §13.4.5.4 / D02 §2.4.5.4).
+The version notes above deliberately distinguish a parameter's declaration from its presence in a
+stored file. In particular, PV360 §4.13.4.2.1 documents `ACQ_protocol_location`,
+`ACQ_series_time` and `ACQ_system_order_number`, but this does not mean that PV360 introduced all
+three or that it writes them all. The corpus check covers 32 PV5.1, 44 PV6.0.1, 39 PV7 and 63
+PV360 3.6/3.7 `acqp` files. `ACQ_comment` is already documented in the PV5.1/PV6 parameter
+references (D13 §13.4.5.4 / D02 §2.4.5.4).
 
 ### 5.8 ATS Parameters (PV360)
 
