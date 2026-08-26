@@ -96,8 +96,18 @@ which are derived from the documented layouts rather than quoted.
   - [10.4 Image Mapping](#104-image-mapping)
 - [11. GO Parameters (Acquisition/Reconstruction Control)](#11-go-parameters-acquisitionreconstruction-control)
 - [12. Coordinate Systems](#12-coordinate-systems)
-- [13. Version Differences (PV5 vs PV6 vs PV360 vs PV7)](#13-version-differences-pv5-vs-pv6-vs-pv360-vs-pv7)
+- [13. Version Differences (PV5.1 vs PV6 vs PV7 vs PV360)](#13-version-differences-pv51-vs-pv6-vs-pv7-vs-pv360)
+  - [Cross-version commonalities](#cross-version-commonalities)
+  - [13.1 ParaVision 360 (v3.x)](#131-paravision-360-v3x)
+  - [13.2 ParaVision 7.0](#132-paravision-70)
 - [14. Worked Examples (Size Calculations)](#14-worked-examples-size-calculations)
+  - [14.1 fid size](#141-fid-size--2d-multi-slice-multi-channel)
+  - [14.2 2dseq size](#142-2dseq-size--magnitude-vs-complex)
+  - [14.3 3D acquisition](#143-3d-acquisition)
+  - [14.4 Job-based raw data](#144-job-based-raw-data-files)
+  - [14.5 Trajectory size](#145-trajectory-traj-size)
+  - [14.6 Acquisition schemes](#146-acquisition-k-space-schemes)
+  - [14.7 Interactive size calculator](#147-interactive-size-calculator)
 
 ---
 
@@ -853,7 +863,7 @@ ParaVision 360 allows **up to 8 jobs** per experiment; the PV6 header sets `ACQ_
 > `ACQ_word_size` describes the acquisition word size but is not sufficient to
 > determine the file type: unlike `storageDataType`, it cannot express the documented 64-bit
 > floating-point storage mode. The `ACQ_size[0]` value need not equal the job scan size. See
-> [Section 13](#13-version-differences-pv5-vs-pv6-vs-pv360-vs-pv7).
+> [Section 13](#13-version-differences-pv51-vs-pv6-vs-pv7-vs-pv360).
 
 > **`fid` and `rawdata.jobN` may coexist:** In PV6 these are not always alternatives. Some
 > methods write **both** - e.g. the spectroscopy methods CSI, NSPECT, PRESS, STEAM and ISIS
@@ -3113,7 +3123,7 @@ itself is stated in the PV6 parameter manual and the PV5.1 Geometry Editor docum
 
 ---
 
-## 13. Version Differences (PV5 vs PV6 vs PV360 vs PV7)
+## 13. Version Differences (PV5.1 vs PV6 vs PV7 vs PV360)
 
 | Feature | PV5.x | PV6.x |
 |---------|-------|-------|
@@ -3135,7 +3145,7 @@ PV6 inventions. Explicit `RecoStage*` graph **serialization** is different: alth
 the structures, none of the sampled PV5.1 `reco` files writes them. It is observed on disk from
 PV6 onward — see [Section 10.2](#102-multi-channel-reconstruction).
 
-### Common to Both Versions
+### Cross-version commonalities
 - JCAMP-DX (4.24) parameter file format with `##$` private parameters
 - Three-level directory hierarchy (study/experiment/reconstruction)
 - Core ACQP, RECO, and VISU parameter sets
