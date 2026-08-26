@@ -1254,7 +1254,14 @@ The acquisition loop generates `NI * NR` "objects" (images). The key loop parame
 | `NSLICES` | int | Number of slices |
 | `ACQ_n_echo_images` | int | Number of echo images |
 | `ACQ_n_movie_frames` | int | Number of movie frames (cine) |
-| `ACQ_phase_factor` | int | Number of consecutive scans in the raw dataset belonging to the same image object — the segment / echo-train length within one multiplex step. `1` keeps the encoding constant within a multiplex step; `> 1` is the RARE-style factor |
+| `ACQ_phase_factor` | int | Number of consecutive phase-encoding scans belonging to the same image object — the segment / echo-train length within one multiplex step. `1` keeps the encoding constant within a multiplex step |
+| `ACQ_rare_factor` | int | Controls the placement of those `ACQ_phase_factor` scans in k-space: the phase-encoding increment is `ACQ_size[1] / ACQ_rare_factor` |
+
+`ACQ_phase_factor` and `ACQ_rare_factor` are related but not interchangeable. RARE sets them
+equal, which distributes equal amounts of T2 and diffusion weighting across the k-space segments;
+other segmented acquisitions may choose a different `ACQ_rare_factor`. This distinction is
+unchanged in PV5.1 D13 §13.4.5.1, PV6 D02 §2.4.5.1, the PV7 parameter chapter, and every
+available PV360 complete manual (1.0–3.7, ACQP parameter group).
 
 **Object loop relationship.** This describes the loop arrangement in the reconstructed image file
 (`2dseq`) for PVM methods, and is a *condition* the ACQ_INFO parameters must satisfy rather than an
