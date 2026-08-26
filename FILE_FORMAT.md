@@ -991,13 +991,13 @@ sequences.
 | File | Produced by | Description |
 |------|-------------|-------------|
 | `traj` | UTE, UTE3D, ZTE (radial), SPIRAL | K-space sampling **trajectory**, header-less binary of **64-bit floats** (`float64`). Shape `(ACQ_dim, points_per_projection, num_projections)`; for spiral the last axis is the number of interleaves (`PVM_SpiralNbOfInterleaves`). Observed publicly in PV6.0.1 3D-UTE data (MRIReco.jl test data) and the PV360 3.6 UTE3D scan ([github.com/cecilyen/PV360_StdData](https://github.com/cecilyen/PV360_StdData)). Consumed by the non-Cartesian regridding network via `RecoRegridNTrajFile` / `RecoRegridNTrajType` (see [Section 10.2](#102-multi-channel-reconstruction)) — **not** by `RECO_regrid_mode`, which is EPI gradient-ramp resampling. |
-| `trajDC` | SPIRAL, DtiSpiral (PV6+) | [observed] Second trajectory file written next to `traj` by spiral methods; header-less `float64` binary, slightly smaller than the `traj` beside it (230,400 vs 250,368 bytes in the PV6.0.1 SPIRAL scan, [Zenodo 4048253](https://zenodo.org/records/4048253) expno 23; also that study's DtiSpiral expno 24, and the PV7 DtiSpiral/SPIRAL scans, [Zenodo 4522220](https://zenodo.org/records/4522220) expnos 11/36). Mentioned in no ParaVision manual. |
+| `trajDC` | SPIRAL, DtiSpiral (PV6+) | [observed] Second trajectory file written next to `traj` by spiral methods; header-less `float64` binary. It can be smaller than `traj` (230,400 vs 250,368 bytes in the PV6.0.1 SPIRAL scan, [Zenodo 4048253](https://zenodo.org/records/4048253) expno 23), while public PV7 SPIRAL/DtiSpiral files have equal-sized grids. Mentioned in no ParaVision manual. |
 | `fid.spiral` | SPIRAL, DtiSpiral | **The raw (as-acquired) data file** — `fid` in the same EXPNO holds the *regridded* result, so the usual roles are reversed. Acquisition order in `fid.spiral` is slices → movie frames → `NA` → interleaves (`PVM_SpiralNbOfInterleaves`) → `NR`, with `fid` then ordered slices → repetitions (PV5.1 A06, SPIRAL §6.25.4 "Loop Structure"). DtiSpiral's variant inserts the diffusion loop: slices → `NA` → dummy scans → interleaves → diffusion → `NR`, `fid` ordered slices → diffusion → repetitions (A06 §6.28.3). Binary, same word type as `fid`. |
 | `fid.navFid` | PV5.1 IntraGate | **Navigator** echo data acquired interleaved with imaging echoes, written into the EXPNO by the IntraGate pipeline (observed in the public PV5.1 study, [Zenodo 4048286](https://zenodo.org/records/4048286), expno 35). |
 | `rawdata.job1` | PV6 navigator acquisition | Serially stored FIDs of each navigator scan; size = scan size × RX channels × `NA` × `NR`. Present when navigator acquisition is selected — note PV6 puts navigators in a numbered job, not a named one. |
 | `rawdata.Navigator` | PV360 | The PV360 named-job spelling of the same thing, listed in the PV360 EXPNO file table. |
 | `rawdata.DriftCompensation` | Methods running drift compensation | Raw data for the drift-compensation job; documented alongside `rawdata.job0` and `rawdata.Navigator` in the PV360 EXPNO file table. |
-| `b0` | UTE3D (PV6+, PV360) | Off-resonance reference, `float64`, two values per sample over the same sample/projection grid as `traj` — see [Section 14.5](#145-trajectory-traj-size). Written by PV6.0.1 as well as PV360: the public PV6.0.1 3D-UTE scan (MRIReco.jl test data) carries `b0` alongside `traj` with the same 2-per-sample size ratio. |
+| `b0` | UTE, UTE3D, SPIRAL, DtiSpiral (PV6+) | Header-less `float64` B0 eddy-current correction factors, stored as two values (one complex factor) per applicable trajectory point. For UTE-family data its grid matches `traj`; for PV6 spiral data it matches the shorter `trajDC` grid, while public PV7 spiral files have equal `traj`/`trajDC` grids. See [Section 14.5](#145-trajectory-traj-size). |
 | `fid.orig` | Spectroscopy post-processing | Written when **Eddy Current Compensation and/or Retro Frequency Lock** is active: the original, uncorrected FID before post-processing. File size = scan size. |
 | `trace.singleData`, `trace.dualData`, `trace.infoData`, `trace.resultData` | Spectroscopy / method-debug (e.g. PRESS) | Acquisition **trace** data (the ParaVision trace/debug facility). The `trace.*Data` files are `32-bit float` binary; `trace.infoData` is a text descriptor that names the binary trace files and their data type. Observed in the public PV5.1 study ([Zenodo 4048286](https://zenodo.org/records/4048286), PRESS expno 27). |
 | `*.flt` | IntraGate self-gating application/AU (not the acquisition method) | Raw binary **float arrays**, not filters. In the EXPNO: per-repetition coefficient arrays `Magnetization.flt`, `Phase.flt`, `MagSlope.flt`, `PhaseSlope.flt` with matching `*SequencePattern.flt` descriptors and a `respReference.flt`. In the PROCNO: `heartAssignment.flt` / `respAssignment.flt` and the `heartSignalCombined.flt` / `respSignalCombined.flt` / `*Demerged.flt` cardiac and respiratory self-gating signals. The application also writes a text `IntraGate.info` into the PROCNO — Tcl-style `set par::<name> "<value>"` lines recording the detected respiration/heart rates and gating window. All observed in the public PV5.1 study ([Zenodo 4048286](https://zenodo.org/records/4048286), expno 35). |
@@ -3180,7 +3180,7 @@ marked — Bruker's login-gated standard datasets for 360.3.5 and 360.3.7:
 | Other observed EXPNO files | `MapShim` (public 3.6 data), `EpiGhostCorrPars-E<n>-P<n>` (observed only in Bruker's login-gated standard datasets) — method/adjustment side files, not documented in the manual's EXPNO table |
 | Exports | `pdata/<procno>/dicom/*.dcm` and `pdata/<procno>/nifti/*.nii` written by PV360 |
 | Diffusion (DTI) | Job-based only (`rawdata.job0`); b-values/vectors in `method` |
-| Non-Cartesian | UTE3D ships a `traj` trajectory file **and** a `b0` off-resonance reference file |
+| Non-Cartesian | Observed UTE3D data ship a `traj` trajectory plus the two-value-per-point `b0` B0-correction companion |
 
 > **Job-based raw data (`ACQ_jobs` / `ACQ_ScanPipeJobSettings`).** Because PV360 has no `GO_*`
 > subclass, the raw layout is read from `ACQ_jobs` and `ACQ_ScanPipeJobSettings`.
@@ -3434,11 +3434,21 @@ traj size = 8 * ACQ_dim * samples_per_projection * num_projections
 > Recover the sample count from the file size and `ACQ_dim`/`NPro` rather than from
 > `PVM_TrajSamples` (or `PVM_TrajResultSize`, which carries the same inflated value on PV360).
 
-The companion `b0` off-resonance file shipped alongside `traj` by UTE3D is also `float64`, with
-**two** values per sample over the same sample and projection counts
-(`8 * 2 * samples_per_projection * num_projections`): 60,810,240 bytes = `8 * 2 * 74 * 51360`
+The companion `b0` file is also `float64`, with **two** values (one complex multiplication factor)
+per point on its applicable trajectory grid (`8 * 2 * point_count`). The PV6.0.1
+`ATB_TrajInsertB0Correction` declaration in `PvAcqTools.h` identifies these as B0 eddy-current
+correction factors over `nSamples` excluding pre- and post-samples; `STB_TrajCreateTrajectory` in
+`PvSeqTools.h` writes the file. For UTE/UTE3D the grid matches `traj`, giving
+`8 * 2 * samples_per_projection * num_projections`: 60,810,240 bytes = `8 * 2 * 74 * 51360`
 for the public PV360 3.6 scan above, 24,825,312 bytes = `8 * 2 * 54 * 28733` for the public
-PV6.0.1 scan, and 61,632,000 bytes = `8 * 2 * 75 * 51360` for the gated PV360 3.7 scan.
+PV6.0.1 scan.
+
+The file is not UTE3D-specific. It also accompanies public 2-D UTE, SPIRAL and DtiSpiral
+methods. For two-dimensional UTE data, `b0` and `traj` have equal byte sizes:
+both carry two float64 values per point. In PV6 SPIRAL/DtiSpiral, `b0` instead has exactly the
+shorter `trajDC` point count (14,400 vs 15,648 `traj` points for SPIRAL; 4,656 vs 5,376 for
+DtiSpiral). The public PV7 SPIRAL/DtiSpiral files have equal `traj`, `trajDC` and `b0` point
+counts.
 
 The `traj` is sized independently of the raw data; the read axis of the `fid`/`rawdata.jobN` may be
 oversampled relative to the trajectory sample count.
