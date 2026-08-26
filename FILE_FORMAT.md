@@ -2652,10 +2652,15 @@ coordinate-origin shift of [Section 12](#12-coordinate-systems).
 
 Standard reconstruction occurs in three phases. The processing data flow (Phase 2) is:
 
-The step lists below follow the Image Reconstruction manual (`D07_ImageReco.pdf` §7.5), which is
-shipped with ParaVision 5.1; PV6.0.1 ships no equivalent manual, and its reconstruction is
-additionally described on disk by the `RecoStage*` filter graph (see
-[Section 10.2](#102-multi-channel-reconstruction)).
+The step lists below describe the **PV5.1 standard reconstruction pipeline** and follow the Image
+Reconstruction manual (`D07_ImageReco.pdf` §7.5). PV6.0.1 ships no equivalent manual, and its
+reconstruction can instead be described on disk by the `RecoStage*` filter graph (see
+[Section 10.2](#102-multi-channel-reconstruction)); PV360 relies on that graph without storing
+`RECO_mode` in sampled files. Therefore the order below is a legacy standard-pipeline order, not
+a universal recipe for replaying `USER_MODE` or PV360 reconstruction. When `RecoStage*` is
+present, its nodes and edges are authoritative for the actual processing network. The stored
+corpus contains 149 such graphs (43 PV6, 41 PV7 and 65 PV360), versus none in the sampled PV5.1
+reconstructions.
 
 ```mermaid
 flowchart TD
@@ -2699,7 +2704,12 @@ having been done above:
 6. Phase correction (`RECO_pc_mode`)
 7. Data rotation/roll (`RECO_rotate`)
 
-Only 2-dimensional back projection is supported.
+The PV5.1 manual says that, *within this standard pipeline at that time*, only 2-dimensional back
+projection was supported. This is not a file-format restriction: the same manual notes that UTE
+back projection was implemented in the separate multi-channel framework, and the RECO parameter
+schema defines `RECO_theta0` and `RECO_bp_pattern` specifically for 3-dimensional back projection.
+Do not reject a dataset merely because it describes 3-D BP; use its stored reconstruction graph
+and method metadata.
 
 **Image generation** (D07 §7.5.3) — takes the final data matrix (real from BP, complex from FT)
 and can require:
