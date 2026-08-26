@@ -2404,9 +2404,13 @@ the mapping after the table.
 | `SUBJECT_study_nr` | Study number **inside the session** — under a project, the study-template slot; it is not the session (see [Section 1.1](#11-study-level)). PV360 manual: "The number must be unique in a day. The study is identified by the study number and the study creation time in a ParaVision instance." |
 | `SUBJECT_remarks` | Free-text remarks |
 
-**ParaVision 360 renamings.** PV360 keeps only `SUBJECT_id`, `SUBJECT_name_string`,
-`SUBJECT_study_name`, `SUBJECT_study_nr`, `SUBJECT_type`, `SUBJECT_dbirth`, `SUBJECT_version_nr`
-and `SUBJECT_study_instance_uid` from the list above, and replaces the rest:
+**ParaVision 360 retention and renamings.** PV360 retains the object identity fields
+`SUBJECT_id`, `SUBJECT_name_string`, `SUBJECT_instance_uid`, `SUBJECT_instance_creation_date`,
+`SUBJECT_dbirth`, `SUBJECT_type` and `SUBJECT_remarks`, plus the study fields
+`SUBJECT_study_name`, `SUBJECT_study_nr`, `SUBJECT_study_instance_uid` and
+`SUBJECT_study_adj_config`. Empty optional strings may be omitted: Bruker's sampled PV360 3.7
+file, for example, has no `SUBJECT_remarks` even though the manual still defines it. Other fields
+are renamed or consolidated as follows:
 
 | PV5.1 / PV6 | ParaVision 360 | Note |
 |-------------|----------------|------|
@@ -2416,7 +2420,7 @@ and `SUBJECT_study_instance_uid` from the list above, and replaces the rest:
 | `SUBJECT_sex` (+ `SUBJECT_sex_human` / `SUBJECT_sex_animal`) | `SUBJECT_gender` | takes the `SUBJECT_ANIMAL_SEX_TYPE` values (`MALE`, `FEMALE`, `UNDEFINED`, `UNKNOWN`) |
 | `SUBJECT_weight` | `SUBJECT_study_weight` | |
 | `SUBJECT_position` **and** `SUBJECT_entry` | `SUBJECT_study_instrument_position` | the two are **merged**, and it carries the combined 8-value `PATIENT_POS_TYPE` (e.g. `Head_Prone`), not `SUBJECT_POSITION` |
-| — | `SUBJECT_study_modalities` | new in PV360: the modalities the study is set up for (`MR_Modality`, `PT_Modality`, `OT_Modality`); `SUBJECT_instance_creation_date` already exists in PV6 |
+| — | `SUBJECT_study_modalities` | new in PV360: the modalities the study is set up for (`MR_Modality`, `PT_Modality`, `OT_Modality`) |
 
 `SUBJECT_purpose`, `SUBJECT_name`, `SUBJECT_location` and `SUBJECT_size` are not written by PV360
 at all (`SUBJECT_remarks` is retained, but omitted from the file when empty). Both PV5.1 and PV6 define `SUBJECT_sex_human` *and* `SUBJECT_sex_animal`; which one carries the
@@ -2437,12 +2441,12 @@ whether the animal transport system is used for the study) and `CMN_study_bed` (
 animal cradle) — PV360 manual §4.13.2.2. These are the detection parameters for the ATS
 coordinate-origin shift of [Section 12](#12-coordinate-systems).
 
-> **`SUBJECT_version_nr` is not a version detector.** The PV360 manual (which spells it
-> `SUBJECT_version_number`) states the value is 1 for ParaVision 2–6 and 3 for PV360 — but the
-> public files disagree with the first half: PV5.1 writes `##$SUBJECT_version_nr=2`
-> ([Zenodo 4048286](https://zenodo.org/records/4048286)) and PV6.0.1 writes `1`
-> ([Zenodo 4048253](https://zenodo.org/records/4048253)). Treat it as a parameter-set revision
-> only; identify the writing version from `ACQ_sw_version` / `VisuCreatorVersion`.
+> **`SUBJECT_version_nr` is not a version detector.** Every PV360 1.0–3.7 manual (which spells it
+> `SUBJECT_version_number`) states the value is 1 for ParaVision 2–6 and 3 for PV360, but stored
+> files disagree at both ends: PV5.1 writes `##$SUBJECT_version_nr=2`
+> ([Zenodo 4048286](https://zenodo.org/records/4048286)), PV6.0.1 and PV7 write `1`, and the
+> sampled PV360 3.7 subject writes `4`. Treat it as a parameter-set revision only; identify the
+> writing version from `ACQ_sw_version` / `VisuCreatorVersion`.
 
 ---
 
