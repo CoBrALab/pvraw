@@ -1914,12 +1914,12 @@ These parameters fully describe the image geometry and data layout:
 | `VisuCoreSize` | int[] | Frame dimensions in pixels (e.g., `256 256` for 2D) |
 | `VisuCoreDimDesc` | enum[] | Dimension types: `spatial`, `spectroscopic`, `temporal` |
 | `VisuCoreExtent` | double[] | Physical extent per dimension, **in the units given by `VisuCoreUnits`** — not always mm: the public PV360 3.6 `PRESS_1H` scan ([github.com/cecilyen/PV360_StdData](https://github.com/cecilyen/PV360_StdData)) writes `VisuCoreUnits = <[ppm]>`. For spatial dimensions the extent runs outer edge to outer edge |
-| `VisuCoreFrameThickness` | double[] | Slice thickness in mm (spatial frames) |
+| `VisuCoreFrameThickness` | double[] | Thickness in mm. Required for wholly spatial frames and optional for other frames; it may be shared or frame-group dependent when thickness differs |
 | `VisuCoreUnits` | string[] | Units per dimension (default: `mm`). PV360 requires unit strings (also `VisuCoreDataUnits`) to conform to the **UCUM** standard (§4.13.3.2) |
 | `VisuCoreModalityOffset` | double[1 or FrameCount][3] | **[PV360]** per-frame spatial modality offset in mm; first dimension is 1 when all offsets are identical, else `VisuCoreFrameCount`; second dimension always 3 (§4.13.3.2) |
 | `VisuCoreAtsCenterDistance` | double | **[PV360]** labelled reference-position distance to a fixed cradle position in ATS direction, mm — the origin shift of [Section 12](#12-coordinate-systems) (§4.13.3.2; see also `ACQ_AtsCenterDistance`, [Section 5.8](#58-ats-parameters-pv360)) |
-| `VisuCorePosition` | double[][3] | Position of the centre of the **first pixel/voxel transferred**, in patient coordinates (mm). Usually that is the first pixel in the image coordinate system — but for frames with 3 spatial dimensions *and* `VisuCoreDiskSliceOrder = disk_reverse_slice_order` it is instead the first voxel of the **last** 2D frame in the stored dataset. In-plane that first pixel centre is exactly FOV/2 from the field-of-view centre (pixel N/2 *is* the centre, whatever the matrix size); along the partition axis of a 3-D frame PV5.1 does the same, but PV6 onwards centres the grid *between* partitions, half a step in — see [Section 12](#12-coordinate-systems). |
-| `VisuCoreOrientation` | double[][9] | 3x3 orientation matrix per frame |
+| `VisuCorePosition` | double[1 or dependent count][3] | Position of the centre of the **first pixel/voxel transferred**, in patient coordinates (mm). A single row applies to every frame when the position is identical; otherwise its dependency is declared by `VisuGroupDepVals`. Usually that is the first pixel in the image coordinate system — but for frames with 3 spatial dimensions *and* `VisuCoreDiskSliceOrder = disk_reverse_slice_order` it is instead the first voxel of the **last** 2D frame in the stored dataset. In-plane that first pixel centre is exactly FOV/2 from the field-of-view centre (pixel N/2 *is* the centre, whatever the matrix size); along the partition axis of a 3-D frame PV5.1 does the same, but PV6 onwards centres the grid *between* partitions, half a step in — see [Section 12](#12-coordinate-systems). |
+| `VisuCoreOrientation` | double[1 or dependent count][9] | 3x3 orientation matrix. A single matrix applies to every frame when orientation is identical; otherwise its dependency is declared by `VisuGroupDepVals` |
 | `VisuCoreTransposition` | int[] | Dimension transposition per frame: `0` = no exchange; `n < VisuCoreDim` = exchange dimensions `n` and `n-1`; `VisuCoreDim` = exchange dimensions `0` and **`VisuCoreDim - 1`**. (The PV5.1/PV6 manuals write "0 and `VisuCoreDim`", which is one past the last dimension; PV360 3.6+ corrects it to `VisuCoreDim-1`, the only in-range reading.) **Optional** — written only when frames differ in transposition; its absence means no frame needs one. |
 | `VisuCoreReferenceCS` | enum | Reference coordinate system; defaults to the patient coordinate system |
 | `VisuCoreFrameType` | enum[] | Type of each frame. Declared `RECO_IMAGE_TYPE` in the header, so it shares that enum's members; the manuals document `MAGNITUDE_IMAGE`, `REAL_IMAGE`, `IMAGINERY_IMAGE` (Bruker's spelling) and `PHASE_IMAGE` (MR datasets only) |
@@ -2285,11 +2285,12 @@ Slice packages group 2D slices with the same orientation into 3D-interpretable s
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | `VisuCoreSlicePacksDef` | struct | **Scalar** struct `(fg_index, num_packages)` — declared `VISU_SLICE_PACK_TYPE parameter VisuCoreSlicePacksDef`, with no `[]` |
-| `VisuCoreSlicePacksSlices` | struct[] | Index of first slice and count per package (this one *is* an array) |
-| `VisuCoreSlicePacksSliceDist` | double[] | Inter-slice distance per package |
+| `VisuCoreSlicePacksSlices` | struct[] | Index into the slices group of the package's first element, and element count (this one *is* an array) |
+| `VisuCoreSlicePacksSliceDist` | double[num_packages] | Centre-to-centre slice distance in mm for each package |
 
 Slice-package parameters are **optional** and were introduced in PV6.0.1 — PV5.1 defines none of
-them — and may be absent even in PV6/PV360 datasets. Do not require them.
+them — and may be absent even in PV6/PV7/PV360 datasets. The same three-parameter definition is
+documented from PV6 through PV7 and every available PV360 manual (1.0–3.7). Do not require it.
 
 > **Parsing notes.**
 > - `VisuCoreSlicePacksDef` is a **single** struct `(fg_index, num_packages)` written on the
@@ -2303,9 +2304,10 @@ them — and may be absent even in PV6/PV360 datasets. Do not require them.
 >   slices), so read each package's own `count` — do not reuse the first package's
 >   count for all packages, and use a cumulative offset when slicing the data
 >   array into per-package volumes.
-> - When the in-plane matrix is identical across packages, they may be stacked
->   along the slice axis (total slices = sum of per-package counts); otherwise the
->   packages are emitted as separate volumes. `VisuCoreOrientation` is **not**
+> - Equal in-plane matrix sizes alone do **not** make packages one volume. Stack packages along a
+>   common slice axis only when their orientations match, their positions are collinear in slice
+>   order, and their spacing is representable by one volume geometry; orthogonal or independently
+>   positioned packages must remain separate volumes. `VisuCoreOrientation` is **not**
 >   guaranteed to be one matrix per slice — per the cardinality rule in §7.4 it may hold a single
 >   matrix that applies to every frame, or one per frame-group element. Count its values before
 >   grouping them by the per-package slice counts.
