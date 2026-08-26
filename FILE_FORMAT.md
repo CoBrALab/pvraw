@@ -2346,8 +2346,8 @@ The `d3proc` file contains legacy image display parameters. These are deprecated
 | `DATTYPE` | enum or int | Data type, enum `DATTYPE_TYPE`: 0=`ip_bit`, 1=`ip_byte` (int8), 2=`ip_u_byte` (uint8), 3=`ip_short` (int16), 4=`ip_u_short` (uint16), 5=`ip_int` (int32), 6=`ip_u_int` (uint32). **ParaVision writes the symbol, not the ordinal** — real `d3proc` files contain `##$DATTYPE=ip_short` ([Zenodo 4048286](https://zenodo.org/records/4048286), expno 16) or `ip_int` — so a reader must accept both forms. In practice 2/3/5 are used, corresponding to `RECO_wordtype` `_8BIT_UNSGN_INT`/`_16BIT_SGN_INT`/`_32BIT_SGN_INT`. **`DATTYPE` cannot express float data**: `d3typ.h` contains `#define ip_float ip_int`, so a 32-bit float `2dseq` also reports `ip_int`. Always prefer `RECO_wordtype`/`VisuCoreWordType`. |
 | `IM_SIX` | int | Image matrix length in x — the **fastest-varying** axis, i.e. the number of values per row. Written after transposition |
 | `IM_SIY` | int | Image matrix length in y — the number of rows. Written after transposition |
-| `IM_SIZ` | int | Number of frames (z-direction) |
-| `IM_SIT` | int | Matrix length in t |
+| `IM_SIZ` | int | Flattened z/frame length; for 2-D data this is the frame count, while for 3-D data it includes the z matrix length (see below) |
+| `IM_SIT` | int | Matrix length in t; read as a separate stored dimension |
 | `SEQTYPE` | enum | Frame sequence type (`SEQTYPE_TYPE`, header order): `slices`, `echoes`, `ms_me`, `project`, `sl_tseq`, `pr_tseq`, `tseq_pr` |
 | `CEN_SLC` | int | Index of the centre slice |
 | `SIM_SIX` / `SIM_SIY` / `SIM_SIZ` / `SIM_SIT` | int | Sub-matrix sizes, with origins `SIM_X0` / `SIM_Y0` / `SIM_Z0` / `SIM_T0` |
@@ -2361,6 +2361,21 @@ The `d3proc` file contains legacy image display parameters. These are deprecated
 > fastest-varying output dimension (and the 1D spectrum in scan 28 has `IM_SIX=2048`,
 > `IM_SIY=1`). This document keeps the on-disk semantics; do not "correct" it back to the
 > manuals' wording.
+
+**`IM_SIZ` is not generally `VisuCoreFrameCount`.** It is the legacy third storage dimension.
+For every sampled 2-D reconstruction it equals `VisuCoreFrameCount`; for 3-D reconstructions it
+equals `VisuCoreSize[2] * VisuCoreFrameCount`. For example, PV5.1 scan 24 above has
+`VisuCoreSize=( 2048, 32, 32 )`, `VisuCoreFrameCount=1` and `IM_SIZ=32`, while a sampled PV6
+derived reconstruction has z size 16, 22 frames and `IM_SIZ=352`. More generally, all 38 sampled
+PV5.1/PV6 `d3proc` datasets satisfy
+
+```
+2dseq element count = IM_SIX * IM_SIY * IM_SIZ * IM_SIT
+```
+
+with zero mismatches after applying `DATTYPE`'s bytes per element. Use the four stored dimensions
+for legacy byte layout; use `VisuCoreSize`, `VisuCoreFrameCount` and the frame groups for semantic
+image axes.
 
 **Image scaling (legacy):**
 
