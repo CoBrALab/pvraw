@@ -812,15 +812,21 @@ to `acqp` is **`ACQ_ReceiverSelectPerChan`**, a 2-D `( nChannels, nReceivers )` 
 the same count for the common single-channel case. Within the file, each scan is stored
 real/imaginary-interleaved, channel-blocked:
 `Re(scan,ch0) Im(scan,ch0) … | Re(scan,ch1) Im(scan,ch1) … | …`. The resulting file size is
-given in [Section 14.4](#144-job-based-raw-data-rawdatajobn).
+given in [Section 14.4](#144-job-based-raw-data-files).
 
 ParaVision 360 allows **up to 8 jobs** per experiment; the PV6 header sets `ACQ_MAX_JOBS` to 15.
 
-> **ParaVision 360:** PV360 stores **all** raw data in `rawdata.jobN` (there is no `fid`), and
+> **ParaVision 360:** PV360 stores **all** raw data in `rawdata.<title>` (there is no `fid`), and
 > the GO subclass parameters (`GO_raw_data_format`, `GO_block_size`, ...) are **absent**. The
 > per-scan size is taken from `ACQ_jobs[0][0]` (e.g. `ACQ_jobs=( 1 ) (400, 9, 18, ...,
-> <job0>)` -> scan size 400 words), and the raw word type from `ACQ_word_size`/`BYTORDA`. The
-> `ACQ_size[0]` value need not equal the job scan size. See [Section 13](#13-version-differences-pv5-vs-pv6-vs-pv360-vs-pv7).
+> <job0>)` -> scan size 400 real-valued points). The stored word type comes from
+> `ACQ_ScanPipeJobSettings[0].storageDataType` (`STORE_32bit_signed` or
+> `STORE_64bit_float`), and the byte order from `BYTORDA` (all available PV360 manuals,
+> 1.0–3.7, "Raw Data Files" / "Raw Data Files (MRI)"; PV360 3.7 §4.12.3, pp. 1154–1155).
+> `ACQ_word_size` describes the acquisition word size but is not sufficient to
+> determine the file type: unlike `storageDataType`, it cannot express the documented 64-bit
+> floating-point storage mode. The `ACQ_size[0]` value need not equal the job scan size. See
+> [Section 13](#13-version-differences-pv5-vs-pv6-vs-pv360-vs-pv7).
 
 > **`fid` and `rawdata.jobN` may coexist:** In PV6 these are not always alternatives. Some
 > methods write **both** - e.g. the spectroscopy methods CSI, NSPECT, PRESS, STEAM and ISIS
@@ -956,9 +962,10 @@ sequences.
 > (`fid`, `2dseq`, `rawdata`, `ser`, `traj`), and any dot-suffix identifies a subtype
 > (e.g. `rawdata.job0`, `rawdata.Navigator`, `fid.spiral`). The raw-data dtype comes from
 > `GO_raw_data_format` + `BYTORDA` on PV5.1/PV6/PV7; **ParaVision 360 has no GO subclass**, and
-> there the word type is `ACQ_word_size` + `BYTORDA`. The on-disk array is stored in column-major
-> (Fortran) order. The `fid` data layout — the meaning of the raw block sequence — depends on the
-> pulse program (`PULPROG`) together with the ACQP loop parameters.
+> there the stored type is `ACQ_ScanPipeJobSettings[n].storageDataType` and the byte order is
+> `BYTORDA`. The on-disk array is stored in column-major (Fortran) order. The `fid` data layout —
+> the meaning of the raw block sequence — depends on the pulse program (`PULPROG`) together with
+> the ACQP loop parameters.
 >
 > Note that the scheme names used in [Section 14.6](#146-acquisition-k-space-schemes) (`CART_2D`,
 > `RADIAL`, `SPIRAL`, `EPI`, …) are a **reader's classification vocabulary, not ParaVision
@@ -1281,9 +1288,10 @@ though `scanSize` and `ACQ_size[0]` do **not** coincide in general (see
 > absent from the `acqp` of the public PV360 3.4 and 3.6 datasets (MRIReco.jl test data;
 > [github.com/cecilyen/PV360_StdData](https://github.com/cecilyen/PV360_StdData)) and of Bruker's
 > 360.3.5–360.3.7 standard datasets (zero occurrences). For
-> PV360 the raw word type comes from `ACQ_word_size` + `BYTORDA`, and the layout from `ACQ_jobs` /
-> `ACQ_ScanPipeJobSettings`. (`DTYPA` is a separate case — it is a TopSpin `acqu`/`acqus`
-> parameter and ParaVision never writes it into `acqp` in *any* version.)
+> PV360 the stored type comes from `ACQ_ScanPipeJobSettings[n].storageDataType`, the byte order
+> from `BYTORDA`, and the layout from `ACQ_jobs` / `ACQ_ScanPipeJobSettings`. (`DTYPA` is a
+> separate case — it is a TopSpin `acqu`/`acqus` parameter and ParaVision never writes it into
+> `acqp` in *any* version.)
 
 **Digitization modes (`AQ_mod`, enum `AQ_mod_TYPE`, in header order):**
 
@@ -2950,7 +2958,7 @@ marked — Bruker's login-gated standard datasets for 360.3.5 and 360.3.7:
 | Feature | ParaVision 360 v3.x |
 |---------|---------------------|
 | Raw data | `rawdata.<title>` only — no file named `fid`. `job0` by convention for the main experiment; `rawdata.Navigator` and `rawdata.DriftCompensation` are documented subtypes. The GO subclass parameters are **absent** |
-| Raw scan size | Given by `ACQ_jobs[n].scanSize` (`[0]`); word type by `ACQ_word_size`/`BYTORDA` |
+| Raw scan size | Given by `ACQ_jobs[n].scanSize` (`[0]`); stored type by `ACQ_ScanPipeJobSettings[n].storageDataType`, byte order by `BYTORDA` |
 | Study-level files | Adds `study.MR` (group `MR Extended STUDY_MODALITY`) and `study.PT` (PET), plus an adjustment-protocol directory — manual Table 4.4 spells it `AdjProtocol`, released 360.3.6/3.7 studies write `AdjProtocols` on disk |
 | PROCNO files | `2dseq`, `id`, `methreco`, `reco`, `visu_pars` — the manual's table lists **no `d3proc` and no `procs`** |
 | PET | A second raw-data model exists for PET/MR systems: list-mode data lives on the PET reconstruction server under `<PetDataPath>/ParaVision/data/<user>/<studyDir>/<expno>`, not on the MR workplace — see the list-mode format below |
@@ -2965,8 +2973,9 @@ marked — Bruker's login-gated standard datasets for 360.3.5 and 360.3.7:
 | Non-Cartesian | UTE3D ships a `traj` trajectory file **and** a `b0` off-resonance reference file |
 
 > **Job-based raw data (`ACQ_jobs` / `ACQ_ScanPipeJobSettings`).** Because PV360 has no `GO_*`
-> subclass, the raw layout is read entirely from `ACQ_jobs`. `ACQ_jobs_size` gives the number of
-> `rawdata.jobN` files, and each `ACQ_jobs[j]` struct describes job *j* (fields per
+> subclass, the raw layout is read from `ACQ_jobs` and `ACQ_ScanPipeJobSettings`.
+> `ACQ_jobs_size` gives the number of acquisition jobs, and each `ACQ_jobs[j]` struct describes
+> job *j* (fields per
 > [Section 3.3](#33-rawdatajobn---job-based-raw-data-pv6)): the **first** element (`[0]`) is the
 > per-scan size in real points and — in this 9-field PV360 form — `nStoredScans` is `[6]`
 > (the 8-field PV6/PV7 form instead puts it **last**, at `[7]`), e.g.
@@ -2975,7 +2984,7 @@ marked — Bruker's login-gated standard datasets for 360.3.5 and 360.3.7:
 > PV360 3.6 `T1_FLASH`
 > ([github.com/cecilyen/PV360_StdData](https://github.com/cecilyen/PV360_StdData))
 > `ACQ_size = ( 1024, 1 )` while `scanSize = 400`. The raw word type comes from
-> `ACQ_word_size` + `BYTORDA`.
+> `ACQ_ScanPipeJobSettings[j].storageDataType`, and the byte order from `BYTORDA`.
 >
 > The companion `ACQ_ScanPipeJobSettings[j]` records the storage policy. It is a **17-element
 > struct**, fully enumerated in the PV360 manual's Pipeline Acquisition section; the four that bear
@@ -3152,14 +3161,14 @@ A 3D magnitude reconstruction to `RECO_size = (256,128,64)`, 16-bit, is a **sing
 2dseq size = 2 * 1 * 256 * 128 * 64 = 4,194,304 bytes
 ```
 
-### 14.4 Job-based raw data (`rawdata.jobN`)
+### 14.4 Job-based raw data files
 
-When raw data is job-based, each `rawdata.jobN` file is sized from its `ACQ_jobs[N]` descriptor
+When raw data is job-based, each `rawdata.<title>` file is sized from its `ACQ_jobs[N]` descriptor
 rather than the `GO_*` block model (which may be absent, as in PV360 — see
 [Section 13.1](#131-paravision-360-v3x)). Per the ParaVision 360 File Formats manual, the size is
 
 ```
-rawdata.jobN size = wordsize_bytes * ACQ_jobs[N].scanSize * Nreceivers * nStoredScans
+rawdata.<title> size = wordsize_bytes * ACQ_jobs[N].scanSize * Nreceivers * nStoredScans
 ```
 
 where `scanSize` is the first `ACQ_jobs[N]` element (real-valued points per scan, and **need not
@@ -3168,8 +3177,9 @@ equal `ACQ_size[0]`**), `nStoredScans` is the number of scans written — take i
 [Section 3.3](#33-rawdatajobn---job-based-raw-data-pv6)) — and `Nreceivers` is the number of active
 receivers for the job (count of `Yes` in `ACQ_ReceiverSelectPerChan[chanNum-1]`). Note the
 **`Nreceivers` factor**: for multi-channel PV360 acquisitions the file is that many times larger
-than a single-channel count would suggest. The word type is given by `ACQ_word_size` + `BYTORDA`
-(equivalently `ACQ_ScanPipeJobSettings[N].storageDataType`), and `ACQ_jobs_size` gives the number of acquisition *jobs*; each job whose `storeDataMode` is not
+than a single-channel count would suggest. The stored type is given by
+`ACQ_ScanPipeJobSettings[N].storageDataType`, and the byte order by `BYTORDA`.
+`ACQ_jobs_size` gives the number of acquisition *jobs*; each job whose `storeDataMode` is not
 `STORE_discard` writes one `rawdata.<title>` file.
 
 Worked example — the public PV360 3.6 4-channel `T1_FLASH`
