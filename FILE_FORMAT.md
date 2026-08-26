@@ -2292,7 +2292,7 @@ Optional parameters recording acquisition details for display/postprocessing:
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `VisuAcqDate` | string | Acquisition date |
+| `VisuAcqDate` | char[21] (PV5.1) / pvtime_t (PV6+) | Acquisition start date/time; parse with the version-dependent date rules in §7.1 |
 | `VisuAcqSequenceName` | string | Pulse sequence / method name |
 | `VisuAcqNumberOfAverages` | double | Number of averages (NA) — declared floating point in both PV5.1 and PV6, though usually written with an integral value |
 | `VisuAcqImagingFrequency` | double | 1H imaging frequency |
@@ -2308,8 +2308,8 @@ Optional parameters recording acquisition details for display/postprocessing:
 | `VisuAcqEchoSequenceType` | enum | `SpinEcho`, `GradientEcho`, `Both` |
 | `VisuAcqSpectralSuppression` | enum | `FatSuppression`, `WaterSuppression`, `FatAndWaterSuppression`, `NoSuppression` |
 | `VisuAcqKSpaceTraversal` | enum | `RectilinearTraversal`, `RadialTraversal`, `SpiralTraversal` |
-| `VisuAcqEncodingOrder` | enum[] | Encoding order per frame dimension (`VisuCoreDim` elements). PV6.0.1: `LinearEncoding`, `CentricEncoding`. PV360 adds `SegmentedEncoding`, `ReverseLinearEncoding`, `ReverseCentricEncoding` |
-| `VisuAcqGradEncoding` | enum[] | Gradient encoding directions: `read_enc`, `phase_enc`, `slice_enc`, `no_gradient_enc` |
+| `VisuAcqEncodingOrder` | enum[] | **[PV6+]** encoding order per frame dimension (`VisuCoreDim` elements). PV6.0.1: `LinearEncoding`, `CentricEncoding`. PV360 adds `SegmentedEncoding`, `ReverseLinearEncoding`, `ReverseCentricEncoding` |
+| `VisuAcqGradEncoding` | enum[] | **[PV6+]** gradient encoding directions: `read_enc`, `phase_enc`, `slice_enc`, `no_gradient_enc` |
 | `VisuAcqScanTime` | double | Total scan time in ms |
 | `VisuAcqAntiAlias` | double[] | Anti-alias oversampling factor per direction |
 | `VisuAcqPartialFourier` | double[] | Partial Fourier factors per dimension |
@@ -2324,14 +2324,19 @@ Reference defines further members (`VisuAcqSpinsVelocityEncoded`, `VisuAcqHasTim
 `VisuAcqKSpaceFiltering`, …). `VisuAcqGradEncoding` (PV6+) replaces the deprecated `VisuAcqImagePhaseEncDir`, which recorded
 only phase-encoding directions and is the form PV5.1 writes.
 
-**Per-frame timing (PV360).** Three common acquisition parameters give each VISU frame its own
-clock — directly useful for fMRI/BIDS timing metadata (PV360 §4.13.3.8):
+**Per-frame timing (PV6+).** Acquisition and reference times already exist in PV6.0.1 and PV7;
+PV360 retains both and adds an explicit acquisition-order number for every VISU frame. These are
+directly useful for fMRI/BIDS timing metadata (PV6 D02 §2.4.11.9; PV360 §4.13.3.8):
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `VisuAcqFrameTime` | struct[FrameCount] | Per-frame acquisition **start time** (`pvtime_t`) and duration (`VisuFrameAcqTime` structs) |
-| `VisuAcqFrameReferenceTime` | pvtime_t[FrameCount] | Per-frame reference time (time type, §4.13.3.8) — "in MR the reference time may be the time of the zero kspace line" |
-| `VisuAcqFrameNumbers` | int[FrameCount] | Ordering of the VISU frames in acquisition |
+| `VisuAcqFrameTime` | struct[FrameCount] | **[PV6+]** per-frame acquisition **start time** (`pvtime_t`) and duration (`VisuFrameAcqTime` structs), indexed by stored VISU frame |
+| `VisuAcqFrameReferenceTime` | pvtime_t[FrameCount] | **[PV6+]** per-frame reference time, indexed by stored VISU frame; in MR this may be the time of the zero k-space line |
+| `VisuAcqFrameNumbers` | int[FrameCount] | **[PV360]** acquisition-order number for each stored VISU frame. Element `i` describes frame `i`; the values supply the acquisition ordering |
+
+All three arrays, when present, have exactly `VisuCoreFrameCount` elements. Do not reorder the
+time arrays first and then apply `VisuAcqFrameNumbers`: their elements already address stored
+frames, while the number values describe those frames' acquisition order.
 
 **Trigger/gating.** The common trigger parameters record how cardiac/respiratory
 synchronization was performed (PV360 §4.13.3.10; same names in PV6 D02 §2.4.11.9 — PV6 writes
