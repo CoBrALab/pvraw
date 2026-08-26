@@ -46,7 +46,7 @@ which are derived from the documented layouts rather than quoted.
   - [2.4 Parameter Visibility and Editing](#24-parameter-visibility-and-editing)
 - [3. Binary Data Files](#3-binary-data-files)
   - [3.1 fid - Raw Acquisition Data (Single Experiment)](#31-fid---raw-acquisition-data-single-experiment)
-  - [3.2 ser - Serial Raw Data (Multiple Experiments)](#32-ser---serial-raw-data-multiple-experiments)
+  - [3.2 ser - Serial Raw Data (Multiple FIDs)](#32-ser---serial-raw-data-multiple-fids)
   - [3.3 rawdata.job\[N\] - Job-Based Raw Data (PV6+)](#33-rawdatajobn---job-based-raw-data-pv6)
   - [3.4 2dseq - Reconstructed Image Data](#34-2dseq---reconstructed-image-data)
   - [3.5 Method-Specific Auxiliary Files](#35-method-specific-auxiliary-files)
@@ -233,7 +233,7 @@ and exclude TopSpin-created ones.
 > `job0` by convention for the main experiment. PV5.1 has no acquisition-job concept: `ACQ_jobs`
 > first appears in PV6. The TopSpin `ser` format stores the experiment as `TD(F1)` individual 1D
 > fids, each aligned to a 1024-byte block boundary (256 32-bit points); see
-> [Section 3.2](#32-ser---serial-raw-data-multiple-experiments). A TopSpin conversion also emits
+> [Section 3.2](#32-ser---serial-raw-data-multiple-fids). A TopSpin conversion also emits
 > `acqu`, `acqus`, `proc` and `procs` parameter files alongside the renamed data.
 
 ### 1.3 Reconstruction Level (PROCNO)
@@ -611,6 +611,10 @@ receiver (or, when the User Pipeline Filer is used, the output of the user filte
 is not saved when `GO_data_save = No` (default is `Yes`). The data is a header-less binary
 stream of complex (quadrature) points.
 
+This native `fid` description is unchanged across PV5.1 D12 §12.3, PV6 D01 §1.3, and PV7
+§3.3.3. PV360 uses the separate job-file model described in
+[Section 3.3](#33-rawdatajobn---job-based-raw-data-pv6) instead.
+
 **Location:** `<EXPNO>/fid`
 
 **Word type:** Each data point is written as a **pair of words: real part followed by
@@ -712,19 +716,23 @@ sequences).
 > `NSegments`, `NPro`, `PVM_NEchoImages`), which can be smaller than `ACQ_size[1..]`; the on-disk
 > block count is therefore derived from those encoding parameters rather than from `ACQ_size`.
 
-### 3.2 ser - Serial Raw Data (Multiple Experiments)
+### 3.2 ser - Serial Raw Data (Multiple FIDs)
 
-The `ser` file is the **TopSpin** representation of multi-experiment (serial) raw data. In
-native ParaVision the raw data is written to `fid` and **renamed to `ser` when the experiment
-is exported to TopSpin** (per the Bruker File Formats manual).
+The `ser` file is the **TopSpin** representation of multidimensional acquisition data: it contains
+multiple 1D FIDs belonging to one experiment, not multiple ParaVision experiments. In native
+ParaVision the raw data is written to `fid` and **renamed to `ser` when the experiment is exported
+to TopSpin** (PV5.1 D12 §12.3, PV6 D01 §1.3, and PV7 §3.3.3).
 
 **Location:** `<EXPNO>/ser` (after TopSpin export) or `<EXPNO>/fid` (native ParaVision).
 
 A `ser` file contains `TD(F1)` individual 1D fids (one per indirect-dimension increment /
 experiment repetition). Each 1D fid is `TD(F2)` points, and **each 1D fid starts at a
 1024-byte block boundary** (i.e. 256 32-bit points), zero-padded if its size is not a multiple
-of 1024 bytes. The word type and byte order follow the same rules as `fid`
-(`GO_raw_data_format`, `BYTORDA`).
+of 1024 bytes. TopSpin fixes `fid`/`ser` storage to 32-bit integer words; `BYTORDA` in `acqus`
+gives the byte order (XWIN-NMR/TopSpin `fileform` §15.2, identical in the available PV5, PV6,
+and PV7 copies). Do not carry the selectable 16-bit/float ParaVision `GO_raw_data_format` modes
+over to a TopSpin `ser`: the ParaVision manuals state that only `GO_32_BIT_SGN_INT` is supported
+by TopSpin processing.
 
 ### 3.3 rawdata.job[N] - Job-Based Raw Data (PV6+)
 
@@ -835,6 +843,10 @@ ParaVision 360 allows **up to 8 jobs** per experiment; the PV6 header sets `ACQ_
 The `2dseq` file contains the reconstructed image data as a flat binary file of pixel values,
 **without a header and without block-wise zero-filling**. Pixel values are written
 sequentially, line by line, frame by frame, starting from the top-left pixel of the first frame.
+
+The manuals give the same `2dseq` storage rules and complex-frame ordering in PV5.1 D12 §12.4,
+PV6 D01 §1.4, PV7 §3.3.4, and every available PV360 complete manual (1.0–3.7, "Image Data
+Files").
 
 **Location:** `<EXPNO>/pdata/<PROCNO>/2dseq`
 
