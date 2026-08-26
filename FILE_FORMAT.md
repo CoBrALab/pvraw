@@ -1755,7 +1755,7 @@ For back projection with FT in the first direction, only `REAL_IMAGE`, `IMAGINAR
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `RECO_transposition` | int[NI] | Axis transposition per object |
+| `RECO_transposition` | int[nRecoObjects] | Axis transposition for each reconstruction object represented by this processing, before any output-type expansion such as real/imaginary frame blocks |
 
 The rule is general, not a fixed value list. **The values are 1-based *direction* numbers, not
 0-based array axes:**
@@ -1770,10 +1770,23 @@ The rule is general, not a fixed value list. **The values are 1-based *direction
 > "for `ACQ_dim` = 2 the two values 1 and 2 are both valid … and will have the same effect".
 > A reader that hard-codes `2 → swap axes 1 and 2` transposes the wrong axes on 2D data.
 
-Constraints: `0 ≤ RECO_transposition[i] ≤ ACQ_dim` for `0 ≤ i ≤ NI`. The parameter is ignored for
-all setup pipelines (GSP, GS Auto, …) and is forced to `0` when `ACQ_dim = 1`.
+Constraints: `0 ≤ RECO_transposition[i] ≤ ACQ_dim` for every stored array element. The
+PV5.1–PV360 parameter manuals express the index bound using `NI` and print `i ≤ NI`; the latter
+includes one element past a zero-based `NI`-element array and is an off-by-one typo. More
+importantly, do not substitute the `NI` value from `acqp` for the array's stored cardinality:
+actual files can differ after reconstruction selection or combination (for example, stored PV6
+data has acquisition `NI = 12` and six `RECO_transposition` entries, while a PV360 diffusion
+processing has `NI = 5` and 115 entries). The JCAMP array dimension is authoritative. The
+parameter is ignored for all setup pipelines (GSP, GS Auto, …) and is forced to `0` when
+`ACQ_dim = 1`.
 
-Note: RECO_transposition does **not** affect the interpretation of other RECO parameters (RECO_fov, RECO_size, etc. still refer to non-transposed ordering). The D3 class parameters are written after transposition to describe the final on-disk layout.
+`RECO_transposition[i]` indexes a reconstruction object, not necessarily stored VISU frame `i`.
+In particular, `COMPLEX_IMAGE` appends an imaginary frame block but does not double this array;
+stored PV7 examples have one transposition entry and two real/imaginary VISU frames. Reshape
+using the non-transposed `RECO_size` ordering and then apply the applicable object's swap;
+do **not** first reorder `RECO_size`, `RECO_fov`, or the other RECO parameter arrays. D3 image
+parameters are the exception: ParaVision writes them after transposition so they describe the
+final on-disk layout.
 
 ### 6.10 Output Word Type and Mapping
 
