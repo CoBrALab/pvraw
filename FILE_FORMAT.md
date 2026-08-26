@@ -303,7 +303,11 @@ Each reconstruction directory contains the processed image data:
 
 ## 2. Parameter File Format (JCAMP-DX)
 
-All parameter files (`acqp`, `method`, `reco`, `visu_pars`, `d3proc`, `subject`, etc.) use the JCAMP-DX format, an ASCII-based labelled data interchange standard originally designed for spectroscopic data.
+ParaVision parameter lists (`acqp`, `method`, `reco`, `visu_pars`, `d3proc`, `subject`, etc.) use
+an enhanced JCAMP-DX 4.24 format, an ASCII-based labelled data interchange format originally
+designed for spectroscopic data (PV5.1 D12 §12.2; PV6 D01 §1.2; PV7 manual §3.3.2; all available
+PV360 manuals, 1.0–3.7, "Parameter Files"). ParaVision-specific image parameters use private
+labels because JCAMP-DX itself does not define image parameters.
 
 ### 2.1 Basic Format
 
@@ -410,9 +414,12 @@ ParaVision 360 manual is the one that documents the two on-disk forms:
 - **Struct form** — `(seconds, milliseconds, tzMinutes)`: seconds since 1970-01-01 00:00 UTC,
   milliseconds within that second, and the time-zone difference in minutes.
 
-**Enum encoding.** Parameter files may store an enumeration as its symbolic name, as its
-integer ordinal, or — in PV6/PV360 — as a `(name, display-name)` tuple when the enum has a
-separate human-readable display name:
+**Enum encoding.** The manuals consistently permit a symbolic enum name or its integer ordinal,
+but their documented symbolic spelling changed. PV5.1 D12 §12.2 writes the name as a bare
+`EnumValue`; PV6 D01 §1.2, PV7 §3.3.2, and every available PV360 manual (1.0–3.7) document
+`<EnumValue>`. Those later manuals also document a
+`(<EnumValue>, <EnumDisplayName>)` tuple when the enum has a separate human-readable display
+name. Real later parameter files nevertheless commonly write symbolic values as bare tokens:
 
 ```
 ##$VisuCoreByteOrder=littleEndian               # bare symbolic name — the usual form
@@ -421,15 +428,18 @@ separate human-readable display name:
 ##$CONFIG_SCAN_operation_mode=(<$Bis,1,...>, <[1H] TX Volume Array, RX Surface Array>)
 ```
 
-**Bracketing is per-parameter, not per-version.** The bare form remains the majority form in PV6
-and PV360 — the public PV360 3.6 `T1_FLASH` `visu_pars`
+**Do not infer the declared type from angle brackets.** They delimit ordinary strings and are
+also part of the manual's documented symbolic-enum representation. Conversely, the bare form is
+common in PV6 and PV360 — the public PV360 3.6 `T1_FLASH` `visu_pars`
 ([github.com/cecilyen/PV360_StdData](https://github.com/cecilyen/PV360_StdData)) writes
 `##$VisuInstanceType=STANDARD_INSTANCE`, `##$VisuCoreWordType=_16BIT_SGN_INT` and
 `##$VisuCoreByteOrder=littleEndian` unbracketed, and the
 only `=<...>` values in that file are timestamps, not enums. Angle brackets appear where the value
-is a namespaced or dynamic identifier (`<Bruker:FLASH>`, `<$Bis,1,...>`), and the `(name,
-display-name)` tuple where the enum carries a separate display name. A parser must accept all
-three shapes for the same parameter across versions.
+is a string, a symbolic enum, or a namespaced/dynamic identifier (`<Bruker:FLASH>`,
+`<$Bis,1,...>`), and the `(name, display-name)` tuple where an enum carries a separate display
+name. A parser must therefore accept bare and angle-bracketed symbolic values, integer ordinals,
+and the documented name/display-name tuple; only the parameter definition identifies the actual
+type.
 
 Because the enum ordinals are what the `RECO_*`/`ACQ_*` C headers define, this specification lists
 both the symbolic names and, where the ordinal is observable on disk or matters for
