@@ -2912,11 +2912,11 @@ itself is stated in the PV6 parameter manual and the PV5.1 Geometry Editor docum
 | `ACQ_experiment_mode` | `SingleExperiment`, `MultipleReceiverExperiment`, `ParallelExperiment` | adds `MpiExperiment` |
 | VisuInstanceType | Not present | STANDARD_INSTANCE or MINIMAL_INSTANCE |
 
-Two commonly-cited "differences" are **not** differences: the `USER_MODE` filter-graph
-reconstruction and the `RecoStage*` network description are both present in PV5.1 (same `RECO_TYPE`
-enum, same `Reco/RecoStageTyp.h`, documented in PV5.1 D07 §7.18), and so are the GRAPPA
-(`RecoGrappa*`) and regridding (`RecoRegridN*`) parameter groups. They are PV5.1 features carried
-forward, not PV6 additions.
+The `USER_MODE` filter-network architecture, GRAPPA (`RecoGrappa*`) and regridding
+(`RecoRegridN*`) groups already exist in PV5.1 (`RECO_TYPE`, headers and D07 §7.18); they are not
+PV6 inventions. Explicit `RecoStage*` graph **serialization** is different: although PV5.1 defines
+the structures, none of the sampled PV5.1 `reco` files writes them. It is observed on disk from
+PV6 onward — see [Section 10.2](#102-multi-channel-reconstruction).
 
 ### Common to Both Versions
 - JCAMP-DX (4.24) parameter file format with `##$` private parameters
