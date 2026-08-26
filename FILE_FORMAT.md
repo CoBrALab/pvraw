@@ -896,10 +896,11 @@ sequentially, line by line, frame by frame, starting from the top-left pixel of 
 **Complex images:** Unlike the raw data file (real/imag interleaved per point), complex pixel
 values (`RECO_image_type = COMPLEX_IMAGE`) are **not** written interleaved. Instead **all real
 frames are written first, followed by all imaginary frames**, effectively doubling the file size.
-(`VisuIds.h` reserves an `FG_COMPLEX` frame-group id and the `VisuFGElemId` values
-`COMPLEX_REAL`/`COMPLEX_IMAG` that would label its two elements, but no Bruker manual states that
-the real/imaginary split is expressed through them. Rely on the ordering rule above, and on
-`VisuFGOrderDesc` only where such a group is actually present.)
+PV360 1.0–3.4 says the ordering of `COMPLEX_IMAGE` frames is described by frame groups. In public
+complex reconstructions this is expressed as a two-element `FG_COMPLEX` with an empty comment,
+`VisuCoreFrameType` dependent on that group, and the values `REAL_IMAGE IMAGINARY_IMAGE`; no
+`VisuFGElemId` is written. The file-level real-block-then-imaginary-block rule remains
+authoritative.
 
 ```mermaid
 flowchart TB
@@ -2089,7 +2090,24 @@ These parameters fully describe the image geometry and data layout:
 | `VisuCoreOrientation` | double[1 or dependent count][9] | 3x3 orientation matrix. A single matrix applies to every frame when orientation is identical; otherwise its dependency is declared by `VisuGroupDepVals` |
 | `VisuCoreTransposition` | int[] | Dimension transposition per frame: `0` = no exchange; `n < VisuCoreDim` = exchange dimensions `n` and `n-1`; `VisuCoreDim` = exchange dimensions `0` and **`VisuCoreDim - 1`**. (The PV5.1/PV6 manuals write "0 and `VisuCoreDim`", which is one past the last dimension; PV360 3.6+ corrects it to `VisuCoreDim-1`, the only in-range reading.) **Optional** — written only when frames differ in transposition; its absence means no frame needs one. |
 | `VisuCoreReferenceCS` | enum | Reference coordinate system; defaults to the patient coordinate system |
-| `VisuCoreFrameType` | enum[] | Type of each frame. Declared `RECO_IMAGE_TYPE` in the header, so it shares that enum's members; the manuals document `MAGNITUDE_IMAGE`, `REAL_IMAGE`, `IMAGINERY_IMAGE` (Bruker's spelling) and `PHASE_IMAGE` (MR datasets only) |
+| `VisuCoreFrameType` | enum or enum[] | Type label for each frame (or frame-group-dependent set). The PV5.1 and PV6.0.1 headers declare it as `RECO_IMAGE_TYPE` (scalar in PV5.1, array in PV6.0.1), but the values used for VISU frames are a subset; see below |
+
+`RECO_image_type` describes what the reconstruction produces, while `VisuCoreFrameType` labels
+the frames that were actually written. Although the legacy C headers share the
+`RECO_IMAGE_TYPE` declaration, do not assume that every member is used as a VISU frame value:
+
+| Version | Manual treatment of `VisuCoreFrameType` |
+|---------|-----------------------------------------|
+| PV5.1, PV6, PV7 | Only summarized as "Type of a Visu frame (Magnitude, etc.)"; the manuals do not publish a closed value list, so do not infer every `RECO_IMAGE_TYPE` member |
+| PV360 1.0–3.4 | `MAGNITUDE_IMAGE`, `REAL_IMAGE`, `IMAGINERY_IMAGE`, `PHASE_IMAGE` (MR datasets only), and `COMPLEX_IMAGE`; the ordering of a complex image's real and imaginary frames is described by frame groups |
+| PV360 3.5–3.7 | Explicit enum `IMAGE_TYPE`: `MAGNITUDE_IMAGE`, `REAL_IMAGE`, `IMAGINERY_IMAGE`, `PHASE_IMAGE`; `COMPLEX_IMAGE` is no longer listed |
+
+The PV360 3.5–3.7 manuals print `IMAGINERY_IMAGE`; treat that as a manual typo, not a distinct
+on-disk value. The canonical spelling is `IMAGINARY_IMAGE`, matching reconstruction and every
+stored imaginary VISU frame in the available corpus; `IMAGINERY_IMAGE` occurs in none of its core
+parameter files. Match the canonical symbolic value rather than transferring `RECO_IMAGE_TYPE`
+ordinals into `VisuCoreFrameType`. `IR_IMAGE` is likewise a reconstruction output choice, not a
+documented VISU frame-type value.
 
 > **Parsing notes.**
 > - `VisuCoreDimDesc` is an array. ParaVision 360 writes it as a sized array even for 1D frames —
@@ -2252,9 +2270,13 @@ expected set rather than a closed one:
 > likewise) — not the
 > encoding loop. A reader keying on `FG_DTI` to find diffusion encodings finds nothing on PV5.1.
 
-The same header also defines the `VisuFGElemId` strings that label the elements of an `FG_COMPLEX`
-group, `COMPLEX_REAL` and `COMPLEX_IMAG`. These are **element ids, not `VisuCoreFrameType`
-values** — `VisuCoreFrameType` is declared `RECO_IMAGE_TYPE` and has no complex members.
+The same header also reserves the `VisuFGElemId` strings `COMPLEX_REAL` and `COMPLEX_IMAG` for
+elements of an `FG_COMPLEX` group. These are **element ids**, not `VisuCoreFrameType` values, and
+their declaration does not mean a file must write them. Public complex reconstructions instead
+use `VisuGroupDepVals` to tie `VisuCoreFrameType=( 2 ) REAL_IMAGE IMAGINARY_IMAGE` to a
+two-element `FG_COMPLEX`, with no `VisuFGElemId`. Do not confuse the reserved element ids with
+the aggregate `COMPLEX_IMAGE` frame-type value documented by PV360 1.0–3.4, nor expect that
+aggregate value in PV360 3.5+.
 
 > **Parsing notes.**
 > - The leading frame group is not always `FG_SLICE`; combinations such as
