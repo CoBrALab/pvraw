@@ -1841,6 +1841,17 @@ The separate parameter `RECO_scale_mode` (enum `RECO_SCALE_TYPE`: `ABSOLUTE_SCAL
 |-----------|--------|-------------|
 | `RECO_map_mode` | See below | Strategy for intensity mapping |
 
+The Bruker manuals disagree on the parameter's applicability. The PV5.1 D13 and PV6 D02
+parameter references, the PV7 parameter chapter, and every available PV360 complete manual
+(1.0–3.7) say `RECO_map_mode` is used when `RECO_wordtype` is `_16BIT_SGN_INT` or
+`_8BIT_UNSGN_INT`. The PV5.1 Image Reconstruction manual §7.17 instead says a mapping function
+is always required for integer output, explicitly includes `_32BIT_SGN_INT`, and says its
+selection is determined primarily by both `RECO_wordtype` and `RECO_map_mode`. These statements
+are not equivalent. A reader should therefore use the reconstruction's output
+`RECO_map_min`/`max`/`offset`/`slope` values to recover the mapping actually applied, rather than
+inferring it solely from `RECO_map_mode`. For `_32BIT_FLOAT`, the reconstruction manual says no
+mapping is performed by default.
+
 | Mode | Description |
 |------|-------------|
 | `ABSOLUTE_MAPPING` | Linear map using global min/max across all images |
