@@ -1138,16 +1138,32 @@ The manual's formula is verifiable publicly: the 60-direction, 4-shell mouse DWI
 | `PVM_SpecDimEnum` | enum | Spectroscopic dimensionality (`1D`, …) |
 | `PVM_SpecMatrix` | int[specdim] | Sampling points per spectroscopic dimension |
 | `PVM_SpecSWH` / `PVM_SpecSW` | double[] | Spectral width in Hz / ppm (Nyquist limit) |
-| `PVM_SpecDwellTime` | double[] | Dwell time between samples (µs) |
+| `PVM_SpecDwellTime` | double[] | Dwell time between successive real-valued digitizer samples (µs); half the interval between complex points |
 | `PVM_SpecNomRes` | double[] | Nominal spectral resolution (Hz/point) |
-| `PVM_SpecAcquisitionTime` | double | Acquisition duration (ms) = points × dwell |
+| `PVM_SpecAcquisitionTime` | double | Acquisition duration (ms); see the complex-sampling formula below |
 | `PVM_SpecOffsetHz` / `PVM_SpecOffsetppm` | double[] | Receiver offset from the basic frequency |
-| `PVM_EncSpectroscopy` | YesNo | Marks spectroscopic (non-imaging) encoding (PV6+) |
+| `PVM_EncSpectroscopy` | YesNo | Selects the spectroscopy encoding-toolbox model (PV6+); not a general spectroscopy/CSI detector |
 
 Public example: the PV360 3.6 `PRESS_1H` scan
 ([github.com/cecilyen/PV360_StdData](https://github.com/cecilyen/PV360_StdData)) writes
 `PVM_SpecMatrix=( 1 ) 2048`, `PVM_SpecSWH=( 1 ) 4385.96...`, `PVM_SpecDimEnum=<1D>` — the
 `PVM_SpecMatrix` consumed by the `fid_proc.64` size in [Section 3.5](#35-method-specific-auxiliary-files).
+
+The dwell time is defined between **real-valued** digitizer samples, while each complex spectral
+point comprises a real and an imaginary sample. For the first spectral dimension the stored values
+therefore obey
+
+```
+PVM_SpecAcquisitionTime_ms = 2 * PVM_SpecMatrix[0] * PVM_SpecDwellTime[0] / 1000
+                           = 1000 * PVM_SpecMatrix[0] / PVM_SpecSWH[0]
+```
+
+This relationship was verified in 26 PRESS, STEAM, ISIS, NSPECT, SINGLEPULSE, CPMG, SLASER and
+CSI method files spanning PV5.1, PV6.0.1, PV7 and PV360 3.6/3.7, with no mismatches.
+`PVM_EncSpectroscopy=Yes` occurs in the sampled single-voxel methods, but the sampled CSI methods
+write `No` because they use imaging-style spatial encoding. Detect spectroscopy from a
+`Spectroscopic` entry in `ACQ_dim_desc` or a `spectroscopic` entry in `VisuCoreDimDesc`, not from
+`PVM_EncSpectroscopy` alone.
 
 **Nuclei and frequency** (PV5.1 A06 §6.3.6). Present in every sampled method file:
 `PVM_Nucleus1` (string, e.g. `<1H>`) with `PVM_Nucleus[1-8]Enum` channel selectors, and
@@ -3237,9 +3253,10 @@ classification itself does not have to be inferred from `PULPROG`: Visu records 
 `VisuAcqKSpaceTraversal` takes `RectilinearTraversal`, `RadialTraversal` or `SpiralTraversal`,
 `VisuAcqIsEpiSequence` flags EPI, and `VisuAcqKSpaceTrajectoryCnt` gives the number of shots or
 interleaves. Use those where present, falling back on `PULPROG` with `ACQ_dim`, `ACQ_dim_desc` and
-the phase-encoding parameters. Spectroscopic scans are not conventional images and should be detected (via a spectroscopic
-dimension) and handled separately from the image pipeline; field maps, by contrast, are ordinary
-image series.
+the phase-encoding parameters. Spectroscopic scans are not conventional images and should be detected
+via a spectroscopic dimension and handled separately from the image pipeline;
+`PVM_EncSpectroscopy` alone is insufficient because CSI can write it as `No`. Field maps, by
+contrast, are ordinary image series.
 
 ### 14.7 Interactive size calculator
 
