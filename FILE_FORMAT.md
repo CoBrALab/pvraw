@@ -1165,8 +1165,11 @@ documented per method in the EPI chapters of the version manuals.
 | `PVM_DwDir` | double[NDir][3] | Unit diffusion direction vectors |
 | `PVM_DwBvalEach` | double[] | Nominal b-values (s/mm²) |
 | `PVM_DwBMat` | double[N_D][3][3] | Full b-matrix per experiment, **imaging (r,p,s) frame**, including imaging-gradient cross terms |
+| `PVM_DwBMatImag` | double[N_D][3][3] | **[PV6+]** same b-matrices in image coordinates: image left→right, top→bottom, into screen |
+| `PVM_DwBMatMag` | double[N_D][3][3] | **[PV6+]** same b-matrices in physical magnet-gradient x,y,z coordinates |
+| `PVM_DwBMatPat` | double[N_D][3][3] | **[PV6+]** same b-matrices in DICOM patient coordinates: right→left, anterior→posterior, feet→head |
 | `PVM_DwEffBval` | double[N_D] | Effective b-value = trace of `PVM_DwBMat` (differs slightly from nominal) |
-| `PVM_DwGradVec` | double[N_D][3] | Diffusion gradient amplitude vectors in the **x,y,z gradient frame** |
+| `PVM_DwGradVec` | double[N_D][3] | Normalized diffusion-gradient amplitudes in `[-1,1]`: x,y,z with direct scaled switching, but read/phase/slice when `PVM_DwDirectScale` is disabled |
 | `PVM_DwModDur`, `PVM_DwModEchDel` | double | Diffusion module duration and its echo-time contribution |
 
 The manual's formula is verifiable publicly: the 60-direction, 4-shell mouse DWI
@@ -2213,6 +2216,7 @@ So a reader must not assume "one per slice" for any of these: check the actual c
 - `VisuAcqInversionTime` - Inversion time per TI
 - `VisuAcqRepetitionTime` - Repetition time per TR
 - `VisuAcqDiffusionBMatrix` - Diffusion b-matrix per encoding
+- `VisuAcqDiffusionGradOrient` - Diffusion gradient direction per encoding (PV7/PV360 2.0+)
 - `VisuCoreDataUnits` - Data units per frame
 - `VisuCoreFrameType` - Frame type per frame
 - `VisuCardiacMovieFrameTime` - Cardiac cine frame time — each element is a **(nominal, actual)
@@ -2336,6 +2340,7 @@ Optional parameters recording acquisition details for display/postprocessing:
 | `VisuAcqAntiAlias` | double[] | Anti-alias oversampling factor per direction |
 | `VisuAcqPartialFourier` | double[] | Partial Fourier factors per dimension |
 | `VisuAcqDiffusionBMatrix` | double[n][9] | Diffusion b-matrices in the subject coordinate system — first dimension is the number of b-matrices, second is the 9 row-major matrix elements |
+| `VisuAcqDiffusionGradOrient` | double[n][3] | **[PV7/PV360 2.0+]** diffusion gradient directions in the subject coordinate system; first dimension is the number of directions, second is the three-vector. DICOM emits an orientation only when the vector is not `(0,0,0)` |
 | `VisuAcqIsEpiSequence` | YesNo | Whether the sequence is an EPI sequence |
 | `VisuAcqKSpaceTrajectoryCnt` | int | Number of k-space trajectories (shots or interleaves) |
 | `VisuAcqFlowCompensation` | enum | `FlowAcceleration`, `FlowVelocity`, `FlowOther`, `FlowNone` |
@@ -2345,6 +2350,13 @@ This is the subset relevant to reading the data, not the full VisuAcquisition gr
 Reference defines further members (`VisuAcqSpinsVelocityEncoded`, `VisuAcqHasTimeOfFlightContrast`,
 `VisuAcqKSpaceFiltering`, …). `VisuAcqGradEncoding` (PV6+) replaces the deprecated `VisuAcqImagePhaseEncDir`, which recorded
 only phase-encoding directions and is the form PV5.1 writes.
+
+Do not rotate `PVM_DwBMatPat` or `VisuAcqDiffusionBMatrix` through the slice orientation again:
+both are already in a subject/patient frame. Conversely, `PVM_DwBMat` is in logical
+read/phase/slice coordinates and `PVM_DwBMatMag` is in physical magnet coordinates. Prefer the
+matrix already expressed in the consumer's desired frame over reconstructing it from
+`PVM_DwGradVec`, because the full matrix also includes slice-selection, spoiler and cross-term
+contributions; even nominal A0 experiments can therefore have small nonzero entries.
 
 **Per-frame timing (PV6+).** Acquisition and reference times already exist in PV6.0.1 and PV7;
 PV360 retains both and adds an explicit acquisition-order number for every VISU frame. These are
