@@ -1131,6 +1131,52 @@ The manual's formula is verifiable publicly: the 60-direction, 4-shell mouse DWI
 `PVM_DwNDiffExpEach=4`, `PVM_DwAoImages=5` and `PVM_DwNDiffExp=245` = 5 + 60 × 4, with
 `PVM_DwEffBval=( 245 )` and `PVM_DwGradVec=( 245, 3 )` sized to match.
 
+**Arterial spin labeling (FAIR/CASL)** (PV5.1 A06 §§6.23–6.24; PV6 Software Manual
+FAIR/CASL cards; PV7 §§1.9.1.9–1.9.1.10; unchanged in the available PV360 1.0–3.7
+manuals):
+
+FAIR is pulsed ASL. It alternates a slice-selective inversion (label-sensitive) with a
+non-selective inversion (control), followed by EPI or RARE readout. The stored parameter names
+changed after PV5.1 even though later manuals often continue to show the short UI names:
+
+| PV5.1 `method` | PV6+/PV7/PV360 `method` | Description |
+|----------------|--------------------------|-------------|
+| `FairMode` | `PVM_FairMode` | `SELECTIVE`, `NONSELECTIVE`, `INTERLEAVED`, or `INTERLEAVED2` |
+| `FairTIR` | `PVM_FairTIR` | First inversion time (ms), measured to excitation of the first slice |
+| `FairTIR_NExp` | `PVM_FairTIR_NExp` | Number of inversion-time values per inversion mode |
+| `FairTIR_Mode` | `PVM_FairTIR_Mode` | `LINEAR_TIR`, `GEOMETRIC_TIR`, or `USER_TIR` |
+| `FairTIR_Inc` | `PVM_FairTIR_Inc` | Linear inversion-time increment (ms) |
+| `MaxTIR` | `PVM_FairMaxTIR` | Maximum inversion time for geometric spacing (ms) |
+| `FairTIR_Arr` | `PVM_FairTIR_Arr` | Effective inversion-time array |
+| `InvSlabThick`, `InvSlabMargin` | `PVM_FairInvSlabThick`, `PVM_FairInvSlabMargin` | Selective inversion slab thickness and margin (mm) |
+
+For `INTERLEAVED`, all inversion times with selective inversion precede all inversion times with
+non-selective inversion; `INTERLEAVED2` instead stores the selective/non-selective pair for one
+inversion time before advancing to the next. The selective image is first in either paired case.
+`SELECTIVE` and `NONSELECTIVE` contain only that preparation. Do not assume that alternating
+stored frames always mean label/control: the loop also contains slices, repetitions and possibly
+multiple inversion times, and must be expanded through the VISU frame groups.
+
+CASL is continuous ASL. PV6.0/6.0.1 stores the prefix `CASL_`; PV7 and PV360 store `PVM_Casl`:
+
+| PV6 `method` | PV7/PV360 `method` | Description |
+|--------------|--------------------|-------------|
+| `CASL_ExpType` | `PVM_CaslExpType` | Acquire label and control, label only, or control only |
+| `CASL_AcqOrder` | `PVM_CaslAcqOrder` | `Interleaved` (one label and one control per slice) or `Dynamic` |
+| `CASL_LabelImages`, `CASL_ControlImages` | `PVM_CaslLabelImages`, `PVM_CaslControlImages` | Dynamic label/control image counts |
+| `CASL_LabelTime` | `PVM_CaslLabelTime` | Labeling duration (ms) |
+| `CASL_PostLabelTime` | `PVM_CaslPostLabelTime` | Delay from labeling to imaging (ms) |
+| `CASL_LabelSliceOffset` | `PVM_CaslLabelSliceOffset` | Label-plane offset (mm) |
+| `CASL_LabelGradient` | `PVM_CaslLabelGradient` | Labeling-gradient strength |
+| `CASL_Frequency` | `PVM_CaslFrequency` | Label RF frequency offset, derived from gradient and plane offset |
+| `CASL_ModuleTime` | `PVM_CaslModuleTime` | Total CASL preparation duration (ms) |
+| `CASL_Images` | `PVM_CaslImages` | Total label/control preparations represented by the method |
+
+`Method` identifies the readout combination (`FAIR_EPI`, `FAIR_RARE`, `CASL_EPI`, or
+`CASL_FcFLASH`). These method parameters describe acquisition preparation and ordering; a
+separately reconstructed subtraction or quantitative CBF map is a derived processing and must not
+be mistaken for an additional label/control acquisition.
+
 **Spectroscopy (`PVM_Spec*`)** (PV5.1 A06 §6.3.7; identical definitions in the PV360 manual):
 
 | Parameter | Type | Description |
