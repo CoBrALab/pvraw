@@ -1575,7 +1575,7 @@ a reader uses for metadata rather than for decoding bytes (PV5.1 D13 §13.4.5.4;
 | `ACQ_protocol_location` | string | Protocol location. Stored by the sampled PV5.1 files and documented again by PV360, but absent from the sampled PV6/PV7/PV360 files |
 | `ACQ_operator`, `ACQ_institution`, `ACQ_station` | string | Operator, institution and station names |
 | `ACQ_system_order_number` | string | Bruker system order number. Stored in every sampled PV6/PV7/PV360 `acqp`; absent in PV5.1 |
-| `ACQ_abs_time` | int / pvtime_t | Acquisition start time: Unix seconds in PV5.1, `pvtime_t` in PV6+ (see [Section 2.4](#24-date-and-time-encoding)) |
+| `ACQ_abs_time` | int / pvtime_t | Acquisition start time: Unix seconds in PV5.1, `pvtime_t` in PV6+ (see [Section 2.2](#22-data-types)) |
 | `ACQ_series_time` | pvtime_t | Start time of the series (for example, its first adjustment). Documented for PV360, but absent from all sampled files |
 | `ACQ_echo_time` | double[] | The **weighted** echo time(s) in ms |
 | `ACQ_inter_echo_time` | double[] | The echo time (TE) for every image |
