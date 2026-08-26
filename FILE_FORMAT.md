@@ -1286,17 +1286,38 @@ PV6/PV360 User Manual method-card chapters).
 
 #### `configscan`
 
-Scan-specific configuration snapshot (group CONFIG_SCAN), PV6+. On PV360 the manual documents
-its members (§4.13.4.1, §4.13.5.1): `CONFIG_SCAN_version` (1 for PV360), the ADJUSTMENT_GROUP
-(see [Section 1.1](#11-study-level)), and the MR extension —
-`CONFIG_SCAN_coil_configuration` (ID of the active coil configuration),
-`CONFIG_SCAN_operation_mode` (the current routing mode — the enum-with-display-name example of
-[Section 2.2](#22-data-types)), the per-channel active-element tables
-`CONFIG_SCAN_receive_coil_select` / `CONFIG_SCAN_transmit_coil_select` and
-`CONFIG_SCAN_RxCoilsNames` / `CONFIG_SCAN_TxCoilsNames` (a useful cross-check for the
-receiver-count logic of [Section 3.3](#33-rawdatajobn---job-based-raw-data-pv6)), and the
-hardware BIS strings `CONFIG_SCAN_gradient_system` / `CONFIG_SCAN_shim_system` with
-`ACQ_status` (`<manufacturer>_<partNo>_<serialNo>`) and `SHIM_status_check_sum`.
+Scan-specific hardware, routing and adjustment snapshot (group CONFIG_SCAN), introduced on disk
+in PV6. It is absent from the available PV5.1 data; sampled PV6+ files store
+`CONFIG_SCAN_version=1`. The common core is:
+
+| Parameter | Meaning |
+|-----------|---------|
+| `CONFIG_SCAN_coil_configuration` | ID of the active coil configuration |
+| `CONFIG_SCAN_coil_table`, `CONFIG_SCAN_coils` | BIS descriptions of the connection table and connected coils |
+| `CONFIG_SCAN_operation_mode` | Current routing mode — the enum-with-display-name example of [Section 2.2](#22-data-types) |
+| `CONFIG_SCAN_gradient_system`, `CONFIG_SCAN_shim_system` | BIS descriptions of the installed gradient and shim hardware |
+| `AdjConfigurationMode`, `AdjListPerScan`, `AdjListOnDemand` | Adjustment configuration and scan/on-demand adjustment definitions; `AdjListPerScan` may be omitted when empty |
+
+The routing representation then changes by generation:
+
+- **PV6/PV7** retain the legacy routing arrays (`ROUTING_VERSION`, `FCUCHAN`, `RSEL`, `SWIBOX`,
+  `POWMOD`, `HPMOD`, `PRECHAN`, `RECCHAN`, `RECSEL`, `RECPRE`, `NLOGCH`, `SELREC`) and the legacy
+  adjustment catalogs/order (`AdjKnownList`, `AdjPerStudyOrder`, `AdjPerScanOrder`). Array-coil
+  scans can already write the YesNo vector `CONFIG_SCAN_receive_coil_select` in these versions.
+- **PV360 3.x** drops those legacy routing arrays. It retains
+  `CONFIG_SCAN_receive_coil_select` and adds `CONFIG_SCAN_transmit_coil_select`, the numeric table
+  forms `CONFIG_SCAN_RxCoilsSelect` / `CONFIG_SCAN_TxCoilsSelect`, and the channel labels
+  `CONFIG_SCAN_RxCoilsNames` / `CONFIG_SCAN_TxCoilsNames`. These are useful cross-checks for the
+  receiver-count logic of [Section 3.3](#33-rawdatajobn---job-based-raw-data-pv6). Observed PV360
+  3.7 files additionally write `CONFIG_SCAN_coil_configuration_name`; 3.6 files do not.
+
+The status fields also need an on-disk qualification. The PV360 manual (§4.13.5.1) defines
+`ACQ_status` as `<manufacturer>_<partNo>_<serialNo>`, derived from the gradient BIS, but it is
+absent from sampled PV360 files. PV6/PV7 files instead carry short hardware-dependent codes such
+as `<S116>`; other public and mounted files show that this value is not constant.
+`SHIM_status_check_sum` is present in sampled PV7/PV360 files and absent from sampled PV6 files;
+PV360 also writes `SHIM_status_check_sum_components` and
+`SHIM_status_deprecated_sums`.
 
 ### 4.3 Reconstruction-Level Parameter Files
 
