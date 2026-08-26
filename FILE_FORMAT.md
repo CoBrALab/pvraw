@@ -2990,7 +2990,7 @@ itself is stated in the PV6 parameter manual and the PV5.1 Geometry Editor docum
 | JCAMP-DX version | 4.24 | 4.24 |
 | Visu parameter version (`VisuVersion`) | 1 | 3 |
 | VisuSeriesNumber | Primary | Deprecated (use VisuExperimentNumber + VisuProcessingNumber) |
-| Coil parameters | Basic | Extended (VisuCoilTransmit, VisuCoilReceive with multi-coil support) |
+| Coil parameters | No `VisuCoilTransmit`/`VisuCoilReceive` groups (equipment identity is in `VisuEquipment`) | Introduces optional transmit/receive groups with multi-coil support |
 | Acquisition parameters in Visu | Basic set | Extended set (encoding order, k-space trajectory, partial Fourier, flow compensation, spoiling, saturation, diffusion, tagging, cardiac/respiratory gating) |
 | `ACQ_experiment_mode` | `SingleExperiment`, `MultipleReceiverExperiment`, `ParallelExperiment` | adds `MpiExperiment` |
 | VisuInstanceType | Not present | STANDARD_INSTANCE or MINIMAL_INSTANCE |
@@ -3125,24 +3125,25 @@ reconstruction, beyond this document's MRI scope.)
 
 ### 13.2 ParaVision 7.0
 
-> **This subsection is dataset-derived, not Bruker-documented.** No ParaVision 7 manual, header or
-> release note exists anywhere in the ParaVision 5.1/6.0.1 installations or the manual set used
-> for the rest of this document. Everything below is observed from a public PV7 dataset and should
-> be treated accordingly.
+The ParaVision 7 Programming & Administration manual (`Pv7Manual.pdf`) documents the dataset,
+parameter and DICOM model. It confirms that PV7 continues the PV6-era format rather than adopting
+ParaVision 360's raw-data model. Filesystem details marked **observed** below are additionally
+cross-checked against public PV7 datasets; they are not format requirements merely because they
+occur in those datasets.
 
 ParaVision 7.0 is a newer version line (`ACQ_sw_version = <PV-7.0.0>`,
 `VisuCreatorVersion = <7.0.0>`). Unlike ParaVision 360, it is structurally a **continuation of the
-PV6 format** rather than a departure (observed in a public PV7 dataset,
+PV6 format** rather than a departure (PV7 manual §3.4.4, cross-checked against public dataset
 Zenodo [4522220](https://zenodo.org/records/4522220)):
 
 | Feature | ParaVision 7.0 |
 |---------|----------------|
 | Format / hierarchy | JCAMP-DX 4.24; the PV6-style `<DataPath>/<name>/<expno>/pdata/<procno>` layout and `<timestamp>_<name>_<studynr>` study naming |
-| Study-level files | `subject`, `AdjResult/`, `AdjStatePerStudy`, `ResultState`, `ScanProgram.scanProgram` (as PV6) |
-| Raw data | `fid` with the **`GO_*` subclass present** (`GO_raw_data_format`, `GO_block_size`, …) — *not* the job-only PV360 model — plus optional `rawdata.jobN` (with `ACQ_jobs`) for methods that use it; a scan may carry both `fid` and `rawdata.jobN` |
+| Study-level files | **Observed:** `subject`, `AdjResult/`, `AdjStatePerStudy`, `ResultState`, `ScanProgram.scanProgram` (as PV6) |
+| Raw data | PV6-style `fid` with the **`GO_*` subclass** (`GO_raw_data_format`, `GO_block_size`, …) — *not* the job-only PV360 model — plus optional `rawdata.jobN` (with `ACQ_jobs`) for methods that use it; **observed:** one scan may carry both `fid` and `rawdata.jobN` |
 | `VisuVersion` | `3` (same as PV6) |
-| `d3proc` | Not written (dropped) |
-| PROCNO file `pvmeta` | A small native JCAMP parameter file (group `PV_META`, e.g. `RefCopyId`) alongside `reco`/`methreco`/`visu_pars` — **defined since PV6.0.1** (`generated/DataPath.h`), not new in PV7; DICOM exports under `pdata/<procno>/dicom/` |
+| `d3proc` | **Observed:** not written (dropped) |
+| PROCNO file `pvmeta` | **Observed:** a small native JCAMP parameter file (group `PV_META`, e.g. `RefCopyId`) alongside `reco`/`methreco`/`visu_pars` — **defined since PV6.0.1** (`generated/DataPath.h`), not new in PV7; DICOM exports under `pdata/<procno>/dicom/` |
 | Observed extras | Study-level `Mapshim/<n>/` shim work directory and per-EXPNO `PowAdjustment/<n>/Results` / `SetupPulsePower/<n>/Profiles` adjustment files (public PV7 study, [Zenodo 20429962](https://zenodo.org/records/20429962)) — see [Sections 1.1](#11-study-level)–[1.2](#12-experiment-level-expno) |
 
 > **Non-native sidecars in public PV7 test data.** The public PV7 dataset above ships companion
