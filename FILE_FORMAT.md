@@ -1,7 +1,7 @@
 # Bruker ParaVision Raw Data Format
 
 Complete documentation of the Bruker preclinical MRI raw data format as used by ParaVision 5.x and
-6.x, with version-specific notes for ParaVision 360 (v3.x) and ParaVision 7.0.
+6.x, with version-specific notes for ParaVision 360 (1.0–3.7) and ParaVision 7.0.
 
 This is a generic specification of the format, independent of any particular dataset. It is
 derived from the official Bruker documentation — the File Formats manual (`D01_FileFormats.pdf`
@@ -625,7 +625,7 @@ of the public PV360 3.6 standard-protocol scans
 ([github.com/cecilyen/PV360_StdData](https://github.com/cecilyen/PV360_StdData)), the public
 PV360 3.4 CS-FLASH scan (MRIReco.jl test data), and Bruker's 360.3.5–360.3.7 standard datasets —
 so a reader must not depend on `GO_raw_data_format` or
-`GO_block_size` being present — see [Section 13.1](#131-paravision-360-v3x).
+`GO_block_size` being present — see [Section 13.1](#131-paravision-360).
 
 **Out-of-scope parameter classes.** The parameter reference manuals additionally document
 classes this specification deliberately does not cover (PV5.1 D13 §13.3–13.4; PV6 D02 §2.4;
@@ -2924,7 +2924,7 @@ GO parameters (subclass of ACQP) control the acquisition and reconstruction pipe
 > Bruker's 360.3.5–360.3.7 standard datasets (the 360.3.5 download's `*.examination` database
 > exports, which sit beside the studies, do still embed `GO_*`/`GS_*` keys), and the PV360
 > manual describes the raw layout solely via `ACQ_jobs` and
-> `ACQ_ScanPipeJobSettings` (§4.12.3) — see [Section 13.1](#131-paravision-360-v3x).
+> `ACQ_ScanPipeJobSettings` (§4.12.3) — see [Section 13.1](#131-paravision-360).
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
@@ -2948,7 +2948,7 @@ with the ACQ_SCAN and ACQ_SETUP subgroups (PV360 manual §4.13.5.5.7 and §4.13.
 - **ACQ_SCAN** (the GOP successor): `ACQ_ScanOnlineReco` (≈ `GO_online_reco`),
   `ACQ_ScanFtDisplay`, `RecoDisplay` (≈ `GO_reco_display`), `RecoEachNR` (≈ `GO_reco_each_nr`),
   and `ACQ_ScanPipeJobSettings` — the per-job storage policy already described in
-  [Section 13.1](#131-paravision-360-v3x).
+  [Section 13.1](#131-paravision-360).
 - **ACQ_SETUP** (the GSP successor): `ACQ_SetupOnlineReco`, `ACQ_SetupRecoDisplay` (the YesNo
   example of [Section 2.2](#22-data-types)), `ACQ_SetupImageType` (supersedes `RECO_image_type`
   when reconstruction runs in a setup pipeline), `ACQ_SetupFtDisplay`, `ACQ_SetupType` (enum
@@ -3153,10 +3153,10 @@ PV6 onward — see [Section 10.2](#102-multi-channel-reconstruction).
 - Subject file at study level
 - Gradient matrix and orientation framework (`ACQ_grad_matrix`, `VisuCoreOrientation`)
 
-### 13.1 ParaVision 360 (v3.x)
+### 13.1 ParaVision 360
 
-ParaVision 360 is a separate version line (e.g. v3.6, `ACQ_sw_version = <PV-360.3.6>`). It
-shares the JCAMP-DX 4.24 format and the study/experiment/reconstruction hierarchy
+ParaVision 360 is a separate version line (e.g. v3.6, `ACQ_sw_version = <PV-360.3.6>`). It shares
+the JCAMP-DX 4.24 format and the study/experiment/reconstruction hierarchy
 (`<DataPath>/<name>/<expno>/pdata/<procno>`, the same PV6-style path — `<name>` created by
 ParaVision, max 64 chars, default `<DataPath>` = `<PvInstDir>/<USER>`), but differs in several
 important ways. The authority here is ParaVision 360's own Programming & Administration manual
@@ -3165,18 +3165,18 @@ important ways. The authority here is ParaVision 360's own Programming & Adminis
 ([github.com/cecilyen/PV360_StdData](https://github.com/cecilyen/PV360_StdData)) and — where
 marked — Bruker's login-gated standard datasets for 360.3.5 and 360.3.7:
 
-| Feature | ParaVision 360 v3.x |
+| Feature | ParaVision 360 1.0–3.7 |
 |---------|---------------------|
 | Raw data | `rawdata.<title>` only — no file named `fid`. `job0` by convention for the main experiment; `rawdata.Navigator` and `rawdata.DriftCompensation` are documented subtypes. The GO subclass parameters are **absent** |
 | Raw scan size | Given by `ACQ_jobs[n].scanSize` (`[0]`); stored type by `ACQ_ScanPipeJobSettings[n].storageDataType`, byte order by `BYTORDA` |
-| Study-level files | Adds `study.MR` (group `MR Extended STUDY_MODALITY`) and `study.PT` (PET), plus an adjustment-protocol directory — manual Table 4.4 spells it `AdjProtocol`, released 360.3.6/3.7 studies write `AdjProtocols` on disk |
+| Study-level files | Adds `study.MR` (group `MR Extended STUDY_MODALITY`) and `study.PT` (PET), plus an adjustment-protocol directory — the edition-specific study tables (1.0 Table 3.9; 3.6 Table 4.4; 3.7 Table 4.5) spell it `AdjProtocol`, while released 360.3.6/3.7 studies write `AdjProtocols` on disk |
 | PROCNO files | `2dseq`, `id`, `methreco`, `reco`, `visu_pars` — the manual's table lists **no `d3proc` and no `procs`** |
-| PET | A second raw-data model exists for PET/MR systems: list-mode data lives on the PET reconstruction server under `<PetDataPath>/ParaVision/data/<user>/<studyDir>/<expno>`, not on the MR workplace — see the list-mode format below |
+| PET (3.x manuals) | A second raw-data model exists for PET/MR systems: list-mode data lives on the PET reconstruction server under `<PetDataPath>/ParaVision/data/<user>/<studyDir>/<expno>`, not on the MR workplace — see the list-mode format below |
 | VisuVersion | `8` across 360.3.5–360.3.7 (see [Section 7.1](#71-dataset-administration-visuinstance)) |
-| Word type | `ACQ_ScanPipeJobSettings[j].storageDataType` — `STORE_32bit_signed` (default) or `STORE_64bit_float` — with `ACQ_word_size`/`BYTORDA` alongside |
-| Pulse program | Precompiled `pulseprogram.precomp` at the scan root; the source program is a separate `lists/pp/<seq>.ppg` (e.g. `lists/pp/FLASH.ppg`). The PV360 manual's EXPNO table (Table 4.5) still lists a plain `pulseprogram` source file, but released 360.3.x datasets ship only the `.precomp` + `lists/pp/` form — accept either |
+| Word type | `ACQ_ScanPipeJobSettings[j].storageDataType` — `STORE_32bit_signed` (default) or `STORE_64bit_float`; byte order comes from `BYTORDA` |
+| Pulse program | The manuals throughout 1.0–3.7 list a plain `pulseprogram` source file. **Observed in released 360.3.x datasets:** `pulseprogram.precomp` at the scan root and source under `lists/pp/<seq>.ppg` (e.g. `lists/pp/FLASH.ppg`) instead — accept either form |
 | Extra parameter files | `acqp.out`, `reco.out` (output snapshots), `shimcondition`, `methreco` (in PROCNO), `configscan` |
-| Logs | `MxiAcqReco.log` (acquisition/reconstruction trace log, text) — written into the **PROCNO**; a PROCNO may also carry a `reports/` bundle, e.g. `reports/MapShimReport1/` with `MapShimReport1.pdf`, `.xml` and `Figures/Figure_<n>.svg` (observed in the public `T2star_map_MGE` scan, not in the manual's tables) |
+| Logs | **Observed in 360.3.x:** `MxiAcqReco.log` (acquisition/reconstruction trace log, text) in the **PROCNO**; a PROCNO may also carry a `reports/` bundle, e.g. `reports/MapShimReport1/` with `MapShimReport1.pdf`, `.xml` and `Figures/Figure_<n>.svg` (public `T2star_map_MGE`, not in the manual's tables) |
 | Other observed EXPNO files | `MapShim` (public 3.6 data), `EpiGhostCorrPars-E<n>-P<n>` (observed only in Bruker's login-gated standard datasets) — method/adjustment side files, not documented in the manual's EXPNO table |
 | Exports | `pdata/<procno>/dicom/*.dcm` and `pdata/<procno>/nifti/*.nii` written by PV360 |
 | Diffusion (DTI) | Job-based only (`rawdata.job0`); b-values/vectors in `method` |
@@ -3376,7 +3376,7 @@ A 3D magnitude reconstruction to `RECO_size = (256,128,64)`, 16-bit, is a **sing
 
 When raw data is job-based, each `rawdata.<title>` file is sized from its `ACQ_jobs[N]` descriptor
 rather than the `GO_*` block model (which may be absent, as in PV360 — see
-[Section 13.1](#131-paravision-360-v3x)). Per the ParaVision 360 File Formats manual, the size is
+[Section 13.1](#131-paravision-360)). Per the ParaVision 360 File Formats manual, the size is
 
 ```
 rawdata.<title> size = wordsize_bytes * ACQ_jobs[N].scanSize * Nreceivers * nStoredScans
