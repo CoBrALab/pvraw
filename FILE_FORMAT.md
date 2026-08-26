@@ -120,6 +120,23 @@ The three levels are the **Study** (`<name>/`, one per ParaVision study — a se
 image series each). The full path to a reconstruction is
 `<DataPath>/<name>/<expno>/pdata/<procno>`.
 
+The manuals describe only the most important files that each version may create, not a required
+or exhaustive inventory. Their version-specific directory tables compare as follows:
+
+| Version | Dataset path | Study-level changes | EXPNO raw-data model and additions | Manual-listed PROCNO files |
+|---------|--------------|---------------------|------------------------------------|----------------------------|
+| PV5.1 | `<DiskUnit>/data/<user>/nmr/<name>/<expno>/pdata/<procno>`; `<name>` max. 15 characters | `subject`, `AdjStatePerStudy` | `fid`; no job files or `configscan` | `2dseq`, `id`, `d3proc`, `meta`, `procs`, `reco`, `visu_pars`, `roi`, `isa`, `fun/` |
+| PV6 | `<DataPath>/<name>/<expno>/pdata/<procno>`; `<name>` max. 64 characters | Adds `ResultState`, `AdjResult/`, `ScanProgram.scanProgram` | `fid` for non-job acquisition; `rawdata.jobN` for job acquisition; adds `configscan` | Drops `meta`; adds method-specific `methReco`; retains `d3proc` only for legacy datasets; otherwise the PV5.1 inventory |
+| PV7 | Same path and 64-character limit as PV6 | Same manual-listed study inventory as PV6 | Same `fid` / `rawdata.jobN` split and `configscan` as PV6 | Same manual-listed inventory as PV6 |
+| PV360 1.0–3.7 | Same path and 64-character limit as PV6/PV7 | Adds `study.MR`, `study.PT`, and `AdjProtocol/` | `rawdata.<title>` only (`job0`, `Navigator`, `DriftCompensation` listed); adds experiment-level `visu_pars` | `2dseq`, `id`, `methreco`, `reco`, `visu_pars` |
+
+Sources: PV5.1 D12 §12.1, Tables 12.1–12.4 (pp. D-12-1–D-12-5); PV6 D01 §1.1,
+Tables 1.1–1.4 (pp. D-1-1–D-1-6); PV7 Programming & Administration Manual §3.3.1,
+Tables 3.8–3.11 (pp. 686–688); every available PV360 complete manual (1.0–3.7), "Dataset Paths"
+and its associated directory tables — for example, PV360 3.6 §4.12.1, Tables 4.3–4.6
+(pp. 1106–1108), and PV360 3.7 §4.12.1, Tables 4.4–4.7 (pp. 1150–1152). The detailed listings
+below add explicitly marked files observed on disk or documented outside those core tables.
+
 Not everything about a study is on disk: from PV6 on, part of the study description lives only in
 the ParaVision database — the PV360 manual states that some information "cannot be accessed from
 outside the ParaVision graphical user interface" (§4.12). `ScanProgram.scanProgram` is the piece
@@ -136,7 +153,7 @@ of that database record which is exported to a file.
     ScanProgram.scanProgram    # Scan-program info from the database (XML) [PV6+; valid only once the study is complete]
     study.MR                   # MRI study hardware context (MR Extended STUDY_MODALITY) [PV360]
     study.PT                   # PET study hardware context (PET Extended STUDY_MODALITY) [PV360]
-    AdjProtocols/              # Protocol parameter files for performed adjustments [PV360; on-disk spelling — manual Table 4.4 spells it AdjProtocol]
+    AdjProtocols/              # Protocol parameter files for performed adjustments [PV360; on-disk spelling — all available PV360 manuals (1.0–3.7) spell it AdjProtocol]
     Mapshim/<n>/               # [observed, PV7] MapShim work directory: Smat/Cmat shim matrices (.bin + .asc), ShimStatistics.txt, shimstat-report.parfile, LSSU-Regularization.txt (Zenodo 20429962)
     1/                         # First experiment (EXPNO=1)
     2/                         # Second experiment (EXPNO=2)
