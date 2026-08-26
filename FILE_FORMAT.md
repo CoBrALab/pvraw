@@ -1745,11 +1745,20 @@ Enum `RECO_IMAGE_TYPE`, in header order (the ordinal matters when the value is s
 | 1 | `COMPLEX_IMAGE` | Both real and imaginary. **Not** truly interleaved complex: all real-part frames are written first, then all imaginary-part frames, doubling the frame count. |
 | 2 | `REAL_IMAGE` | Real component only (imaginary discarded) |
 | 3 | `IMAGINARY_IMAGE` | Imaginary component only (real discarded) |
-| 4 | `PHASE_IMAGE` | Phase angle `atan(I/R)`, producing values in the range (−π, π). Computed only where the magnitude ≥ `RECO_image_threshold`; below the threshold a phase of 0 is written. |
+| 4 | `PHASE_IMAGE` | Quadrant-aware phase `arg(R + iI)` / `atan2(I, R)`, producing values in (−π, π). Computed only where magnitude ≥ `RECO_image_threshold`; below the threshold, zero is written. Before integer output it is scaled upward by `2^29` by default to reduce truncation; recover the represented phase through the output scaling parameters |
 | 5 | `IR_IMAGE` | Inversion-recovery magnitude image — a magnitude image whose contrast mimics a phase-corrected image, using a coarse phase correction from the position of the raw-data maximum (scaled by `RECO_ir_scale`). Simpler and more reliable than automatic PPC for IR data. |
 
 For back projection with FT in the first direction, only `REAL_IMAGE`, `IMAGINARY_IMAGE`, and
 `MAGNITUDE_IMAGE` are selectable; pure back projection forces `REAL_IMAGE`.
+
+> **Phase formula and scale.** The PV5.1 reconstruction manual prints `atan(I/R)` but also states
+> the result spans `(−π, π)`; a one-argument arctangent cannot distinguish opposite quadrants and
+> spans only `(−π/2, π/2)`. The stated range therefore identifies the operation as the complex
+> argument, conventionally `atan2(I, R)`. The parameter references for PV5.1, PV6, PV7 and every
+> PV360 1.0–3.7 manual say the phase is scaled by `2^29` by default—the superscript is easily lost
+> in PDF text extraction and appears there as “229”. That is reconstruction-time integer scaling,
+> not a claim that values in `2dseq` are already radians. Decode each frame with
+> `VisuCoreDataSlope`/`VisuCoreDataOffs` (or the inverse RECO mapping in §3.4).
 
 #### Transposition
 
