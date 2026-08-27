@@ -46,7 +46,7 @@ which are derived from the documented layouts rather than quoted.
   - [2.4 Parameter Visibility and Editing](#24-parameter-visibility-and-editing)
 - [3. Binary Data Files](#3-binary-data-files)
   - [3.1 fid - Raw Acquisition Data (Single Experiment)](#31-fid---raw-acquisition-data-single-experiment)
-  - [3.2 ser - Serial Raw Data (Multiple Experiments)](#32-ser---serial-raw-data-multiple-experiments)
+  - [3.2 ser - Serial Raw Data (Multiple FIDs)](#32-ser---serial-raw-data-multiple-fids)
   - [3.3 rawdata.job\[N\] - Job-Based Raw Data (PV6+)](#33-rawdatajobn---job-based-raw-data-pv6)
   - [3.4 2dseq - Reconstructed Image Data](#34-2dseq---reconstructed-image-data)
   - [3.5 Method-Specific Auxiliary Files](#35-method-specific-auxiliary-files)
@@ -260,7 +260,7 @@ and exclude TopSpin-created ones.
 > `job0` by convention for the main experiment. PV5.1 has no acquisition-job concept: `ACQ_jobs`
 > first appears in PV6. The TopSpin `ser` format stores the experiment as `TD(F1)` individual 1D
 > fids, each aligned to a 1024-byte block boundary (256 32-bit points); see
-> [Section 3.2](#32-ser---serial-raw-data-multiple-experiments). A TopSpin conversion also emits
+> [Section 3.2](#32-ser---serial-raw-data-multiple-fids). A TopSpin conversion also emits
 > `acqu`, `acqus`, `proc` and `procs` parameter files alongside the renamed data.
 
 ### 1.3 Reconstruction Level (PROCNO)
@@ -648,6 +648,10 @@ receiver (or, when the User Pipeline Filer is used, the output of the user filte
 is not saved when `GO_data_save = No` (default is `Yes`). The data is a header-less binary
 stream of complex (quadrature) points.
 
+This native `fid` description is unchanged across PV5.1 D12 §12.3, PV6 D01 §1.3, and PV7
+§3.3.3. PV360 uses the separate job-file model described in
+[Section 3.3](#33-rawdatajobn---job-based-raw-data-pv6) instead.
+
 **Location:** `<EXPNO>/fid`
 
 **Word type:** Each data point is written as a **pair of words: real part followed by
@@ -749,19 +753,28 @@ sequences).
 > `NSegments`, `NPro`, `PVM_NEchoImages`), which can be smaller than `ACQ_size[1..]`; the on-disk
 > block count is therefore derived from those encoding parameters rather than from `ACQ_size`.
 
-### 3.2 ser - Serial Raw Data (Multiple Experiments)
+### 3.2 ser - Serial Raw Data (Multiple FIDs)
 
-The `ser` file is the **TopSpin** representation of multi-experiment (serial) raw data. In
-native ParaVision the raw data is written to `fid` and **renamed to `ser` when the experiment
-is exported to TopSpin** (per the Bruker File Formats manual).
+The `ser` file is the **TopSpin** representation of multidimensional acquisition data: it contains
+multiple 1D FIDs belonging to one experiment, not multiple ParaVision experiments. In native
+ParaVision the raw data is written to `fid` and **renamed to `ser` when the experiment is exported
+to TopSpin** (PV5.1 D12 §12.3, PV6 D01 §1.3, and PV7 §3.3.3).
 
 **Location:** `<EXPNO>/ser` (after TopSpin export) or `<EXPNO>/fid` (native ParaVision).
 
 A `ser` file contains `TD(F1)` individual 1D fids (one per indirect-dimension increment /
 experiment repetition). Each 1D fid is `TD(F2)` points, and **each 1D fid starts at a
-1024-byte block boundary** (i.e. 256 32-bit points), zero-padded if its size is not a multiple
-of 1024 bytes. The word type and byte order follow the same rules as `fid`
-(`GO_raw_data_format`, `BYTORDA`).
+1024-byte block boundary**, zero-padded if its size is not a multiple of 1024 bytes. The
+XWIN-NMR-era `fileform` §15.2 describes each stored point as a signed 32-bit integer and takes the
+byte order from `BYTORDA` in `acqus` (the text is identical in the available
+PV5, PV6 and PV7 copies), making one block 256 points in that layout. That is the historical case
+described by that manual, not a universal constraint on every later TopSpin file: later `acqus`
+files carry `DTYPA`, whose `Int`, `Float`
+and `Double` values select 32-bit integer, 32-bit float and 64-bit float storage respectively (see
+[Section 5.3](#53-data-encoding)). For a ParaVision export intended for TopSpin processing, the
+ParaVision manuals separately state that only `GO_32_BIT_SGN_INT` is supported, so such an export
+uses the historical 32-bit integer form. A reader of an independently produced TopSpin `fid` or
+`ser` must instead obey its accompanying `DTYPA` and `BYTORDA`.
 
 ### 3.3 rawdata.job[N] - Job-Based Raw Data (PV6+)
 
@@ -878,6 +891,10 @@ ParaVision 360 allows **up to 8 jobs** per experiment; the PV6 header sets `ACQ_
 The `2dseq` file contains the reconstructed image data as a flat binary file of pixel values,
 **without a header and without block-wise zero-filling**. Pixel values are written
 sequentially, line by line, frame by frame, starting from the top-left pixel of the first frame.
+
+The manuals give the same `2dseq` storage rules and complex-frame ordering in PV5.1 D12 §12.4,
+PV6 D01 §1.4, PV7 §3.3.4, and every available PV360 complete manual (1.0–3.7, "Image Data
+Files").
 
 **Location:** `<EXPNO>/pdata/<PROCNO>/2dseq`
 
@@ -1425,7 +1442,10 @@ though `scanSize` and `ACQ_size[0]` do **not** coincide in general (see
 > float) is the legacy TopSpin descriptor of the raw word type stored in `fid`/`ser`. On modern
 > ParaVision the authoritative raw word type is `GO_raw_data_format` (see
 > [Section 3.1](#31-fid---raw-acquisition-data-single-experiment)); `DTYPA` is retained for
-> TopSpin compatibility.
+> TopSpin compatibility. The fixed signed-32-bit layout in the older XWIN-NMR `fileform` text is
+> the historical case; for later TopSpin data, use the stored `DTYPA` rather than assuming that
+> case. ParaVision-to-TopSpin export remains 32-bit integer because the ParaVision manuals allow
+> only `GO_32_BIT_SGN_INT` for TopSpin processing.
 
 ### 5.4 Geometry and Orientation
 
