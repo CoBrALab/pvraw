@@ -907,6 +907,8 @@ Files").
   - `_16BIT_SGN_INT` - 16-bit signed integer
   - `_8BIT_UNSGN_INT` - 8-bit unsigned integer
   - `_32BIT_FLOAT` - 32-bit float
+- `_32BIT_FLOAT` is a valid frame-file/VISU storage type even though the standard reconstruction
+  control's allowed-value list documents only the three integer choices; see [Section 6.10](#610-output-word-type-and-mapping).
 - Byte order: Determined by `RECO_byte_order` (`reco`) / `VisuCoreByteOrder` (`visu_pars`),
   taking `littleEndian` or `bigEndian`.
 
@@ -1958,13 +1960,29 @@ final on-disk layout.
 
 | Parameter | Values | Description |
 |-----------|--------|-------------|
-| `RECO_wordtype` | `_32BIT_SGN_INT`, `_16BIT_SGN_INT`, `_8BIT_UNSGN_INT`, `_32BIT_FLOAT` | Output word type (enum `RECO_WORDTYPE`, ordinals 0–3) |
+| `RECO_wordtype` | `_32BIT_SGN_INT`, `_16BIT_SGN_INT`, `_8BIT_UNSGN_INT`, `_32BIT_FLOAT` | Reconstruction output word type; see the parameter-reference/header distinction below |
 
-`_32BIT_SGN_INT` (ordinal 0) is the default. The reconstruction works internally in floating
-point, so a mapping function scales the internal values to the output word type. For
+`_32BIT_SGN_INT` is the documented default. The standard `RECO_wordtype` control's allowed-value
+list contains only the three integer types in every available parameter reference (PV5.1, PV6,
+PV7 and PV360 1.0–3.7). In contrast, the file-format sections and `VisuCoreWordType` list
+`_32BIT_FLOAT` as a fourth valid `2dseq` representation throughout those versions. A reader must
+therefore accept float when the stored `RECO_wordtype` or, preferably, `VisuCoreWordType` says so;
+do not reject a dataset merely because float is absent from the reconstruction UI's documented
+selection list.
+
+The reconstruction works internally in floating point, so a mapping function scales the internal
+values to an integer output word type. For
 `_32BIT_SGN_INT` and `_16BIT_SGN_INT` the mapping guarantees that an internal value of zero
 maps to a pixel value of zero; `_8BIT_UNSGN_INT` cannot guarantee this. `_32BIT_FLOAT` stores
-the internal values directly.
+floating-point values without integer-range mapping, but its frames still use
+`VisuCoreDataSlope`/`VisuCoreDataOffs` when those parameters specify a value transform.
+
+The PV5.1 `recotyp.h` header defines `RECO_WORDTYPE` with these four members in that order,
+ordinals 0–3; the PV6.0.1 definition is identical. Thus the four-member enum and its ordinals are
+real header facts even though the parameter references publish only the first three as selectable
+values. Actual `reco` files in the available PV5.1–PV360 corpus store the symbolic names rather
+than ordinals. Prefer that symbol and use `VisuCoreWordType` as the authoritative description of
+the frame file.
 
 The separate parameter `RECO_scale_mode` (enum `RECO_SCALE_TYPE`: `ABSOLUTE_SCALING`,
 `USER_ABS_SCALING`, `PER_OBJ_SCALING`) controls amplitude scaling and is distinct from the
