@@ -1696,7 +1696,7 @@ Changing `RECO_mode` resets other RECO parameters to defaults.
 |-----------|------|-------------|
 | `RECO_ft_size` | int[] | Size of the complex data matrix after FT (see the power-of-two condition below) |
 | `RECO_size` | int[] | Output image matrix size after cropping |
-| `RECO_offset` | int[dim][NI] | Starting point of output extraction from the FT result — `RECO_offset[i][j]` is the start for direction *i* of image *j*. It must be two-dimensional because the offsets can change from image to image (frequency offsets in a standard multi-slice experiment are the typical case). |
+| `RECO_offset` | int[dim][nOffsets] | Starting point of output extraction from the FT result — `RECO_offset[i][j]` is the start for direction *i* of image/template *j*. It must be two-dimensional because the offsets can change between images (frequency offsets in a standard multi-slice experiment are the typical case). Read `nOffsets` from the stored array; it is not necessarily `NI` or the output frame count (see below). |
 | `RECO_fov` | double[] | Field of view of output images in cm |
 
 **Constraints:**
@@ -1721,6 +1721,14 @@ dimension 0 is the same real+imaginary convention as everywhere else: `ACQ_size[
 words, the FT size counts complex points.
 
 **RECO_fov** is derived from: `ACQ_fov`, `ACQ_size`, `RECO_ft_size`, and `RECO_size`.
+
+**Offset cardinality is stored, not implied by `NI`.** The second dimension can differ from
+acquisition `NI`: the public PV6.0.1 FLOWMAP reconstruction (Zenodo 4048253, expno 14) has
+`NI=12` but `RECO_offset=( 2, 6 )`. Nor is that dimension necessarily the final frame count: the
+public PV360 `DTI_EPI_seg_30dir_sat/pdata/2` reconstruction has 115 frames but
+`NI=5` and `RECO_offset=( 2, 5 )`, reusing five spatial offsets across higher-level frame cycles.
+Use the JCAMP-DX array dimensions as authoritative and associate/repeat columns only according
+to the reconstruction's object and frame grouping.
 
 ### 6.4 Baseline Correction
 
@@ -1841,11 +1849,14 @@ RECO_ft_mode[i] = COMPLEX_FT       for i > 0
 ```
 
 **Data rotation:** `RECO_rotate` specifies a circular shift of data rows after FT and before
-output cropping. Like `RECO_offset` it is **two-dimensional, `[direction][object]`** — the public
+output cropping. Like `RECO_offset` it is **two-dimensional, `[direction][nRotations]`**, with
+the second dimension read from the stored declaration rather than assumed to equal `NI` — the public
 PV360 3.6 `T1_FLASH` `reco`
 ([github.com/cecilyen/PV360_StdData](https://github.com/cecilyen/PV360_StdData)) writes
-`##$RECO_rotate=( 2, 9 )` for a 2-direction, 9-object reconstruction. A reader that
-treats it as a flat per-direction vector mis-reads every multi-slice dataset.
+`##$RECO_rotate=( 2, 9 )` for a 2-direction, 9-object reconstruction. Its dimensions match
+`RECO_offset` in every sampled reconstruction, including cases where the second dimension differs
+from `NI`. A reader that treats it as a flat per-direction vector mis-reads every multi-slice
+dataset.
 ```
 0 <= RECO_rotate[i][j] < 1    (fraction of RECO_ft_size[i])
 ```
