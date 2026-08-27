@@ -2035,15 +2035,32 @@ These are filled by the reconstruction and describe the output:
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `RECO_minima` | int[] | Minimum scaled 32-bit value per image |
-| `RECO_maxima` | int[] | Maximum scaled 32-bit value per image |
+| `RECO_minima` | int[] | Minimum value in the scaled 32-bit intermediate data for each reconstructed image |
+| `RECO_maxima` | int[] | Maximum value in the scaled 32-bit intermediate data for each reconstructed image |
 | `RECO_map_min` | double[] | Lower bound of mapped range per image |
 | `RECO_map_max` | double[] | Upper bound of mapped range per image |
 | `RECO_map_offset` | double[] | 0th-order mapping coefficient per image |
 | `RECO_map_slope` | double[] | 1st-order mapping coefficient per image |
 | `RECO_fov` | double[] | Output field of view in cm |
-| `RECO_time` | char[] | Reconstruction timestamp |
-| `RECO_abs_time` | int or struct | Reconstruction time. PV5.1 writes a bare Unix-epoch integer; PV6/PV360 write the `pvtime_t` struct form `(seconds, milliseconds, tzMinutes)` — see [Section 2.2](#22-data-types) |
+| `RECO_time` | char[24] (PV5.1) / pvtime_t (PV6+) | Optional human-readable date and time when reconstruction started; PV6+ commonly uses the ISO string form of `pvtime_t` |
+| `RECO_abs_time` | int (PV5.1) / pvtime_t (PV6+) | Optional reconstruction start time. PV5.1 stores bare Unix seconds; PV6+ stores the `(seconds, milliseconds, tzMinutes)` struct form of `pvtime_t` |
+
+For `COMPLEX_IMAGE`, these output arrays are **not duplicated for the appended imaginary block**.
+The manuals specify that scaling, minima and maxima reflect the real images; the imaginary images
+reuse the identical scaling, and their extrema are merely assumed to be close matches. Thus an
+imaginary frame must use the coefficients of its corresponding real frame, not look for a second
+set indexed by the doubled `VisuCoreFrameCount`.
+
+When present, `RECO_time` and `RECO_abs_time` describe the start of reconstruction, not
+acquisition or file modification time. Reconstructions that write `RECO_time` pair it with
+`RECO_abs_time` in the available PV5.1–PV360 data. They are nevertheless optional: derived
+PV360 DTI processings commonly omit `RECO_time` while retaining the three-field
+`RECO_abs_time`, and some processings omit both fields.
+
+Their type transition matches the other ParaVision time fields described in §2.2. Although PV6
+D02 and the PV360 manuals retain the older descriptions “char array” and “int … Unix format”,
+the PV6.0.1 headers and stored files use `pvtime_t` for both fields. Dispatch by the encoded value
+form; do not require either field or the legacy scalar integer in a PV6+ file.
 
 ---
 
