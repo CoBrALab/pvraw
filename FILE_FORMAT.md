@@ -2307,23 +2307,37 @@ group:
 So a reader must not assume "one per slice" for any of these: check the actual count against
 `VisuCoreFrameCount` and the group lengths, and broadcast when only one value is present.
 
-**Frame-dependent parameters:** These parameters have values that vary across frame group elements:
+**Parameters permitted to depend on a frame group.** The actual dependency is declared through
+`VisuGroupDepVals`; never infer it from the parameter name. PV5.1 D13 lists this ten-parameter
+set:
 
-- `VisuCorePosition` - Position per slice
-- `VisuCoreOrientation` - Orientation per slice
-- `VisuCoreFrameThickness` - Thickness per frame
-- `VisuAcqEchoTime` - Echo time per echo
-- `VisuAcqInversionTime` - Inversion time per TI
-- `VisuAcqRepetitionTime` - Repetition time per TR
-- `VisuAcqDiffusionBMatrix` - Diffusion b-matrix per encoding
-- `VisuAcqDiffusionGradOrient` - Diffusion gradient direction per encoding (PV7/PV360 2.0+)
-- `VisuCoreDataUnits` - Data units per frame
-- `VisuCoreFrameType` - Frame type per frame
-- `VisuCardiacMovieFrameTime` - Cardiac cine frame time — each element is a **(nominal, actual)
-  trigger-time struct** (`VisuTriggerTimeType`), not a bare double (PV360 §4.13.3.10; the struct
-  is defined in the PV6.0.1 header `Visu/VisuTypes.h` — PV6 D02 §2.4.11.9 lists only the
-  parameter name)
-- `VisuRespMovieFrameTime` - Respiratory cine frame time (same struct type)
+- Core/labels: `VisuCorePosition`, `VisuCoreOrientation`, `VisuCoreFrameThickness`,
+  `VisuCoreDataUnits`, `VisuFGElemId`, `VisuFGElemComment`, and `VisuDepValsDouble`.
+- MR/timing: `VisuAcqEchoTime`, `VisuAcqInversionTime`, and `VisuAcqRepetitionTime`.
+
+The PV6 D02, PV7, and PV360 1.0–3.7 manuals expand the common set to 14 by adding
+`VisuCoreFrameType`, `VisuAcqDiffusionBMatrix`, `VisuCardiacMovieFrameTime`, and
+`VisuRespMovieFrameTime`. In PV5.1, the last three are not declared in `visu_extern.h`, while
+`VisuCoreFrameType` is a scalar rather than a permitted frame-group dependency.
+
+PV360 1.0–3.7 also permit the PET parameters `VisuPtAcqStartConditions`,
+`VisuPtAcqStartValues`, `VisuPtAcqStopConditions`, `VisuPtAcqStopValues`,
+`VisuPtAcqInstrumentInfos`, and `VisuPtAcqCompoundUsage` to depend on a frame group.
+
+PV360 manuals document five further permitted dependencies from version 3.5:
+`VisuCoreDiskSliceOrder`, `VisuCoreModalityOffset`, `VisuContrastAgentUsage`,
+`VisuContrastAgentPhase`, and `VisuAcqDiffusionGradOrient`. The contrast-agent dependency IDs
+already exist in the PV6.0.1 generated headers, and `VisuAcqDiffusionGradOrient` is observed in
+`VisuGroupDepVals` in a public PV7 study (Zenodo 4522220, expno 12). These observations precede
+the PV360 3.5 documentation boundary and must not be rejected solely on the reported version.
+
+A reader that broadcasts any permitted parameter without first consulting `VisuGroupDepVals`
+can silently assign geometry, timing, diffusion, or labels to the wrong frames.
+
+`VisuCardiacMovieFrameTime` and `VisuRespMovieFrameTime` deserve special handling: each element
+is a **(nominal, actual) trigger-time struct** (`VisuTriggerTimeType`), not a bare double (PV360
+§4.13.3.10; the struct is defined in the PV6.0.1 header `Visu/VisuTypes.h`, while PV6 D02
+§2.4.11.9 lists only the parameter names).
 
 ### 7.5 Subject Parameters (VisuSubject)
 
