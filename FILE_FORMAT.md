@@ -727,12 +727,17 @@ to TopSpin** (PV5.1 D12 §12.3, PV6 D01 §1.3, and PV7 §3.3.3).
 
 A `ser` file contains `TD(F1)` individual 1D fids (one per indirect-dimension increment /
 experiment repetition). Each 1D fid is `TD(F2)` points, and **each 1D fid starts at a
-1024-byte block boundary** (i.e. 256 32-bit points), zero-padded if its size is not a multiple
-of 1024 bytes. TopSpin fixes `fid`/`ser` storage to 32-bit integer words; `BYTORDA` in `acqus`
-gives the byte order (XWIN-NMR/TopSpin `fileform` §15.2, identical in the available PV5, PV6,
-and PV7 copies). Do not carry the selectable 16-bit/float ParaVision `GO_raw_data_format` modes
-over to a TopSpin `ser`: the ParaVision manuals state that only `GO_32_BIT_SGN_INT` is supported
-by TopSpin processing.
+1024-byte block boundary**, zero-padded if its size is not a multiple of 1024 bytes. The
+XWIN-NMR-era `fileform` §15.2 describes each stored point as a signed 32-bit integer and takes the
+byte order from `BYTORDA` in `acqus` (the text is identical in the available
+PV5, PV6 and PV7 copies), making one block 256 points in that layout. That is the historical case
+described by that manual, not a universal constraint on every later TopSpin file: later `acqus`
+files carry `DTYPA`, whose `Int`, `Float`
+and `Double` values select 32-bit integer, 32-bit float and 64-bit float storage respectively (see
+[Section 5.3](#53-data-encoding)). For a ParaVision export intended for TopSpin processing, the
+ParaVision manuals separately state that only `GO_32_BIT_SGN_INT` is supported, so such an export
+uses the historical 32-bit integer form. A reader of an independently produced TopSpin `fid` or
+`ser` must instead obey its accompanying `DTYPA` and `BYTORDA`.
 
 ### 3.3 rawdata.job[N] - Job-Based Raw Data (PV6+)
 
@@ -1311,7 +1316,10 @@ though `scanSize` and `ACQ_size[0]` do **not** coincide in general (see
 > float) is the legacy TopSpin descriptor of the raw word type stored in `fid`/`ser`. On modern
 > ParaVision the authoritative raw word type is `GO_raw_data_format` (see
 > [Section 3.1](#31-fid---raw-acquisition-data-single-experiment)); `DTYPA` is retained for
-> TopSpin compatibility.
+> TopSpin compatibility. The fixed signed-32-bit layout in the older XWIN-NMR `fileform` text is
+> the historical case; for later TopSpin data, use the stored `DTYPA` rather than assuming that
+> case. ParaVision-to-TopSpin export remains 32-bit integer because the ParaVision manuals allow
+> only `GO_32_BIT_SGN_INT` for TopSpin processing.
 
 ### 5.4 Geometry and Orientation
 
