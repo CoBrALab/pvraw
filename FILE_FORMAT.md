@@ -1297,12 +1297,26 @@ The RF-calibration group split by version: PV5.1 writes reference *attenuations*
 verified between [Zenodo 4048286](https://zenodo.org/records/4048286) and
 [Zenodo 4048253](https://zenodo.org/records/4048253)).
 
-**Preparation modules.** Most methods embed optional preparation modules, each contributing an
-On/Off switch plus its own parameter set: fat suppression (`PVM_FatSupOnOff`), spatial
-saturation (`PVM_FovSatOnOff`, `PVM_FovSat*`), external triggering (`PVM_TriggerModule`,
-`PVM_TriggerDelay`), navigators (`PVM_NavOnOff`, `PVM_Nav*`), and on PV6+ the map-based
-shimming group (`PVM_MapShim*`). See the Preparation Modules chapters (PV5.1 A06 §6.3.10;
-PV6/PV360 User Manual method-card chapters).
+**Preparation modules.** Methods embed whichever optional preparation modules they support;
+absence of a module's switch is therefore normal and must be treated as Off/not applicable. The
+principal switches and their observed version ranges are:
+
+| Module | Switch and parameters | Version notes |
+|--------|-----------------------|---------------|
+| Fat suppression | `PVM_FatSupOnOff`, `PVM_FatSup*` | PV5.1+ |
+| FOV/spatial saturation | `PVM_FovSatOnOff`, `PVM_FovSat*` | PV5.1+ |
+| Flow saturation | `PVM_InFlowSatOnOff`, `PVM_InFlowSat*` | PV5.1+ |
+| Saturation transfer | `PVM_MagTransOnOff` / `PVM_MagTrans*`; `PVM_SatTransOnOff` / `PVM_SatTrans*` | Bruker-supplied methods rename the module at the PV7 boundary, but user methods may retain the older name; accept both |
+| External triggering | `PVM_TriggerModule`, `PVM_Trigger*` | PV5.1+; `PVM_TriggerDelay` itself is not universally written by PV5.1 methods |
+| Navigator | `PVM_NavOnOff`, `PVM_Nav*` | PV6+ |
+| Map-based shimming | `PVM_MapShimUseShims`, `PVM_MapShim*` | PV6+ |
+
+The manuals and Bruker-supplied methods use `PVM_MagTrans*` in PV5.1/PV6 and `PVM_SatTrans*`
+from PV7 onward. This is not a safe hard version boundary for arbitrary data: a public PV7 user
+method still writes `PVM_MagTransOnOff`. Parsers should recognize either prefix independently of
+the reported version. Sampled PV5.1 methods contain neither `PVM_NavOnOff` nor
+`PVM_MapShimUseShims`, while both occur from PV6 onward. See the Preparation Modules chapters
+(PV5.1 A06 §6.3.10; PV6/PV7/PV360 User Manual method-card chapters).
 
 #### `configscan`
 
