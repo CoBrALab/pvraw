@@ -2612,17 +2612,40 @@ image axes.
 
 | Parameter | Description |
 |-----------|-------------|
-| `NC_proc` | Scaling exponent for pixel intensities |
-| `YMIN_p` | Minimum pixel intensity |
-| `YMAX_p` | Maximum pixel intensity |
+| `NC_proc` | Optional TopSpin processing-status exponent for power-of-two scaling during floating-point-to-32-bit-integer spectrum storage |
+| `YMIN_p` | Minimum intensity of the stored processed data |
+| `YMAX_p` | Maximum intensity of the stored processed data |
+
+The *TopSpin Processing Reference* (`procref`, “NC_proc — intensity scaling factor”) defines the
+exponent's sign by examples: `NC_proc = -3` means the data were multiplied by 2 three times,
+while `NC_proc = 4` means they were divided by 2 four times. For TopSpin-processed spectral data
+such as `1r`/`1i`, therefore:
+
+```
+stored_value = unscaled_value * 2**(-NC_proc)
+unscaled_value = stored_value * 2**NC_proc
+```
+
+`NC_proc` is one exponent for all stored intensities, not a per-frame array, and supplies no
+additive offset. The same definition appears in the PV360 3.7 TopSpin processing reference.
+It must not be used to scale a ParaVision `2dseq`: image scaling comes from
+`VisuCoreDataSlope`/`VisuCoreDataOffs`, or from `RECO_map_slope` and `RECO_map_offset` when working
+at the reconstruction-parameter level.
 
 These are superseded by the Visu parameters where available — `NC_proc` by
 `VisuCoreDataSlope`/`VisuCoreDataOffs`, and `YMIN_p`/`YMAX_p` by
 `VisuCoreDataMin`/`VisuCoreDataMax` (which are themselves pre-scaling values, to be transformed
-with the slope and offset). Note that on disk `YMIN_p`/`YMAX_p` are written into `procs`, not
-into `d3proc` (zero occurrences across the public datasets' `d3proc` files); the manuals
-document them under the D3 "Image Scaling" heading as Image Display & Processing state (D13
-§13.4.11.3 / D02 §2.4.10.3).
+with the slope and offset). On disk `YMIN_p` and `YMAX_p` are processing-status parameters in
+`procs`, not `d3proc`; `NC_proc` may also occur in `procs`, but is absent from many ParaVision
+image PROCNOs. In imaging-only cases where it occurs beside a `2dseq`, public PV5.1–PV7 data
+write zero even when `VisuCoreDataSlope` is non-unit, confirming that it is not the image decode
+slope. Non-zero examples occur in TopSpin-processed spectroscopy PROCNOs with `1r`/`1i`. Such a
+PROCNO may also contain a `2dseq`; that co-location does not make `NC_proc` its decode exponent.
+
+The parameter references group these fields under the D3 "Image Scaling" heading because they
+describe Image Display & Processing state (PV5.1 D13 §13.4.11.3; PV6 D02 §2.4.10.3); D13 also
+warns that the D3 values may no longer be set when Visu parameters are present. Native PV360
+PROCNOs do not include `procs`, so this is a legacy/TopSpin path rather than a PV360 fallback.
 
 ---
 
