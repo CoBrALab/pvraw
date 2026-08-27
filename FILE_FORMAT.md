@@ -3687,19 +3687,25 @@ RECO_size[1],256,output rows
 RECO_size[2],1,slices (1 for a 2D frame)
 bytes / pixel,2,RECO_wordtype (see WordTypes)
 VisuCoreFrameCount,9,total frames — ALREADY includes imaginary frames
-complex factor,1,leave at 1 when using VisuCoreFrameCount
 pixels / frame,=B2*B3*B4,product(RECO_size)
-2dseq size (bytes),=B8*B6*B5*B7,pixels × frames × bytes × complex
+2dseq size (bytes),=B7*B6*B5,pixels × frames × bytes
 ```
 
-> Keep `complex factor` at **1** whenever row 5 holds `VisuCoreFrameCount`, which already counts
-> the imaginary half. Set it to 2 only if you replace row 5 with `NI × NR × RecoNumOutputChan`,
-> the RECO form — see [Section 3.4](#34-2dseq---reconstructed-image-data).
+The calculator deliberately takes `VisuCoreFrameCount`, the authoritative number of stored frames.
+Do not multiply it by a separate complex factor: for `COMPLEX_IMAGE` it already includes the real
+and imaginary halves. A count reconstructed from `NI × NR` is not a general substitute because
+frame cycles, channel combination, 3-D cores and derived processing can change the output
+cardinality — see [Section 3.4](#34-2dseq---reconstructed-image-data).
 
 ```cells WordTypes
-Word type,Bytes,Used by
-_8BIT_UNSGN_INT,1,2dseq
-_16BIT_SGN_INT,2,fid + 2dseq
-_32BIT_SGN_INT,4,fid + 2dseq
-_32BIT_FLOAT,4,fid + 2dseq
+Stored control value,Bytes,Used by
+GO_16BIT_SGN_INT,2,PV5.1/PV6/PV7 raw fid (GO_raw_data_format)
+GO_32BIT_SGN_INT,4,PV5.1/PV6/PV7 raw fid (GO_raw_data_format)
+GO_32BIT_FLOAT,4,PV5.1/PV6/PV7 raw fid (GO_raw_data_format)
+STORE_32bit_signed,4,PV360 raw job (ACQ_ScanPipeJobSettings[].storageDataType)
+STORE_64bit_float,8,PV360 raw job (ACQ_ScanPipeJobSettings[].storageDataType)
+_8BIT_UNSGN_INT,1,2dseq reconstruction choice (RECO_wordtype)
+_16BIT_SGN_INT,2,2dseq reconstruction choice (RECO_wordtype)
+_32BIT_SGN_INT,4,2dseq reconstruction choice (RECO_wordtype)
+_32BIT_FLOAT,4,2dseq reconstruction choice (RECO_wordtype)
 ```
