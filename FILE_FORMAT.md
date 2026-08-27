@@ -98,7 +98,7 @@ which are derived from the documented layouts rather than quoted.
 - [12. Coordinate Systems](#12-coordinate-systems)
 - [13. Version Differences (PV5.1 vs PV6 vs PV7 vs PV360)](#13-version-differences-pv51-vs-pv6-vs-pv7-vs-pv360)
   - [Cross-version commonalities](#cross-version-commonalities)
-  - [13.1 ParaVision 360 (v3.x)](#131-paravision-360-v3x)
+  - [13.1 ParaVision 360](#131-paravision-360)
   - [13.2 ParaVision 7.0](#132-paravision-70)
 - [14. Worked Examples (Size Calculations)](#14-worked-examples-size-calculations)
   - [14.1 fid size](#141-fid-size--2d-multi-slice-multi-channel)
