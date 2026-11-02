@@ -867,6 +867,11 @@ def test_multiecho_gets_echo_entity(lego_study, tmp_path):
     build_bids_json(d, row, 'sub-001', None)
     niis = sorted(p.name for p in tmp_path.glob('*.nii.gz'))
     assert niis == [f'sub-001_echo-{i + 1}_T2starw.nii.gz' for i in range(n_echo)]
+    # No -j template: every echo still gets its sidecar, with its own EchoTime.
+    import json
+    for i in range(n_echo):
+        sidecar = json.loads((tmp_path / f'sub-001_echo-{i + 1}_T2starw.json').read_text())
+        assert isinstance(sidecar.get('EchoTime'), (int, float))
 
 
 def test_derived_reconstructions_classified_by_what_they_contain(h2_study, tmp_path):

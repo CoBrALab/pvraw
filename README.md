@@ -105,21 +105,22 @@ uv run pvraw tonii <input> -s 2,3,7 -r 1,2       # several scans, several recos
 
 Each file is named `<output>-<ScanID>-<RecoID>-<ProtocolName>.nii.gz`, so `-o` sets the
 prefix rather than the whole filename — one scan can write several files (a multi-echo
-or multi-slicepack reconstruction writes one per echo or pack).
+or multi-slicepack reconstruction writes one per echo or pack). A JSON sidecar of
+BIDS-recommended metadata is always written next to it, as `<same name>.json`.
 
 | Option | Description | Default |
 |--------|-------------|---------|
 | `-o, --output <name>` | Output filename (without extension) / prefix | `<SubjID>_<StudyID>`, or the input folder name when the dataset has no subject file |
 | `-s, --scanid <id[,id...]>` | Convert only the listed scans | every scan |
 | `-r, --recoid <id[,id...]>` | Reconstruction ids; only read together with `-s`, since without it every reconstruction is converted | `1` |
-| `-b, --bids` | Also write a JSON sidecar of BIDS-recommended metadata | off |
 | `-t, --subjecttype <T>` | Override subject type (`Biped`, `Quadruped`, `Phantom`, `Other`, `OtherAnimal`) | the recorded subject type |
 | `-p, --position <P>` | The position the animal was actually in, `<BodyPart>_<Side>` (e.g. `Foot_Supine`). The recorded position is what ParaVision was told and is not trusted | `Head_Prone` (prone, head first) |
 | `--ignore-rescale` | Write raw stored values, with no intensity scaling in the header. `--ignore-slope` and `--ignore-offset` are aliases: slope and offset cannot be suppressed independently | off (the header carries the scaling) |
 | `--ignore-localizer` | Skip localizer/tripilot scans | on |
 
-Every on/off option also has a `--no-` form — `--no-bids`, `--no-ignore-localizer`,
+Every on/off option also has a `--no-` form — `--no-ignore-localizer`,
 `--no-ignore-rescale` — so a default that is on can be turned off from the command line.
+The old `-b/--bids` option is still accepted, but has no effect: the sidecar is always written.
 
 Non-image scans (spectroscopy, etc.) and unclassifiable scans are skipped with a clear message
 rather than producing invalid output. Diffusion scans also emit FSL-style `.bval`/`.bvec`.
@@ -132,7 +133,7 @@ Convert **every** study under a parent directory into a simple
 uv run pvraw tonii_all <parent_dir> -o <output_dir>
 ```
 
-Accepts the same `-b/-t/-p/--ignore-*` options as `tonii`, with the same defaults.
+Accepts the same `-t/-p/--ignore-*` options as `tonii`, with the same defaults.
 Without `-o` the tree is written to `Data` in the current directory.
 
 ### Convert to BIDS — `pvraw bids_helper` + `bids_convert`

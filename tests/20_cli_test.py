@@ -121,6 +121,51 @@ def test_tonii_converts_every_listed_scan(h2_study, tmp_path):
     assert {name.split('-')[1] for name in written} == {f'{sid:02d}' for sid in wanted}
 
 
+def test_save_meta_files_always_writes_the_sidecar(monkeypatch):
+    """The JSON sidecar does not depend on -b/--bids; a sidecar that cannot be
+    built warns instead of failing a NIfTI that is already written."""
+    from types import SimpleNamespace
+
+    from pvraw.lib import utils
+
+    monkeypatch.setattr(utils, 'get_value', lambda params, key, default=None: params[key])
+    calls = []
+
+    class FakeStudy:
+        def get_method(self, scan_id):
+            return {'Method': 'FLASH'}
+
+        def save_json(self, scan_id, reco_id, fname):
+            calls.append((scan_id, reco_id, fname))
+
+    for args in (SimpleNamespace(), SimpleNamespace(bids=False)):
+        utils.save_meta_files(FakeStudy(), args, 3, 1, 'out')
+    assert calls == [(3, 1, 'out'), (3, 1, 'out')]
+
+    class BrokenStudy(FakeStudy):
+        def save_json(self, scan_id, reco_id, fname):
+            raise ValueError('no sidecar')
+
+    with pytest.warns(UserWarning, match='JSON sidecar not written for ScanID:3'):
+        utils.save_meta_files(BrokenStudy(), SimpleNamespace(), 3, 1, 'out')
+
+
+def test_tonii_writes_a_sidecar_without_bids_flag(h2_study, tmp_path):
+    """Every NIfTI tonii writes has its JSON sidecar, with no -b given."""
+    study = BrukerLoader(str(h2_study))
+    from pvraw.scripts.pvraw import is_localizer
+    good = next(sid for sid, recos in study.avail_reco_id.items()
+                if not is_localizer(study, sid, recos[0]))
+
+    subprocess.check_call(['pvraw', 'tonii', str(h2_study), '-s', str(good),
+                           '-o', str(tmp_path / 'out')])
+
+    sidecars = list(tmp_path.glob('out-*.json'))
+    assert sidecars
+    for path in sidecars:
+        assert json.loads(path.read_text())
+
+
 def test_tonii_reports_an_id_the_study_does_not_have(h2_study, tmp_path):
     """A bad id in the list is reported and skipped, not a traceback, and the
     good ids in the same list still convert."""
