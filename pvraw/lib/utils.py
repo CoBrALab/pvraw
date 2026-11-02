@@ -1,5 +1,6 @@
 import os
 import re
+import warnings
 from functools import partial, reduce
 
 import numpy as np
@@ -328,6 +329,9 @@ def build_bids_json(dset, row, fname, json_path, scale_mode='header', intended_f
     import pandas as pd
 
     written = []
+    # The sidecar is always written. The -j template only chooses which metadata
+    # goes into it: without one, save_json uses the built-in COMMON_META_REF.
+    ref = get_bids_ref_obj(json_path, row) if json_path else None
 
     # TaskName is required for func and must equal the task- entity label.
     task_name = row.task if (pd.notnull(row.task) and re.search('func', str(row.DataType),
@@ -345,14 +349,12 @@ def build_bids_json(dset, row, fname, json_path, scale_mode='header', intended_f
             output_path = os.path.join(row.Dir, currentFileName)
             nii.to_filename(f'{output_path}.nii.gz')
             written.append(f'{output_path}.nii.gz')
-            if json_path:
-                ref = get_bids_ref_obj(json_path, row)
-                nslices = nii.shape[2] if nii.ndim >= 3 else 1
-                nvol = nii.shape[3] if nii.ndim >= 4 else 1
-                dset.save_json(row.ScanID, row.RecoID, currentFileName, dir=row.Dir,
-                               metadata=ref, condition=['me', echo], task_name=task_name,
-                               num_slices=nslices,
-                               repetition_time=func_volume_tr(dset, row, nvol))
+            nslices = nii.shape[2] if nii.ndim >= 3 else 1
+            nvol = nii.shape[3] if nii.ndim >= 4 else 1
+            dset.save_json(row.ScanID, row.RecoID, currentFileName, dir=row.Dir,
+                           metadata=ref, condition=['me', echo], task_name=task_name,
+                           num_slices=nslices,
+                           repetition_time=func_volume_tr(dset, row, nvol))
     elif re.fullmatch(r'T[12]map', str(row.modality)):
         # A parametric map is one volume of an ISA fit, not the whole stack, and
         # BIDS states T1map/T2map "In seconds (s)" while ParaVision fits in ms.
@@ -376,10 +378,8 @@ def build_bids_json(dset, row, fname, json_path, scale_mode='header', intended_f
         current = f'{fname}_{row.modality}'
         nii.to_filename(os.path.join(row.Dir, f'{current}.nii.gz'))
         written.append(os.path.join(row.Dir, f'{current}.nii.gz'))
-        if json_path:
-            ref = get_bids_ref_obj(json_path, row)
-            dset.save_json(row.ScanID, row.RecoID, current, dir=row.Dir, metadata=ref,
-                           num_slices=volume.shape[2] if volume.ndim >= 3 else 1)
+        dset.save_json(row.ScanID, row.RecoID, current, dir=row.Dir, metadata=ref,
+                       num_slices=volume.shape[2] if volume.ndim >= 3 else 1)
     else:
         niiobj = dset.get_niftiobj(row.ScanID, row.RecoID, crop=crop, scale_mode=scale_mode)
         # A multi-slicepack acquisition reconstructs to several images. Give each a
@@ -408,8 +408,7 @@ def build_bids_json(dset, row, fname, json_path, scale_mode='header', intended_f
             if re.fullmatch('asl', str(row.modality), re.IGNORECASE):
                 asl_extra = _write_asl_context(dset, row, current, nii)
 
-            if json_path and not re.search('magnitude', row.modality, re.IGNORECASE):
-                ref = get_bids_ref_obj(json_path, row)
+            if not re.search('magnitude', row.modality, re.IGNORECASE):
                 condition = ['fm', None] if re.search('fieldmap', row.modality, re.IGNORECASE) else None
                 # Slice/volume counts from the written image (authoritative for the
                 # SliceTiming length check inside save_json).
@@ -491,8 +490,18 @@ def set_rescale(args):
 
 
 def save_meta_files(study, args, scan_id, reco_id, output_fname):
+    """Write the files that go next to a converted NIfTI.
+
+    The JSON sidecar is always written; ``-b/--bids`` no longer gates it and is
+    kept only so existing command lines still parse. The NIfTI is already on
+    disk when this runs, so a sidecar that cannot be built is a warning, not a
+    failed conversion.
+    """
     method = str(get_value(study.get_method(scan_id), 'Method'))
     if re.search('dti', method, re.IGNORECASE):
         study.save_bdata(scan_id, output_fname, reco_id=reco_id)
-    if args.bids:
+    try:
         study.save_json(scan_id, reco_id, output_fname)
+    except Exception as e:
+        warnings.warn(f'JSON sidecar not written for ScanID:{scan_id}, '
+                      f'RecoID:{reco_id} ({e})', stacklevel=2)

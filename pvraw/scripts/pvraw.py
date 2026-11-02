@@ -31,8 +31,9 @@ def main():
     output_dir_str = "output directory name (default: Data)"
     output_fnm_str = ("output filename, without the extension (default: <SubjID>_<StudyID>, "
                       "or the name of the input folder when the dataset has no subject file)")
-    bids_opt = ("create a JSON file contains metadata based on BIDS recommendation "
-                "(default: no JSON file)")
+    # The JSON sidecar is now always written. -b/--bids is accepted and ignored so
+    # existing command lines keep working, and is hidden from --help.
+    bids_opt = argparse.SUPPRESS
     subjtype_opt = ("override subject type in case the original setting was not properly set. "
                     "available options are (Biped, Quadruped, Phantom, Other, OtherAnimal) "
                     "(default: the subject type recorded in the data)")
