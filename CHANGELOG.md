@@ -7,6 +7,30 @@ All notable changes to this project are recorded here. The format follows
 Released versions are on [PyPI](https://pypi.org/project/pvraw/) and on the
 [releases page](https://github.com/CoBrALab/pvraw/releases).
 
+## 1.2.0 — 2026-11-02
+
+### Changed
+
+- `tonii` and `tonii_all` always write the JSON sidecar of BIDS-recommended metadata next
+  to each NIfTI (#139).
+- In `tonii` and `tonii_all`, a sidecar that cannot be built gives a warning. Before, it
+  gave "Conversion failed", although the NIfTI was already written (#139).
+- `FILE_FORMAT.md` is extended and corrected across ParaVision versions: dataset layouts,
+  JCAMP-DX encoding, ACQ, RECO, VISU, spectroscopy, diffusion and ASL metadata
+  (#103–#138).
+
+### Deprecated
+
+- `-b/--bids` of `tonii` and `tonii_all` has no effect, because the sidecar is always
+  written. It is still accepted, so existing command lines keep working, but it is no
+  longer shown in `--help` (#139).
+
+### Fixed
+
+- `bids_convert` without `-j` wrote no sidecars, so func images had no `TaskName` or
+  `RepetitionTime` and the dataset was not valid BIDS. The sidecars are now always
+  written. `-j` only adds the template metadata, as its help already said (#139).
+
 ## 1.1.1 — 2026-08-24
 
 ### Changed
